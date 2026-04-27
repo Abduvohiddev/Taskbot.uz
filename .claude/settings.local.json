@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "PowerShell($env:PATH += \";$env:USERPROFILE\\\\.fly\"; flyctl version 2>&1)",
+      "PowerShell($env:PATH += \";$env:USERPROFILE\\\\.fly\"; & \"$env:USERPROFILE\\\\.fly\\\\flyctl.exe\" version)"
+    ]
+  }
+}

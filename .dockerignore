@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+logs/
+backups/
+*.log
+.git/
+.gitignore
+*.zip
+cloudflared*
+ngrok*
+cf_tunnel.log

@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TaskBot</title>
+    <link rel="stylesheet" href="/css/style.css?v=v23">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-spinner"></div>
+        <p class="loading-text">Yuklanmoqda...</p>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" class="app hidden">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="header-left">
+                    <div class="avatar" id="user-avatar">A</div>
+                    <div class="header-info">
+                        <h1 class="header-name" id="user-name">TaskBot</h1>
+                        <p class="header-subtitle" id="user-stats" data-i18n="app.header.subtitle">Vazifalar boshqaruvi</p>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <select id="workspace-select" class="workspace-select" onchange="changeWorkspace()">
+                        <option value="all" data-i18n="app.workspace.all">🌍 Hammasi</option>
+                        <option value="personal" data-i18n="app.workspace.personal">👤 Shaxsiy</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <!-- Quick Stats -->
+        <div class="quick-stats" id="quick-stats">
+            <div class="stat-card stat-total">
+                <span class="stat-number" id="stat-total">0</span>
+                <span class="stat-label" data-i18n="app.stats.total">Jami</span>
+            </div>
+            <div class="stat-card stat-active">
+                <span class="stat-number" id="stat-active">0</span>
+                <span class="stat-label" data-i18n="app.stats.active">Faol</span>
+            </div>
+            <div class="stat-card stat-done">
+                <span class="stat-number" id="stat-done">0</span>
+                <span class="stat-label" data-i18n="app.stats.done">Bajarildi</span>
+            </div>
+            <div class="stat-card stat-overdue">
+                <span class="stat-number" id="stat-overdue">0</span>
+                <span class="stat-label" data-i18n="app.stats.overdue">Kechikdi</span>
+            </div>
+        </div>
+
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+            <!-- Tasks Tab -->
+            <div class="tab-pane active" id="tab-tasks">
+                <!-- Filter chips -->
+                <div class="filter-chips">
+                    <button class="chip active" data-filter="active" data-i18n="app.filter.active">⚡ Faol</button>
+                    <button class="chip" data-filter="all" data-i18n="app.filter.all">📋 Barchasi</button>
+                    <button class="chip" data-filter="done" data-i18n="app.filter.done">✅ Bajarilgan</button>
+                    <button class="chip" data-filter="overdue" data-i18n="app.filter.overdue">⏰ Kechikkan</button>
+                </div>
+
+                <div class="task-list" id="task-list">
+                    <!-- Tasks will be rendered here -->
+                </div>
+
+                <div class="empty-state hidden" id="empty-tasks">
+                    <div class="empty-icon">📋</div>
+                    <h3 data-i18n="app.empty.title">Vazifalar yo'q</h3>
+                    <p data-i18n="app.empty.desc">Yangi vazifa yaratish uchun "Yaratish" tabini bosing</p>
+                </div>
+            </div>
+
+            <!-- Create Tab -->
+            <div class="tab-pane" id="tab-create">
+                <div class="create-form">
+                    <h2 class="form-title" data-i18n="app.create.title">➕ Yangi vazifa</h2>
+
+                    <!-- Task Type Selector -->
+                    <div class="form-group">
+                        <label class="form-label" data-i18n="app.create.type">Vazifa turi</label>
+                        <div class="task-type-selector">
+                            <button class="task-type-btn selected" data-type="regular" onclick="selectTaskType('regular')">
+                                <span class="task-type-icon">📝</span>
+                                <span class="task-type-text" data-i18n="app.create.regular">Oddiy task</span>
+                            </button>
+                            <button class="task-type-btn" data-type="workflow" onclick="selectTaskType('workflow')">
+                                <span class="task-type-icon">🔗</span>
+                                <span class="task-type-text" data-i18n="app.create.workflow">Workflow</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" data-i18n="app.create.workspace">Ishchi makon</label>
+                        <div class="workspace-pill" id="create-workspace-label">👤 Shaxsiy</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" data-i18n="app.create.name">Vazifa nomi *</label>
+                        <input type="text" class="form-input" id="task-title"
+                               data-i18n-ph="app.create.name_ph"
+                               placeholder="Masalan: Marketing rejasini tayyorlash"
+                               maxlength="500" autocomplete="off">
+                        <span class="char-count"><span id="title-count">0</span>/500</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" data-i18n="app.create.desc">Tavsif</label>
+                        <textarea class="form-input form-textarea" id="task-desc"
+                                  data-i18n-ph="app.create.desc_ph"
+                                  placeholder="Vazifa haqida batafsil..."
+                                  maxlength="2000" rows="3"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" data-i18n="app.create.priority">Muhimlik</label>
+                        <div class="priority-selector" id="priority-selector">
+                            <button class="priority-btn" data-priority="low" data-i18n="app.priority.low">🟢 Past</button>
+                            <button class="priority-btn selected" data-priority="medium" data-i18n="app.priority.medium">🟡 O'rta</button>
+                            <button class="priority-btn" data-priority="high" data-i18n="app.priority.high">🟠 Yuqori</button>
+                            <button class="priority-btn" data-priority="urgent" data-i18n="app.priority.urgent">🔴 Muhim</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" data-i18n="app.create.deadline">Deadline</label>
+                        <input type="datetime-local" class="form-input" id="task-deadline">
+                    </div>
+
+                    <!-- Workflow Steps (hidden by default) -->
+                    <div class="form-group hidden" id="workflow-steps-group">
+                        <label class="form-label" data-i18n="app.create.steps">🪜 Qadamlar</label>
+                        <div id="workflow-steps-list" class="workflow-steps-list"></div>
+                        <button type="button" class="btn-add-step" onclick="addWorkflowStep()" data-i18n="app.create.add_step">
+                            ➕ Qadam qo'shish
+                        </button>
+                    </div>
+
+                    <div class="form-group hidden" id="assignees-group">
+                        <label class="form-label" data-i18n="app.create.assignees">Ijrochilar (kimga biriktiriladi)</label>
+                        <div class="assignees-list" id="assignees-list"></div>
+                        <div class="form-hint" id="assignees-hint" data-i18n="app.create.assignees_hint">Kamida bitta xodim tanlang</div>
+                    </div>
+
+                    <button class="btn-create" id="btn-create-task" onclick="createTask()">
+                        <span class="btn-text" data-i18n="app.create.submit">✅ Vazifa yaratish</span>
+                        <span class="btn-loading hidden" data-i18n="app.create.submitting">⏳ Yaratilmoqda...</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Calendar Tab -->
+            <div class="tab-pane" id="tab-calendar">
+                <div class="cal-wrap">
+                    <!-- Month navigation -->
+                    <div class="cal-header">
+                        <button class="cal-nav-btn" onclick="calPrevMonth()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+                        </button>
+                        <div class="cal-month-label" id="cal-month-label">Aprel 2026</div>
+                        <button class="cal-nav-btn" onclick="calNextMonth()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                    </div>
+
+                    <!-- Legend -->
+                    <div class="cal-legend">
+                        <span class="cal-legend-item"><span class="cal-dot cal-dot-overdue"></span>Kechikdi</span>
+                        <span class="cal-legend-item"><span class="cal-dot cal-dot-urgent"></span>Juda muhim</span>
+                        <span class="cal-legend-item"><span class="cal-dot cal-dot-high"></span>Yuqori</span>
+                        <span class="cal-legend-item"><span class="cal-dot cal-dot-normal"></span>Oddiy</span>
+                        <span class="cal-legend-item"><span class="cal-dot cal-dot-done"></span>Bajarildi</span>
+                    </div>
+
+                    <!-- Day names -->
+                    <div class="cal-day-names">
+                        <span>Du</span><span>Se</span><span>Ch</span>
+                        <span>Pa</span><span>Ju</span><span>Sh</span><span>Ya</span>
+                    </div>
+
+                    <!-- Grid cells -->
+                    <div class="cal-grid" id="cal-grid-cells"></div>
+
+                    <!-- Selected day panel -->
+                    <div class="cal-day-panel" id="cal-day-panel"></div>
+                </div>
+            </div>
+
+            <!-- Priority Tab -->
+            <div class="tab-pane" id="tab-priority">
+                <div class="priority-header">
+                    <h2 class="form-title">🔥 Muhimlik bo'yicha vazifalar</h2>
+                    <p class="form-hint">Hamma jamoa va shaxsiy vazifalaringiz muhimlilik bo'yicha</p>
+                </div>
+                <div id="priority-list"></div>
+            </div>
+
+            <!-- Workflow Tab -->
+            <div class="tab-pane" id="tab-workflow">
+                <div class="wf-header">
+                    <h2>🔗 Workflow vazifalar</h2>
+                    <p class="wf-sub">Ketma-ket bajariladigan vazifalar — kim qayerda turibdi</p>
+                </div>
+                <div class="wf-filter-chips">
+                    <button class="chip active" data-wf-filter="all">📋 Barchasi</button>
+                    <button class="chip" data-wf-filter="me">🙋 Mening navbatim</button>
+                    <button class="chip" data-wf-filter="active">🔄 Aktiv</button>
+                    <button class="chip" data-wf-filter="done">✅ Tugagan</button>
+                </div>
+                <div id="workflow-list" class="workflow-list">
+                    <div class="wf-empty">⏳ Yuklanmoqda...</div>
+                </div>
+                <div class="wf-tip">
+                    💡 Yangi workflow yaratish uchun bot'da: <code>/newworkflow</code>
+                </div>
+            </div>
+
+            <!-- Stats Tab -->
+            <div class="tab-pane" id="tab-stats">
+                <div class="stats-container" id="stats-container">
+                    <div class="stats-header">
+                        <h2>📊 Statistikangiz</h2>
+                        <p class="stats-period">Oxirgi 30 kun</p>
+                    </div>
+
+                    <div class="progress-section">
+                        <div class="progress-circle-container">
+                            <svg class="progress-circle" viewBox="0 0 120 120">
+                                <circle class="progress-bg" cx="60" cy="60" r="52"/>
+                                <circle class="progress-bar" cx="60" cy="60" r="52" id="progress-circle"/>
+                            </svg>
+                            <div class="progress-text">
+                                <span class="progress-value" id="completion-rate">0</span>
+                                <span class="progress-label">%</span>
+                            </div>
+                        </div>
+                        <p class="progress-desc">Bajarilish darajasi</p>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stats-item">
+                            <div class="stats-item-icon" style="background:rgba(33,150,243,0.2);color:#2196F3">📌</div>
+                            <div class="stats-item-info">
+                                <span class="stats-item-value" id="stats-total">0</span>
+                                <span class="stats-item-label">Jami vazifalar</span>
+                            </div>
+                        </div>
+                        <div class="stats-item">
+                            <div class="stats-item-icon" style="background:rgba(76,175,80,0.2);color:#4CAF50">✅</div>
+                            <div class="stats-item-info">
+                                <span class="stats-item-value" id="stats-done-count">0</span>
+                                <span class="stats-item-label">Bajarildi</span>
+                            </div>
+                        </div>
+                        <div class="stats-item">
+                            <div class="stats-item-icon" style="background:rgba(255,152,0,0.2);color:#FF9800">⚙️</div>
+                            <div class="stats-item-info">
+                                <span class="stats-item-value" id="stats-progress">0</span>
+                                <span class="stats-item-label">Jarayonda</span>
+                            </div>
+                        </div>
+                        <div class="stats-item">
+                            <div class="stats-item-icon" style="background:rgba(244,67,54,0.2);color:#F44336">⏰</div>
+                            <div class="stats-item-info">
+                                <span class="stats-item-value" id="stats-overdue-count">0</span>
+                                <span class="stats-item-label">Kechikdi</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Status pie chart -->
+                    <div class="chart-section" id="status-chart-section">
+                        <h3 class="chart-title">🍩 Vazifalar holati</h3>
+                        <div class="chart-wrap">
+                            <canvas id="status-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Priority distribution chart -->
+                    <div class="chart-section" id="priority-chart-section">
+                        <h3 class="chart-title">⚡ Muhimlik bo'yicha</h3>
+                        <div class="chart-wrap">
+                            <canvas id="priority-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Completion trend chart -->
+                    <div class="chart-section" id="trend-chart-section">
+                        <h3 class="chart-title">📈 Bajarilish trendi (7 kun)</h3>
+                        <div class="chart-wrap">
+                            <canvas id="trend-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Overdue trend chart -->
+                    <div class="chart-section" id="overdue-chart-section">
+                        <h3 class="chart-title">⏰ Kechikkan vazifalar trendi</h3>
+                        <div class="chart-wrap">
+                            <canvas id="overdue-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Admin dashboard - har xodim ko'rsatkichi -->
+                    <div class="chart-section hidden" id="members-chart-section">
+                        <h3 class="chart-title">👥 A'zolar bo'yicha ko'rsatkichlar</h3>
+                        <div class="chart-wrap chart-wrap-tall">
+                            <canvas id="members-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Detail Modal -->
+    <div class="modal-overlay hidden" id="task-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modal-title">Vazifa</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Task details rendered here -->
+            </div>
+            <div class="modal-actions" id="modal-actions">
+                <!-- Action buttons rendered here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast hidden" id="toast">
+        <span id="toast-message">Muvaffaqiyatli!</span>
+    </div>
+
+    <!-- AI Chat floating button -->
+    <button class="ai-fab" id="ai-fab" onclick="openAiChat()" aria-label="AI chat">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span class="ai-fab-label">AI</span>
+    </button>
+
+    <!-- AI Chat modal -->
+    <div class="ai-chat-overlay hidden" id="ai-chat-overlay">
+        <div class="ai-chat">
+            <div class="ai-chat-header">
+                <div class="ai-chat-title">
+                    <span class="ai-chat-avatar">🤖</span>
+                    <div>
+                        <div class="ai-chat-name">AI Yordamchi</div>
+                        <div class="ai-chat-sub">Vazifa yarating, ro'yxat oling, boshqaring</div>
+                    </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                    <button class="ai-chat-clear" onclick="clearAiChat()" title="Tozalash">🗑</button>
+                    <button class="ai-chat-close" onclick="closeAiChat()">&times;</button>
+                </div>
+            </div>
+            <div class="ai-chat-messages" id="ai-chat-messages">
+                <div class="ai-msg ai-msg-bot">
+                    Salom! Men TaskBot AI yordamchisiman. Menga vazifa yarating, ro'yxat so'rang yoki savol bering. 🎯
+                </div>
+            </div>
+            <div class="ai-chat-input-wrap">
+                <textarea id="ai-chat-input" class="ai-chat-input"
+                          placeholder="Xabar yozing..." rows="1"
+                          onkeydown="aiChatKey(event)"></textarea>
+                <button class="ai-chat-send" id="ai-chat-send" onclick="sendAiMessage()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="22" y1="2" x2="11" y2="13"/>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="bottom-nav" id="bottom-nav">
+        <button class="bnav-btn active" data-tab="tasks" onclick="switchTab('tasks')">
+            <div class="bnav-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+            </div>
+            <span class="bnav-label" data-i18n="app.tab.tasks">Vazifalar</span>
+        </button>
+        <button class="bnav-btn" data-tab="calendar" onclick="switchTab('calendar')">
+            <div class="bnav-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            </div>
+            <span class="bnav-label" data-i18n="app.tab.calendar">Kalendar</span>
+        </button>
+        <button class="bnav-btn bnav-create" data-tab="create" onclick="switchTab('create')">
+            <div class="bnav-icon bnav-create-icon">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </div>
+        </button>
+        <button class="bnav-btn" data-tab="workflow" onclick="switchTab('workflow')">
+            <div class="bnav-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M6 9v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
+            </div>
+            <span class="bnav-label" data-i18n="app.tab.workflow">Workflow</span>
+        </button>
+        <button class="bnav-btn" data-tab="stats" onclick="switchTab('stats')">
+            <div class="bnav-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            </div>
+            <span class="bnav-label" data-i18n="app.tab.stats">Statistika</span>
+        </button>
+    </nav>
+
+    <script src="/js/app.js?v=v23"></script>
+</body>
+</html>
