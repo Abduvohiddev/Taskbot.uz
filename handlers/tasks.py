@@ -1172,61 +1172,72 @@ async def callback_tasks_page(callback: CallbackQuery, user: User) -> None:
     await callback.answer()
 
 
+async def _resolve_user_role(session, task, user) -> "UserRole":
+    """Foydalanuvchining vazifadagi rolini aniqlash (yordamchi funksiya)."""
+    user_role = UserRole.EXECUTOR
+    if task.group_id:
+        role = await TaskService.get_user_role_in_group(session, user.id, task.group_id)
+        if role:
+            user_role = role
+    elif task.company_id:
+        from database.models import CompanyRole
+        c_role = await CompanyService.is_member(session, task.company_id, user.id)
+        if c_role in (CompanyRole.OWNER, CompanyRole.ADMIN):
+            user_role = UserRole.ADMIN
+        elif task.creator_id == user.id:
+            user_role = UserRole.MANAGER
+    elif task.creator_id == user.id:
+        user_role = UserRole.ADMIN
+    return user_role
+
+
 @router.callback_query(F.data.startswith("view_task:"))
 @router.callback_query(F.data.startswith("task_view:"))
 async def callback_task_view(callback: CallbackQuery, user: User) -> None:
     """Vazifa tafsilotlarini ko'rsatish"""
     task_id = int(callback.data.split(":")[1])
-    
+
     async with get_session() as session:
         task = await TaskService.get_task(session, task_id)
         if not task:
             await callback.answer("❗ Vazifa topilmadi", show_alert=True)
             return
 
-        is_assignee = await TaskService.is_user_assignee(session, user.id, task_id)
-        user_role = UserRole.EXECUTOR
-        if task.group_id:
-            role = await TaskService.get_user_role_in_group(session, user.id, task.group_id)
-            if role:
-                user_role = role
-        elif task.company_id:
-            from database.models import CompanyRole
-            c_role = await CompanyService.is_member(session, task.company_id, user.id)
-            if c_role in (CompanyRole.OWNER, CompanyRole.ADMIN):
-                user_role = UserRole.ADMIN
-            elif task.creator_id == user.id:
-                user_role = UserRole.MANAGER
-        elif task.creator_id == user.id:
-            user_role = UserRole.ADMIN
+        user_assignment = await TaskService.get_user_assignment(session, user.id, task_id)
+        user_role = await _resolve_user_role(session, task, user)
 
     await callback.message.edit_text(
         format_task_detailed(task),
-        reply_markup=task_actions_keyboard(task, user_role, is_assignee),
+        reply_markup=task_actions_keyboard(task, user_role,
+                                           is_assignee=user_assignment is not None,
+                                           user_assignment=user_assignment),
     )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("task_status:"))
 async def callback_task_status(callback: CallbackQuery, user: User, bot: Bot) -> None:
-    """Vazifa statusini o'zgartirish"""
+    """Admin/Manager tomonidan vazifa statusini majburan o'zgartirish (bekor qilish / qayta ochish)"""
     parts = callback.data.split(":")
     task_id = int(parts[1])
     new_status = TaskStatus(parts[2])
-    
+
     async with get_session() as session:
         task = await TaskService.get_task(session, task_id)
         if not task:
             await callback.answer("❗ Vazifa topilmadi", show_alert=True)
             return
-        
+
+        # Faqat admin/manager ruxsat beriladi
+        user_role = await _resolve_user_role(session, task, user)
+        if user_role not in (UserRole.ADMIN, UserRole.MANAGER):
+            await callback.answer("🚫 Bu amalni faqat admin/menejer bajarishi mumkin", show_alert=True)
+            return
+
         old_status = task.status
-        
-        updated_task = await TaskService.update_task_status(
-            session, task_id, new_status, user.id
-        )
+        updated_task = await TaskService.update_task_status(session, task_id, new_status, user.id)
         await session.commit()
-        
+
         if updated_task:
             try:
                 await NotificationService.notify_status_changed(
@@ -1237,30 +1248,144 @@ async def callback_task_status(callback: CallbackQuery, user: User, bot: Bot) ->
             except Exception as e:
                 logger.warning(f"Status notification xatosi: {e}")
 
-            # Guruh chatiga status o'zgarishi xabari
             try:
                 await _notify_group_status_changed(
-                    bot, session, updated_task,
-                    old_status, new_status, user
+                    bot, session, updated_task, old_status, new_status, user
                 )
             except Exception as e:
                 logger.warning(f"Group status notify xatosi: {e}")
 
-            is_assignee = await TaskService.is_user_assignee(session, user.id, task_id)
-            user_role = UserRole.EXECUTOR
-            if task.group_id:
-                role = await TaskService.get_user_role_in_group(session, user.id, task.group_id)
-                if role:
-                    user_role = role
-            elif task.creator_id == user.id:
-                user_role = UserRole.ADMIN
-            
+            user_assignment = await TaskService.get_user_assignment(session, user.id, task_id)
             await callback.message.edit_text(
                 format_task_detailed(updated_task),
-                reply_markup=task_actions_keyboard(updated_task, user_role, is_assignee),
+                reply_markup=task_actions_keyboard(updated_task, user_role,
+                                                   is_assignee=user_assignment is not None,
+                                                   user_assignment=user_assignment),
             )
-    
+
     await callback.answer("✅ Status yangilandi!")
+
+
+@router.callback_query(F.data.startswith("my_assign_status:"))
+async def callback_my_assign_status(callback: CallbackQuery, user: User, bot: Bot) -> None:
+    """Masul ijrochi O'Z shaxsiy statusini o'zgartiradi.
+
+    Barcha masul ijrochilar 'done' belgilasa → vazifa avtomatik yakunlanadi.
+    """
+    parts = callback.data.split(":")
+    task_id = int(parts[1])
+    new_assign_status = parts[2]   # "in_progress" | "done"
+
+    async with get_session() as session:
+        task = await TaskService.get_task(session, task_id)
+        if not task:
+            await callback.answer("❗ Vazifa topilmadi", show_alert=True)
+            return
+
+        if task.status in (TaskStatus.DONE, TaskStatus.CANCELLED):
+            await callback.answer("ℹ️ Vazifa allaqachon yakunlangan yoki bekor qilingan", show_alert=True)
+            return
+
+        # Shaxsiy statusni yangilaymiz (faqat masul ijrochi)
+        assignment = await TaskService.update_assignment_status(
+            session, user.id, task_id, new_assign_status
+        )
+        if not assignment:
+            await callback.answer(
+                "🚫 Siz masul ijrochi sifatida belgilanmagansiz yoki bu vazifaga biriktirilmagansiz",
+                show_alert=True,
+            )
+            return
+
+        # Barcha masul ijrochilar 'done' belgilaganmi?
+        auto_completed = await TaskService.check_and_auto_complete(session, task_id, user.id)
+        await session.commit()
+
+        # Yangilangan taskni qayta yuklaymiz
+        task = await TaskService.get_task(session, task_id)
+
+        STATUS_EM = {
+            "new":         "🆕 Yangi",
+            "in_progress": "⚙️ Jarayonda",
+            "done":        "✅ Bajarildi",
+        }
+        new_status_txt = STATUS_EM.get(new_assign_status, new_assign_status)
+        changer_mention = f"@{user.username}" if user.username else user.full_name
+
+        if auto_completed:
+            # ── Barcha masul ijrochilar bajarildi → vazifa yakunlandi ──
+            completion_msg = (
+                f"🎉 <b>Vazifa muvaffaqiyatli yakunlandi!</b>\n\n"
+                f"📌 <b>{task.title}</b>  <code>#{task.id}</code>\n"
+                f"👤 Oxirgi ijrochi: {changer_mention}\n\n"
+                f"✅ Barcha masul ijrochilar o'z ishini bajardi!"
+            )
+            # Barcha ishtirokchilarga xabar
+            try:
+                recipient_ids = {task.creator_id}
+                for a in task.assignments:
+                    recipient_ids.add(a.user_id)
+                for uid in recipient_ids:
+                    try:
+                        await bot.send_message(uid, completion_msg, parse_mode="HTML")
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"Completion notify xatosi: {e}")
+
+            # Guruhga xabar
+            try:
+                tg_chat_id = await _resolve_tg_chat_id(session, task)
+                if tg_chat_id:
+                    await bot.send_message(tg_chat_id, completion_msg, parse_mode="HTML")
+            except Exception as e:
+                logger.warning(f"Guruh completion notify xatosi: {e}")
+
+            await callback.answer("🎉 Barcha ijrochilar bajarildi! Vazifa yakunlandi!", show_alert=True)
+
+        else:
+            # ── Faqat bitta ijrochi statusini o'zgartirdi ──
+            notify_msg = (
+                f"🔄 <b>{changer_mention}</b> o'z statusini yangiladi\n\n"
+                f"📌 <b>{task.title}</b>  <code>#{task.id}</code>\n"
+                f"📊 Holat: {new_status_txt}\n\n"
+                f"Batafsil: /task_{task.id}"
+            )
+            try:
+                recipient_ids = {task.creator_id}
+                for a in task.assignments:
+                    recipient_ids.add(a.user_id)
+                recipient_ids.discard(user.id)  # o'ziga yubormaymiz
+                for uid in recipient_ids:
+                    try:
+                        await bot.send_message(uid, notify_msg, parse_mode="HTML")
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"Assign status notify xatosi: {e}")
+
+            # Guruhga xabar
+            try:
+                tg_chat_id = await _resolve_tg_chat_id(session, task)
+                if tg_chat_id:
+                    await bot.send_message(tg_chat_id, notify_msg, parse_mode="HTML")
+            except Exception as e:
+                logger.warning(f"Guruh assign notify xatosi: {e}")
+
+            await callback.answer(f"{new_status_txt} belgilandi!")
+
+        # Xabarni yangilaymiz
+        user_assignment = await TaskService.get_user_assignment(session, user.id, task_id)
+        user_role = await _resolve_user_role(session, task, user)
+        try:
+            await callback.message.edit_text(
+                format_task_detailed(task),
+                reply_markup=task_actions_keyboard(task, user_role,
+                                                   is_assignee=user_assignment is not None,
+                                                   user_assignment=user_assignment),
+            )
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("task_delete:"))
@@ -1511,18 +1636,14 @@ async def cmd_task_by_id(message: Message, user: User) -> None:
             await message.answer("❗ Vazifa topilmadi.")
             return
 
-        is_assignee = await TaskService.is_user_assignee(session, user.id, task_id)
-        user_role = UserRole.EXECUTOR
-        if task.group_id:
-            role = await TaskService.get_user_role_in_group(session, user.id, task.group_id)
-            if role:
-                user_role = role
-        elif task.creator_id == user.id:
-            user_role = UserRole.ADMIN
+        user_assignment = await TaskService.get_user_assignment(session, user.id, task_id)
+        user_role = await _resolve_user_role(session, task, user)
 
     await message.answer(
         format_task_detailed(task),
-        reply_markup=task_actions_keyboard(task, user_role, is_assignee),
+        reply_markup=task_actions_keyboard(task, user_role,
+                                           is_assignee=user_assignment is not None,
+                                           user_assignment=user_assignment),
     )
 
 
@@ -1603,8 +1724,9 @@ async def cmd_view_task_by_id(message: Message, user: User) -> None:
             await message.answer("❗ Vazifa topilmadi.")
             return
         
-        is_assignee = await TaskService.is_user_assignee(session, user.id, task_id)
-        
+        user_assignment = await TaskService.get_user_assignment(session, user.id, task_id)
+        is_assignee = user_assignment is not None
+
         if not is_assignee and task.creator_id != user.id:
             if task.group_id:
                 role = await TaskService.get_user_role_in_group(session, user.id, task.group_id)
@@ -1614,18 +1736,14 @@ async def cmd_view_task_by_id(message: Message, user: User) -> None:
             else:
                 await message.answer("🚫 Ruxsat yo'q.")
                 return
-        
-        user_role = UserRole.EXECUTOR
-        if task.group_id:
-            role = await TaskService.get_user_role_in_group(session, user.id, task.group_id)
-            if role:
-                user_role = role
-        elif task.creator_id == user.id:
-            user_role = UserRole.ADMIN
+
+        user_role = await _resolve_user_role(session, task, user)
 
     await message.answer(
         format_task_detailed(task),
-        reply_markup=task_actions_keyboard(task, user_role, is_assignee),
+        reply_markup=task_actions_keyboard(task, user_role,
+                                           is_assignee=is_assignee,
+                                           user_assignment=user_assignment),
     )
 
 

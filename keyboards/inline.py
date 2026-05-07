@@ -200,32 +200,55 @@ def workspace_picker_keyboard(companies: List, groups: List) -> InlineKeyboardMa
     return builder.as_markup()
 
 
-def task_actions_keyboard(task: Task, user_role: UserRole, is_assignee: bool = False) -> InlineKeyboardMarkup:
-    """Vazifa amallari - rolga qarab tugmalar"""
+def task_actions_keyboard(
+    task: Task,
+    user_role: UserRole,
+    is_assignee: bool = False,
+    user_assignment=None,   # TaskAssignment | None
+) -> InlineKeyboardMarkup:
+    """Vazifa amallari - rolga qarab tugmalar.
+
+    Statusni o'zgartirish huquqi FAQAT masul (is_responsible=True) ijrochilarda.
+    Har bir masul ijrochi faqat O'Z shaxsiy statusini o'zgartiradi:
+      new → in_progress  (▶️ Ishga kirishish)
+      in_progress → done (✅ Bajarildi)
+    Barcha masul ijrochilar 'done' belgilasa — vazifa avtomatik yakunlanadi.
+    """
     builder = InlineKeyboardBuilder()
-    
-    if task.status == TaskStatus.NEW and is_assignee:
-        builder.button(
-            text="▶️ Ishga kirishish",
-            callback_data=f"task_status:{task.id}:in_progress"
-        )
-    
-    if task.status == TaskStatus.IN_PROGRESS and is_assignee:
-        builder.button(
-            text="✅ Bajarildi",
-            callback_data=f"task_status:{task.id}:review"
-        )
-    
-    if task.status == TaskStatus.REVIEW and user_role in (UserRole.ADMIN, UserRole.MANAGER):
-        builder.button(
-            text="✅ Tasdiqlash",
-            callback_data=f"task_status:{task.id}:done"
-        )
-        builder.button(
-            text="🔄 Qaytarish",
-            callback_data=f"task_status:{task.id}:in_progress"
-        )
-    
+
+    # --- Shaxsiy status tugmalari (faqat masul ijrochilar uchun) ---
+    if user_assignment and user_assignment.is_responsible:
+        assign_status = user_assignment.status or "new"
+        if task.status not in (TaskStatus.DONE, TaskStatus.CANCELLED):
+            if assign_status == "new":
+                builder.button(
+                    text="▶️ Ishga kirishish",
+                    callback_data=f"my_assign_status:{task.id}:in_progress",
+                )
+            elif assign_status == "in_progress":
+                builder.button(
+                    text="✅ Bajarildi deb belgilash",
+                    callback_data=f"my_assign_status:{task.id}:done",
+                )
+            elif assign_status == "done":
+                builder.button(
+                    text="↩️ Qayta ochish",
+                    callback_data=f"my_assign_status:{task.id}:in_progress",
+                )
+
+    # Admin/Manager: vazifani majburiy yakunlash yoki bekor qilish
+    if user_role in (UserRole.ADMIN, UserRole.MANAGER):
+        if task.status not in (TaskStatus.DONE, TaskStatus.CANCELLED):
+            builder.button(
+                text="⛔ Bekor qilish",
+                callback_data=f"task_status:{task.id}:cancelled",
+            )
+        if task.status == TaskStatus.DONE:
+            builder.button(
+                text="🔄 Qayta ochish",
+                callback_data=f"task_status:{task.id}:in_progress",
+            )
+
     builder.button(text="💬 Izohlar", callback_data=f"task_comments:{task.id}")
     builder.button(text="📝 Tarix", callback_data=f"task_history:{task.id}")
 
@@ -234,12 +257,15 @@ def task_actions_keyboard(task: Task, user_role: UserRole, is_assignee: bool = F
         media_count = len(task.attachments)
         builder.button(
             text=f"🖼 Mediya ({media_count})",
-            callback_data=f"task_media:{task.id}"
+            callback_data=f"task_media:{task.id}",
         )
 
     # Sub-task tugmalari
     if task.subtasks:
-        builder.button(text=f"📂 Sub-tasklar ({len(task.subtasks)})", callback_data=f"subtask_list:{task.id}")
+        builder.button(
+            text=f"📂 Sub-tasklar ({len(task.subtasks)})",
+            callback_data=f"subtask_list:{task.id}",
+        )
     if user_role in (UserRole.ADMIN, UserRole.MANAGER) and not task.parent_id:
         builder.button(text="📂➕ Sub-task qo'shish", callback_data=f"subtask_add:{task.id}")
 

@@ -2,9 +2,13 @@
 Yordamchi funksiyalar
 """
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from database.models import TaskStatus, Priority
+from config import settings
+
+_TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
 
 
 STATUS_EMOJI = {
@@ -45,9 +49,13 @@ def format_deadline(deadline: Optional[datetime]) -> str:
     if not deadline:
         return "Belgilanmagan"
     
-    now = datetime.utcnow()
-    if deadline.tzinfo:
-        deadline = deadline.replace(tzinfo=None)
+    now = datetime.now(_TZ)
+    
+    # Ensure deadline is timezone-aware for comparison
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=_TZ)
+    else:
+        deadline = deadline.astimezone(_TZ)
     
     diff = deadline - now
     
@@ -107,9 +115,38 @@ def format_task_detailed(task) -> str:
         text += f"👤 <b>Yaratgan:</b> {task.creator.full_name}\n"
     
     if hasattr(task, 'assignments') and task.assignments:
-        assignees = [a.user.full_name for a in task.assignments if a.user]
-        if assignees:
-            text += f"👥 <b>Ijrochilar:</b> {', '.join(assignees)}\n"
+        # Shaxsiy status emoji xaritasi
+        _ASGN_STATUS = {
+            "new":         "🆕",
+            "in_progress": "⚙️",
+            "done":        "✅",
+        }
+        resp_list  = [a for a in task.assignments if a.is_responsible and a.user]
+        other_list = [a for a in task.assignments if not a.is_responsible and a.user]
+
+        if resp_list:
+            lines = []
+            for a in resp_list:
+                st_em = _ASGN_STATUS.get(a.status or "new", "🆕")
+                lines.append(f"{st_em} {a.user.full_name}")
+            text += f"⭐ <b>Masul ijrochilar:</b>\n" + "\n".join(f"   {l}" for l in lines) + "\n"
+
+        if other_list:
+            names = [a.user.full_name for a in other_list]
+            text += f"👥 <b>Ishtrokchilar:</b> {', '.join(names)}\n"
+        elif not resp_list and task.assignments:
+            # is_responsible belgilanmagan — hammasini ko'rsatamiz
+            lines = []
+            for a in task.assignments:
+                if a.user:
+                    st_em = _ASGN_STATUS.get(a.status or "new", "🆕")
+                    lines.append(f"{st_em} {a.user.full_name}")
+            text += f"👥 <b>Ijrochilar:</b>\n" + "\n".join(f"   {l}" for l in lines) + "\n"
+
+    if hasattr(task, 'subtasks') and task.subtasks:
+        done_sub = sum(1 for s in task.subtasks if s.status == TaskStatus.DONE)
+        total_sub = len(task.subtasks)
+        text += f"📂 <b>Sub-tasklar:</b> {done_sub}/{total_sub} bajarildi\n"
 
     if hasattr(task, 'attachments') and task.attachments:
         type_emoji = {"photo": "🖼", "video": "🎥", "document": "📄",
@@ -120,10 +157,10 @@ def format_task_detailed(task) -> str:
             nm = a.file_name or a.file_type
             text += f"   {em} {nm}\n"
 
-    text += f"\n🕐 <b>Yaratildi:</b> {task.created_at.strftime('%d.%m.%Y %H:%M')}"
+    text += f"\n🕐 <b>Yaratildi:</b> {task.created_at.astimezone(_TZ).strftime('%d.%m.%Y %H:%M')}"
     
     if task.completed_at:
-        text += f"\n✅ <b>Bajarildi:</b> {task.completed_at.strftime('%d.%m.%Y %H:%M')}"
+        text += f"\n✅ <b>Bajarildi:</b> {task.completed_at.astimezone(_TZ).strftime('%d.%m.%Y %H:%M')}"
     
     return text
 
@@ -146,7 +183,7 @@ def parse_datetime(text: str) -> Optional[datetime]:
             dt = datetime.strptime(text, fmt)
             if fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y"):
                 dt = dt.replace(hour=18, minute=0)
-            return dt
+            return dt.replace(tzinfo=_TZ)
         except ValueError:
             continue
     
