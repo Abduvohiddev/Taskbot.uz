@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional, List
 
 from aiogram import Router, F, Bot
@@ -30,6 +31,7 @@ from database.models import (
     TaskStepComment, TaskStepAttachment,
 )
 from services.task_service import TaskService
+from config import settings
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -38,13 +40,14 @@ logger = logging.getLogger(__name__)
 # ─── States ──────────────────────────────────────────────────────────────────
 
 class WorkflowStates(StatesGroup):
-    waiting_title       = State()
-    waiting_description = State()
-    waiting_step_title  = State()
+    waiting_title         = State()
+    waiting_description   = State()
+    waiting_step_title    = State()
     waiting_step_assignee = State()
-    waiting_more_steps  = State()
-    waiting_workspace   = State()
-    waiting_confirm     = State()
+    waiting_step_deadline = State()
+    waiting_more_steps    = State()
+    waiting_workspace     = State()
+    waiting_confirm       = State()
 
 
 class StepCompleteStates(StatesGroup):
@@ -212,6 +215,10 @@ async def _render_workflow_detail(task_id: int, current_user_id: int) -> tuple[s
             if s.status == "active":
                 step_line += "  ← <i>hozir</i>"
             lines.append(step_line)
+            if s.deadline:
+                _TZ2 = ZoneInfo(settings.DEFAULT_TIMEZONE)
+                dl_str = s.deadline.astimezone(_TZ2).strftime('%d.%m.%Y %H:%M')
+                lines.append(f"   ⏰ Muddat: <i>{dl_str}</i>")
             if s.note:
                 lines.append(f"   💬 <i>{s.note[:100]}</i>")
 
@@ -556,6 +563,32 @@ async def wf_desc(message: Message, state: FSMContext, user: User):
 
 
 async def _ask_workspace(message: Message, state: FSMContext, user: User):
+    data = await state.get_data()
+    # Sub-task oqimida workspace allaqachon belgilangan bo'lsa — o'tkazib yuboramiz
+    parent_id  = data.get("parent_id")
+    company_id = data.get("company_id")
+    group_id   = data.get("group_id")
+    if parent_id and (company_id or group_id):
+        ws_id = str(company_id) if company_id else "personal"
+        members = await _members_for_workspace(ws_id)
+        if not members and group_id:
+            # Group members ni to'g'ridan-to'g'ri olish
+            from services.group_service import GroupService as _GS
+            async with get_session() as _sess:
+                gm_list = await _GS.get_members(_sess, group_id)
+            members = [{"id": m.user_id, "name": m.user.full_name or m.user.username or f"#{m.user_id}"}
+                       for m in gm_list if m.user]
+        if not members:
+            members = [{"id": user.id, "name": (user.full_name or user.username or "Men")}]
+        await state.update_data(workspace_id=ws_id, members=members)
+        await state.set_state(WorkflowStates.waiting_step_title)
+        steps = data.get("steps", [])
+        await message.answer(
+            f"🪜 <b>{len(steps)+1}-qadam tavsifi:</b> Bu odam nima qilishi kerak?",
+            reply_markup=_cancel_kb(),
+        )
+        return
+
     workspaces = await _get_user_workspaces(user.id)
     await state.update_data(_workspaces=workspaces)
     await state.set_state(WorkflowStates.waiting_workspace)
@@ -608,21 +641,95 @@ async def wf_step_assignee(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Topilmadi", show_alert=True)
         return
 
+    await state.update_data(_pending_assignee_id=user_id, _pending_assignee_name=member["name"])
+    await state.set_state(WorkflowStates.waiting_step_deadline)
+
+    from zoneinfo import ZoneInfo as _ZI
+    _now = datetime.now(_ZI(settings.DEFAULT_TIMEZONE))
+    _ex_date = _now.strftime("%d.%m.%Y")
+    _ex_dt   = _now.strftime("%d.%m.%Y %H:%M")
+    await callback.message.edit_text(
+        f"⏰ <b>Bu qadam uchun deadline (muddati)?</b>\n\n"
+        f"👤 Ijrochi: <b>{member['name']}</b>\n\n"
+        f"Misol: <code>{_ex_date}</code> yoki <code>{_ex_dt}</code>\n\n"
+        "Deadline yo'q bo'lsa — /skip yuboring",
+        reply_markup=_cancel_kb(),
+    )
+    await callback.answer()
+
+
+def _parse_step_deadline(text: str) -> Optional[datetime]:
+    """Matndan deadline parse qilish, Asia/Tashkent TZ bilan."""
+    from zoneinfo import ZoneInfo as _ZI
+    _TZ = _ZI(settings.DEFAULT_TIMEZONE)
+    text = text.strip()
+    for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y", "%d/%m/%Y %H:%M", "%d/%m/%Y"):
+        try:
+            naive = datetime.strptime(text, fmt)
+            return naive.replace(tzinfo=_TZ)
+        except ValueError:
+            continue
+    return None
+
+
+def _step_deadline_text(step: dict) -> str:
+    dl = step.get("deadline")
+    if not dl:
+        return ""
+    from zoneinfo import ZoneInfo as _ZI
+    _TZ = _ZI(settings.DEFAULT_TIMEZONE)
+    if isinstance(dl, str):
+        return f" | ⏰ {dl}"
+    try:
+        return f" | ⏰ {dl.astimezone(_TZ).strftime('%d.%m.%Y %H:%M')}"
+    except Exception:
+        return ""
+
+
+@router.message(WorkflowStates.waiting_step_deadline, Command("skip"))
+async def wf_step_deadline_skip(message: Message, state: FSMContext):
+    await _save_step_and_continue(message, state, deadline=None)
+
+
+@router.message(WorkflowStates.waiting_step_deadline)
+async def wf_step_deadline(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("❗ Matn yuboring yoki /skip")
+        return
+    dl = _parse_step_deadline(message.text)
+    if not dl:
+        from zoneinfo import ZoneInfo as _ZI
+        _now = datetime.now(_ZI(settings.DEFAULT_TIMEZONE))
+        _ex_date = _now.strftime("%d.%m.%Y")
+        _ex_dt   = _now.strftime("%d.%m.%Y %H:%M")
+        await message.answer(
+            f"❗ Format noto'g'ri.\n"
+            f"Misol: <code>{_ex_date}</code> yoki <code>{_ex_dt}</code>\n"
+            "Deadline yo'q bo'lsa: /skip"
+        )
+        return
+    await _save_step_and_continue(message, state, deadline=dl)
+
+
+async def _save_step_and_continue(message: Message, state: FSMContext, deadline):
+    data = await state.get_data()
     steps = data.get("steps", [])
     steps.append({
         "title": data.get("_pending_step_title", "—"),
-        "assignee_id": user_id,
-        "assignee_name": member["name"],
+        "assignee_id": data.get("_pending_assignee_id"),
+        "assignee_name": data.get("_pending_assignee_name", "?"),
+        "deadline": deadline,
     })
-    await state.update_data(steps=steps, _pending_step_title=None)
+    await state.update_data(steps=steps, _pending_step_title=None,
+                            _pending_assignee_id=None, _pending_assignee_name=None)
     await state.set_state(WorkflowStates.waiting_more_steps)
 
     txt = "<b>📋 Workflow qadamlari hozir:</b>\n\n"
     for i, s in enumerate(steps, 1):
-        txt += f"{i}. <b>{s['title']}</b>\n   👤 {s['assignee_name']}\n\n"
+        dl_txt = _step_deadline_text(s)
+        txt += f"{i}. <b>{s['title']}</b>\n   👤 {s['assignee_name']}{dl_txt}\n\n"
     txt += "Yana qadam qo'shasizmi?"
-    await callback.message.edit_text(txt, reply_markup=_more_kb())
-    await callback.answer()
+    await message.answer(txt, reply_markup=_more_kb())
 
 
 @router.callback_query(WorkflowStates.waiting_more_steps, F.data == "wf:add_more")
@@ -630,7 +737,7 @@ async def wf_add_more(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     steps = data.get("steps", [])
     await state.set_state(WorkflowStates.waiting_step_title)
-    await callback.message.edit_text(
+    await callback.message.answer(
         f"🪜 <b>{len(steps)+1}-qadam tavsifi:</b> Bu odam nima qilishi kerak?",
         reply_markup=_cancel_kb(),
     )
@@ -648,8 +755,9 @@ async def wf_finish(callback: CallbackQuery, state: FSMContext, user: User, bot:
     title      = data.get("title", "Workflow vazifa")
     desc       = data.get("description")
     ws_id      = data.get("workspace_id", "personal")
-    company_id = None
-    if ws_id != "personal":
+    company_id = data.get("company_id")   # Sub-task oqimidan meros
+    parent_id  = data.get("parent_id")
+    if not company_id and ws_id != "personal":
         try: company_id = int(ws_id)
         except ValueError: pass
 
@@ -661,10 +769,12 @@ async def wf_finish(callback: CallbackQuery, state: FSMContext, user: User, bot:
             status=TaskStatus.IN_PROGRESS,
             creator_id=user.id,
             company_id=company_id,
+            parent_id=parent_id,
         )
         session.add(task)
         await session.flush()
 
+        _TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
         for i, s in enumerate(steps):
             session.add(TaskStep(
                 task_id=task.id,
@@ -672,7 +782,8 @@ async def wf_finish(callback: CallbackQuery, state: FSMContext, user: User, bot:
                 title=s["title"],
                 assignee_user_id=s["assignee_id"],
                 status="active" if i == 0 else "pending",
-                started_at=datetime.utcnow() if i == 0 else None,
+                started_at=datetime.now(_TZ) if i == 0 else None,
+                deadline=s.get("deadline"),
             ))
             try:
                 session.add(TaskAssignment(
@@ -700,10 +811,13 @@ async def wf_finish(callback: CallbackQuery, state: FSMContext, user: User, bot:
         except Exception as e:
             logger.warning(f"Workflow notify xato: {e}")
 
+    _TZ_sum = ZoneInfo(settings.DEFAULT_TIMEZONE)
     summary = f"✅ <b>Workflow vazifa yaratildi!</b>\n\n📋 {title}\n\n<b>Qadamlar:</b>\n"
     for i, s in enumerate(steps, 1):
         marker = "🟢" if i == 1 else "⚪"
-        summary += f"{marker} {i}. {s['title']} — 👤 {s['assignee_name']}\n"
+        dl = s.get("deadline")
+        dl_txt = f" | ⏰ {dl.astimezone(_TZ_sum).strftime('%d.%m.%Y %H:%M')}" if dl else ""
+        summary += f"{marker} {i}. {s['title']} — 👤 {s['assignee_name']}{dl_txt}\n"
     summary += f"\n💡 Birinchi ijrochiga bildirishnoma yuborildi."
 
     await callback.message.edit_text(
@@ -810,9 +924,29 @@ async def sc_skip_comment(message: Message, state: FSMContext):
 
 @router.message(StepCompleteStates.waiting_comment)
 async def sc_get_comment(message: Message, state: FSMContext):
+    # Agar media yuborilsa — izohsiz to'g'ridan faylga o'tamiz
     if not message.text:
-        await message.answer("❗ Matn yuboring yoki /skip")
+        # Media bo'lsa — fayllar bosqichiga o'tib, o'sha mediani qabul qilamiz
+        await state.update_data(sc_comment=None)
+        await state.set_state(StepCompleteStates.waiting_files)
+        # Mediani o'sha yerda qayta ishlaymiz
+        f = _extract_file_meta(message)
+        if f:
+            await state.update_data(sc_files=[f])
+            em = {"photo":"🖼","video":"🎥","video_note":"⭕","document":"📄","audio":"🎵","voice":"🎙"}.get(f["file_type"],"📎")
+            await message.answer(
+                f"{em} <b>{f['file_name']}</b> qo'shildi (1/10).\n\n"
+                "Yana yuboring yoki ✅ Tayyor bosing.",
+                reply_markup=_step_files_kb(),
+            )
+        else:
+            await message.answer(
+                "📎 <b>Fayl, rasm yoki video yuborishingiz mumkin</b> (ixtiyoriy).\n\n"
+                "Yuborib bo'lgach <b>✅ Tayyor</b> tugmasini bosing, yoki <b>⏭ Faylsiz</b>.",
+                reply_markup=_step_files_kb(),
+            )
         return
+
     await state.update_data(sc_comment=message.text.strip()[:2000])
     await state.set_state(StepCompleteStates.waiting_files)
     await message.answer(
@@ -824,7 +958,7 @@ async def sc_get_comment(message: Message, state: FSMContext):
 
 @router.message(
     StepCompleteStates.waiting_files,
-    F.content_type.in_({"photo", "video", "document", "audio", "voice", "animation"})
+    F.content_type.in_({"photo", "video", "video_note", "document", "audio", "voice", "animation"})
 )
 async def sc_collect_file(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -843,7 +977,7 @@ async def sc_collect_file(message: Message, state: FSMContext):
 
     files.append(f)
     await state.update_data(sc_files=files)
-    em = {"photo": "🖼", "video": "🎥", "document": "📄", "audio": "🎵", "voice": "🎙"}.get(f["file_type"], "📎")
+    em = {"photo":"🖼","video":"🎥","video_note":"⭕","document":"📄","audio":"🎵","voice":"🎙"}.get(f["file_type"],"📎")
     await message.answer(
         f"{em} <b>{f['file_name']}</b> qo'shildi ({len(files)}/10).\n\n"
         "Yana yuboring yoki ✅ Tayyor bosing.",
@@ -877,6 +1011,11 @@ def _extract_file_meta(message: Message) -> Optional[dict]:
         return {"file_id": vo.file_id, "file_type": "voice",
                 "file_name": f"voice_{vo.file_unique_id}.ogg",
                 "file_size": vo.file_size, "mime_type": "audio/ogg"}
+    if message.video_note:
+        vn = message.video_note
+        return {"file_id": vn.file_id, "file_type": "video_note",
+                "file_name": f"videonote_{vn.file_unique_id}.mp4",
+                "file_size": vn.file_size, "mime_type": "video/mp4"}
     if message.animation:
         an = message.animation
         return {"file_id": an.file_id, "file_type": "video",
@@ -928,8 +1067,9 @@ async def _persist_step_completion(
                 mime_type=f.get("mime_type"),
             ))
 
+        _TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
         cur.status       = status
-        cur.completed_at = datetime.utcnow() if status == "done" else None
+        cur.completed_at = datetime.now(_TZ) if status == "done" else None
 
         sr = await session.execute(
             select(TaskStep).where(TaskStep.task_id == task_id).order_by(TaskStep.order_index)
@@ -940,12 +1080,12 @@ async def _persist_step_completion(
         finished_all = False
         if status == "done" and nxt:
             nxt.status     = "active"
-            nxt.started_at = datetime.utcnow()
+            nxt.started_at = datetime.now(_TZ)
         elif status == "done" and not nxt:
             task = await session.get(Task, task_id)
             if task:
                 task.status       = TaskStatus.DONE
-                task.completed_at = datetime.utcnow()
+                task.completed_at = datetime.now(_TZ)
             finished_all = True
 
         await session.commit()

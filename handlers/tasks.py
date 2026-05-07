@@ -415,7 +415,28 @@ async def process_custom_deadline(message: Message, state: FSMContext, user: Use
 async def _proceed_to_assignee(message: Message, state: FSMContext, user: User) -> None:
     """Ishchi makonni tanlash yoki darhol ijrochi bosqichiga o'tish"""
     data = await state.get_data()
-    group_id = data.get("group_id")
+    group_id   = data.get("group_id")
+    company_id = data.get("company_id")
+    parent_id  = data.get("parent_id")
+
+    # Sub-task yaratilayotganda va kompaniya/guruh allaqachon belgilangan bo'lsa —
+    # workspace picker ni o'tkazib, to'g'ridan-to'g'ri ijrochi tanlashga o'tamiz
+    if parent_id and company_id and not group_id:
+        async with get_session() as session:
+            members = await CompanyService.get_members(session, company_id)
+        if not members:
+            await _create_task_final(message, state, user, [user.id])
+            return
+        await state.set_state(NewTaskStates.waiting_multi_assignee)
+        text = (
+            f"👥 <b>Ijrochilarni belgilang</b>\n\n"
+            f"<i>Kompaniyada {len(members)} xodim</i>"
+        )
+        try:
+            await message.edit_text(text, reply_markup=multi_assignee_keyboard(members, []))
+        except Exception:
+            await message.answer(text, reply_markup=multi_assignee_keyboard(members, []))
+        return
 
     # Agar guruh chatidan ochilgan bo'lsa — multi-select + masul tanlash
     if group_id:
@@ -1599,12 +1620,12 @@ async def cmd_view_task_by_id(message: Message, user: User) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# SUB-TASK (ICHKI VAZIFA) YARATISH
+# SUB-TASK (ICHKI VAZIFA) YARATISH — to'liq task yaratish oqimi bilan
 # ──────────────────────────────────────────────────────────────────────────────
 
 @router.callback_query(F.data.startswith("subtask_add:"))
 async def callback_subtask_add(callback: CallbackQuery, state: FSMContext, user: User) -> None:
-    """Sub-task yaratishni boshlash"""
+    """Sub-task turi tanlash (Odiy task yoki Ketma-ketlik)"""
     task_id = int(callback.data.split(":")[1])
 
     async with get_session() as session:
@@ -1612,52 +1633,98 @@ async def callback_subtask_add(callback: CallbackQuery, state: FSMContext, user:
         if not task:
             await callback.answer("❗ Vazifa topilmadi", show_alert=True)
             return
-        if task.creator_id != user.id:
-            await callback.answer("🚫 Faqat yaratuvchi sub-task qo'sha oladi", show_alert=True)
+        # Guruh/kompaniya a'zosi yoki yaratuvchi bo'lsa ruxsat
+        can_add = task.creator_id == user.id
+        if not can_add and task.group_id:
+            role = await TaskService.get_user_role_in_group(session, user.id, task.group_id)
+            from database.models import UserRole
+            can_add = role in (UserRole.ADMIN, UserRole.MANAGER)
+        if not can_add and task.company_id:
+            from services.company_service import CompanyService as _CS
+            role = await _CS.is_member(session, task.company_id, user.id)
+            from database.models import CompanyRole
+            can_add = role in (CompanyRole.OWNER, CompanyRole.ADMIN, CompanyRole.MANAGER)
+        if not can_add:
+            await callback.answer("🚫 Sub-task qo'shish huquqi yo'q", show_alert=True)
             return
 
-    await state.set_state(NewTaskStates.waiting_subtask_title)
-    await state.update_data(parent_id=task_id)
+        parent_company_id = task.company_id
+        parent_group_id   = task.group_id
 
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Odiy sub-task", callback_data=f"subtask_type:regular:{task_id}")],
+        [InlineKeyboardButton(text="🔗 Ketma-ketlik", callback_data=f"subtask_type:workflow:{task_id}")],
+        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel")],
+    ])
     await callback.message.answer(
-        f"📂 <b>Sub-task yaratish</b> — #{task_id} vazifasi ichiga\n\n"
-        "Sub-task nomini yozing:",
-        reply_markup=cancel_keyboard(),
+        f"📂 <b>Sub-task qo'shish</b>\n"
+        f"🔗 Ota-vazifa: #{task_id} — <i>{task.title[:50]}</i>\n\n"
+        "Qanday sub-task yaratmoqchisiz?",
+        reply_markup=kb,
     )
     await callback.answer()
 
 
-@router.message(NewTaskStates.waiting_subtask_title)
-async def process_subtask_title(message: Message, state: FSMContext, user: User) -> None:
-    """Sub-task nomini qabul qilib, tez yaratish"""
-    if not message.text:
-        await message.answer("❗ Matn yuboring.")
-        return
-
-    title = message.text.strip()[:500]
-    data = await state.get_data()
-    parent_id = data.get("parent_id")
+@router.callback_query(F.data.startswith("subtask_type:"))
+async def callback_subtask_type(callback: CallbackQuery, state: FSMContext, user: User, bot: Bot) -> None:
+    """Sub-task turini tanlagandan keyin to'liq task yaratish oqimini boshlash"""
+    parts = callback.data.split(":")
+    sub_type  = parts[1]   # 'regular' | 'workflow'
+    task_id   = int(parts[2])
 
     async with get_session() as session:
-        task = await TaskService.create_task(
-            session=session,
-            title=title,
-            creator_id=user.id,
-            assignee_ids=[user.id],
-            responsible_user_id=user.id,
-            parent_id=parent_id,
-        )
-        await session.flush()
-        task_id = task.id
+        task = await TaskService.get_task(session, task_id, load_relations=False)
+        if not task:
+            await callback.answer("❗ Vazifa topilmadi", show_alert=True)
+            return
+        parent_company_id = task.company_id
+        parent_group_id   = task.group_id
+        parent_title      = task.title
 
+    if sub_type == "workflow":
+        # Workflow sub-task — workflow FSM ni ishlatamiz, parent_id ni saqlaymiz
+        from handlers.workflow import WorkflowStates
+        await state.clear()
+        await state.set_state(WorkflowStates.waiting_title)
+        await state.update_data(
+            steps=[],
+            parent_id=task_id,
+            company_id=parent_company_id,
+            group_id=parent_group_id,
+        )
+        text = (
+            f"🔗 <b>Ketma-ketlik sub-task</b>\n"
+            f"🔗 Ota-vazifa: #{task_id} — <i>{parent_title[:50]}</i>\n\n"
+            "Vazifa nomini kiriting:"
+        )
+        try:
+            await callback.message.edit_text(text, reply_markup=cancel_keyboard())
+        except Exception:
+            await callback.message.answer(text, reply_markup=cancel_keyboard())
+        await callback.answer()
+        return
+
+    # Oddiy sub-task — mavjud task creation FSM ni ishlatamiz
     await state.clear()
-    await message.answer(
-        f"✅ <b>Sub-task yaratildi!</b>\n\n"
-        f"📂 <b>Nom:</b> {title}\n"
-        f"🔗 <b>Ota-vazifa:</b> #{parent_id}\n\n"
-        f"Ko'rish: /task_{task_id}",
-        reply_markup=back_to_menu_keyboard(),
+    await state.set_state(NewTaskStates.waiting_title)
+    # Ota-vazifaning workspace ma'lumotlarini FSM ga saqlaymiz
+    # (workspace selection bosqichi o'tkazib yuboriladi)
+    await state.update_data(
+        parent_id=task_id,
+        company_id=parent_company_id,
+        group_id=parent_group_id,
     )
+    text = (
+        f"📋 <b>Odiy sub-task yaratish</b>\n"
+        f"🔗 Ota-vazifa: #{task_id} — <i>{parent_title[:50]}</i>\n\n"
+        "1/5 qadam: Sub-task <b>nomini</b> kiriting:"
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=cancel_keyboard())
+    except Exception:
+        await callback.message.answer(text, reply_markup=cancel_keyboard())
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("subtask_list:"))

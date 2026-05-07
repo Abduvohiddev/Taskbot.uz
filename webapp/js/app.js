@@ -4562,6 +4562,9 @@ function _launchSubtaskCreate(parentTaskId, type) {
     const task = allTasks.find(t => t.id === parentTaskId);
     _subtaskParentTitle = task?.title || `#${parentTaskId}`;
 
+    // Close the task detail modal FIRST (it's a fixed overlay — switching tabs doesn't hide it)
+    closeModal();
+
     // Switch to create tab
     document.querySelector('.bnav-btn[data-tab="create"]')?.click();
 
