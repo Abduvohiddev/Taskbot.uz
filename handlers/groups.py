@@ -5,14 +5,17 @@ import logging
 
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, BufferedInputFile
+from aiogram.types import (
+    Message, CallbackQuery, ChatMemberUpdated, BufferedInputFile,
+    InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo,
+)
 from aiogram.filters.chat_member_updated import (
     ChatMemberUpdatedFilter, JOIN_TRANSITION, LEAVE_TRANSITION
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from database.db import get_session
-from database.models import User, UserRole, GroupMember, CompanyMember, CompanyRole
+from database.models import User, UserRole, GroupMember, CompanyMember, CompanyRole, Group
 from services.company_service import CompanyService
 from keyboards.inline import (
     group_admin_keyboard, back_to_menu_keyboard, task_list_keyboard,
@@ -397,9 +400,10 @@ async def on_bot_added_to_group(event: ChatMemberUpdated, bot: Bot) -> None:
     await bot.send_message(
         event.chat.id,
         f"👋 Salom, <b>{event.chat.title}</b>!\n\n"
-        f"Men <b>TaskBot</b>man. Guruhingiz avtomatik <b>jamoa</b> sifatida ro'yxatdan o'tdi! 🎉\n"
-        f"Barcha xabar yozgan a'zolar avtomatik jamoaga qo'shiladi.\n\n"
+        f"Men <b>TaskBot</b>man. Guruhingiz avtomatik <b>jamoa</b> sifatida ro'yxatdan o'tdi! 🎉\n\n"
+        f"👇 <b>Jamoaga qo'shilish uchun har bir a'zo /qoshilish buyrug'ini yuboring!</b>\n\n"
         f"<b>📋 Buyruqlar:</b>\n"
+        f"/qoshilish — jamoaga qo'shilish\n"
         f"/newtask — yangi vazifa\n"
         f"/mytasks — mening vazifalarim\n"
         f"/alltasks — barcha vazifalar\n"
@@ -407,6 +411,47 @@ async def on_bot_added_to_group(event: ChatMemberUpdated, bot: Bot) -> None:
         f"/members — a'zolar\n"
         f"/overdue — kechikkanlar\n"
         f"/help — yordam",
+        parse_mode="HTML",
+    )
+
+
+@router.message(Command("qoshilish"), F.chat.type.in_({"group", "supergroup"}))
+async def cmd_join_company(message: Message) -> None:
+    """Guruhda /qoshilish — foydalanuvchini jamoaga qo'shish"""
+    async with get_session() as session:
+        group = await GroupService.get_group_by_telegram_id(session, message.chat.id)
+        if not group:
+            await message.answer("❗ Bu guruh ro'yxatdan o'tmagan. Admin /start yuboring.")
+            return
+
+        tg_user = message.from_user
+        if not tg_user or tg_user.is_bot:
+            return
+
+        db_user = await _ensure_user(session, tg_user)
+        if not db_user:
+            return
+
+        # GroupMember
+        existing_gm = await session.execute(
+            select(GroupMember).where(
+                GroupMember.group_id == group.id,
+                GroupMember.user_id == db_user.id,
+            )
+        )
+        if not existing_gm.scalar_one_or_none():
+            await GroupService.add_member(session, group.id, db_user.id, UserRole.EXECUTOR)
+
+        # CompanyMember
+        if group.company_id:
+            await _sync_member_to_company(session, group.company_id, db_user.id, CompanyRole.MEMBER)
+
+        await session.commit()
+
+    await message.answer(
+        f"✅ <b>{message.from_user.full_name}</b>, siz <b>{group.name}</b> "
+        f"jamoasiga muvaffaqiyatli qo'shildingiz! 🎉\n\n"
+        f"Endi Mini App orqali vazifalaringizni ko'rishingiz mumkin.",
         parse_mode="HTML",
     )
 
@@ -460,6 +505,262 @@ async def on_new_member(message: Message) -> None:
 
             await message.answer(
                 f"👋 Xush kelibsiz, <b>{new_member.full_name}</b>!\n\n"
-                f"Endi siz <b>{group.name}</b> guruhi a'zosisiz. "
-                f"Vazifalaringizni /mytasks orqali ko'rishingiz mumkin."
+                f"Endi siz <b>{group.name}</b> jamoasiga qo'shildingiz. 🎉\n"
+                f"Vazifalaringizni /mytasks orqali ko'rishingiz mumkin.",
+                parse_mode="HTML",
             )
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), F.text, ~Command())
+async def on_group_message(message: Message) -> None:
+    """Guruhda xabar yozgan har bir a'zoni avtomatik jamoaga qo'shish (buyruqlar bundan mustasno)"""
+    if not message.from_user or message.from_user.is_bot:
+        return
+    # Buyruqlar bu handlerdagi logikani o'tkazib yuboradi (ular alohida handler orqali)
+    # Lekin biz faqat foydalanuvchini qo'shishni xohlaymiz — boshqa amallar yo'q
+    try:
+        async with get_session() as session:
+            group = await GroupService.get_group_by_telegram_id(session, message.chat.id)
+            if not group or not group.company_id:
+                return
+
+            db_user = await _ensure_user(session, message.from_user)
+            if not db_user:
+                return
+
+            # Already member check
+            gm_res = await session.execute(
+                select(GroupMember).where(
+                    GroupMember.group_id == group.id,
+                    GroupMember.user_id == db_user.id,
+                )
+            )
+            if gm_res.scalar_one_or_none():
+                return  # Already in group — do nothing
+
+            await GroupService.add_member(session, group.id, db_user.id, UserRole.EXECUTOR)
+            await _sync_member_to_company(session, group.company_id, db_user.id, CompanyRole.MEMBER)
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"on_group_message auto-add xatosi: {e}")
+
+
+# =========================================================
+# /newtask — guruh chatida Mini App orqali vazifa yaratish
+# =========================================================
+
+@router.message(Command("newtask"), F.chat.type.in_({"group", "supergroup"}))
+async def group_newtask(message: Message, user: User) -> None:
+    """Guruh chatida /newtask — Mini App WebApp tugmasi yuboradi"""
+    from config import settings
+    webapp_url = getattr(settings, "WEBAPP_URL", "")
+
+    if not webapp_url:
+        await message.answer("❌ Mini App URL sozlanmagan.")
+        return
+
+    # Create deep link with create action
+    create_url = webapp_url.rstrip("/") + "/?v=67&action=create"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="➕ Vazifa yaratish (Mini App)",
+            web_app=WebAppInfo(url=create_url),
+        )],
+        [InlineKeyboardButton(
+            text="📋 Mini App ochish",
+            web_app=WebAppInfo(url=webapp_url.rstrip("/") + "/?v=67"),
+        )],
+    ])
+
+    async with get_session() as session:
+        result = await session.execute(
+            select(Group).where(Group.telegram_group_id == message.chat.id)
+        )
+        group = result.scalar_one_or_none()
+
+    group_name = group.name if group else message.chat.title or "Guruh"
+
+    await message.answer(
+        f"📝 <b>{group_name}</b> guruhida yangi vazifa yaratish:\n\n"
+        f"Mini App orqali vazifani yarating — ijrochilar, deadline va ustuvorlikni belgilang.",
+        reply_markup=kb,
+    )
+
+
+# =========================================================
+# /leavegroup — guruhdan chiqish
+# =========================================================
+
+@router.message(Command("leavegroup"))
+async def cmd_leave_group(message: Message, user: User) -> None:
+    """Guruhdan chiqish — private yoki guruh chatidan"""
+    from sqlalchemy import delete as sql_delete
+
+    # Guruh chatida yozilsa — o'sha guruhdan chiqadi
+    if message.chat.type in ("group", "supergroup"):
+        async with get_session() as session:
+            result = await session.execute(
+                select(Group).where(Group.telegram_group_id == message.chat.id)
+            )
+            group = result.scalar_one_or_none()
+
+            if not group:
+                await message.answer("❗ Bu guruh ro'yxatda topilmadi.")
+                return
+
+            member_res = await session.execute(
+                select(GroupMember).where(
+                    GroupMember.group_id == group.id,
+                    GroupMember.user_id == user.id,
+                )
+            )
+            member = member_res.scalar_one_or_none()
+
+            if not member:
+                await message.answer("❗ Siz bu guruh a'zosi emassiz.")
+                return
+
+            await session.delete(member)
+
+            # Kompaniya a'zoligini ham olib tashlaymiz (agar faqat shu guruh orqali qo'shilgan bo'lsa)
+            if group.company_id:
+                other_groups = await session.execute(
+                    select(GroupMember).where(
+                        GroupMember.user_id == user.id,
+                        GroupMember.group_id != group.id,
+                    )
+                )
+                other = other_groups.scalars().all()
+                if not other:
+                    await session.execute(
+                        sql_delete(CompanyMember).where(
+                            CompanyMember.company_id == group.company_id,
+                            CompanyMember.user_id == user.id,
+                        )
+                    )
+
+            await session.commit()
+
+        await message.answer(
+            f"✅ Siz <b>{group.name}</b> guruhidan muvaffaqiyatli chiqdingiz.",
+        )
+        return
+
+    # Private chatda — barcha guruhlarini ko'rsatadi, tanlash uchun
+    async with get_session() as session:
+        groups = await GroupService.get_user_groups(session, user.id)
+
+    if not groups:
+        await message.answer("❗ Siz hech qanday guruhga a'zo emassiz.")
+        return
+
+    builder = InlineKeyboardBuilder()
+    for g in groups:
+        builder.button(
+            text=f"🚪 {g.name}",
+            callback_data=f"leave_group:{g.id}",
+        )
+    builder.adjust(1)
+    builder.button(text="❌ Bekor qilish", callback_data="cancel")
+
+    await message.answer(
+        "🚪 <b>Qaysi guruhdan chiqmoqchisiz?</b>\n\n"
+        "⚠️ Guruhdan chiqsangiz, shu guruh vazifalarini ko'ra olmaysiz.",
+        reply_markup=builder.as_markup(),
+    )
+
+
+@router.callback_query(F.data.startswith("leave_group:"))
+async def cb_leave_group(callback: CallbackQuery, user: User) -> None:
+    """Guruhdan chiqish tasdiqlash"""
+    from sqlalchemy import delete as sql_delete
+
+    group_id = int(callback.data.split(":")[1])
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Ha, chiqaman", callback_data=f"leave_group_confirm:{group_id}")
+    builder.button(text="❌ Yo'q", callback_data="cancel")
+    builder.adjust(2)
+
+    async with get_session() as session:
+        result = await session.execute(select(Group).where(Group.id == group_id))
+        group = result.scalar_one_or_none()
+
+    await callback.message.edit_text(
+        f"❓ <b>{group.name if group else 'Guruh'}</b> guruhidan chiqishni tasdiqlaysizmi?\n\n"
+        "Bu guruhning vazifalari sizga ko'rinmay qoladi.",
+        reply_markup=builder.as_markup(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("leave_group_confirm:"))
+async def cb_leave_group_confirm(callback: CallbackQuery, user: User) -> None:
+    """Guruhdan chiqishni amalga oshirish"""
+    from sqlalchemy import delete as sql_delete
+
+    group_id = int(callback.data.split(":")[1])
+
+    async with get_session() as session:
+        result = await session.execute(select(Group).where(Group.id == group_id))
+        group = result.scalar_one_or_none()
+
+        if not group:
+            await callback.answer("Guruh topilmadi.", show_alert=True)
+            return
+
+        member_res = await session.execute(
+            select(GroupMember).where(
+                GroupMember.group_id == group_id,
+                GroupMember.user_id == user.id,
+            )
+        )
+        member = member_res.scalar_one_or_none()
+
+        if not member:
+            await callback.answer("Siz bu guruh a'zosi emassiz.", show_alert=True)
+            return
+
+        await session.delete(member)
+
+        if group.company_id:
+            await session.execute(
+                sql_delete(CompanyMember).where(
+                    CompanyMember.company_id == group.company_id,
+                    CompanyMember.user_id == user.id,
+                )
+            )
+
+        # Get remaining members to notify
+        remaining_res = await session.execute(
+            select(GroupMember).where(
+                GroupMember.group_id == group_id,
+                GroupMember.user_id != user.id,
+            )
+        )
+        remaining_members = remaining_res.scalars().all()
+
+        await session.commit()
+        group_name = group.name
+
+    await callback.message.edit_text(
+        f"✅ Siz <b>{group_name}</b> guruhidan chiqdingiz.\n\n"
+        "Guruh vazifalari ro'yxatdan olib tashlandi."
+    )
+    await callback.answer()
+
+    # Notify remaining members
+    notify_text = (
+        f"🚪 <b>{user.full_name}</b> "
+        f"<b>{group_name}</b> guruhidan chiqdi."
+    )
+    for rem in remaining_members:
+        try:
+            await callback.bot.send_message(
+                rem.user_id,
+                notify_text,
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass

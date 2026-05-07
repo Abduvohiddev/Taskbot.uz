@@ -3,6 +3,7 @@ Inline klaviaturalar - barcha tugmalar
 """
 from typing import List, Optional
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -32,7 +33,7 @@ def main_menu_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
     if settings.WEBAPP_URL:
         builder.row(InlineKeyboardButton(
             text=t("menu.open_app", lang),
-            web_app=WebAppInfo(url=settings.WEBAPP_URL),
+            web_app=WebAppInfo(url=f"{settings.WEBAPP_URL.rstrip('/')}/?v=67"),
         ))
 
     builder.button(text=t("menu.newtask", lang), callback_data="menu:newtask")
@@ -41,10 +42,11 @@ def main_menu_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
     builder.button(text=t("menu.overdue", lang), callback_data="menu:overdue")
     builder.button(text=t("menu.companies", lang), callback_data="menu:companies")
     builder.button(text=t("menu.groups", lang), callback_data="menu:groups")
+    builder.button(text="📨 Taklif havolasi", callback_data="menu:invite")
     builder.button(text=t("menu.settings", lang), callback_data="menu:settings")
 
-    # WebApp + 2x2 + 2 + 1
-    builder.adjust(1, 2, 2, 2, 1)
+    # WebApp + 2x2 + 2 + 1 + 1
+    builder.adjust(1, 2, 2, 2, 1, 1)
     return builder.as_markup()
 
 
@@ -78,8 +80,8 @@ def priority_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🟢 Past", callback_data="priority:low")
     builder.button(text="🟡 O'rta", callback_data="priority:medium")
-    builder.button(text="🟠 Yuqori", callback_data="priority:high")
-    builder.button(text="🔴 Juda muhim", callback_data="priority:urgent")
+    builder.button(text="🟠 Muhum", callback_data="priority:high")
+    builder.button(text="🔴 Juda muhum", callback_data="priority:urgent")
     builder.button(text="❌ Bekor qilish", callback_data="cancel")
     builder.adjust(2, 2, 1)
     return builder.as_markup()
@@ -87,7 +89,8 @@ def priority_keyboard() -> InlineKeyboardMarkup:
 
 def deadline_keyboard() -> InlineKeyboardMarkup:
     """Deadline tanlash - tez variantlar"""
-    now = datetime.now()
+    _TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
+    now = datetime.now(_TZ)
     builder = InlineKeyboardBuilder()
     
     today_evening = now.replace(hour=18, minute=0)
@@ -124,19 +127,62 @@ def assignee_keyboard(members: List, include_self: bool = True) -> InlineKeyboar
     return builder.as_markup()
 
 
-def multi_assignee_keyboard(members: List, selected_ids: Optional[List[int]] = None) -> InlineKeyboardMarkup:
-    """Bir nechta ijrochi tanlash (toggle)"""
+def multi_assignee_keyboard(
+    members: List,
+    selected_ids: Optional[List[int]] = None,
+    external: Optional[List[dict]] = None,   # [{id, name}]
+) -> InlineKeyboardMarkup:
+    """Bir nechta ijrochi tanlash (toggle) + boshqa guruhdan qo'shish"""
     selected = set(selected_ids or [])
+    all_ext = external or []
+    ext_ids = {e["id"] for e in all_ext}
     builder = InlineKeyboardBuilder()
+
+    # Asosiy guruh a'zolari
     for member in members:
-        user = member.user if hasattr(member, 'user') else member
-        mark = "✅ " if user.id in selected else "☐ "
+        u = member.user if hasattr(member, 'user') else member
+        mark = "✅ " if u.id in selected else "☐ "
+        builder.button(text=f"{mark}{u.full_name}", callback_data=f"assign_toggle:{u.id}")
+
+    # Tashqi guruhdan qo'shilganlar
+    for ext in all_ext:
         builder.button(
-            text=f"{mark}{user.full_name}",
-            callback_data=f"assign_toggle:{user.id}",
+            text=f"✅ {ext['name']} 🔗",
+            callback_data=f"assign_toggle_ext:{ext['id']}",
         )
+
+    builder.button(text="➕ Boshqa guruhdan qo'shish", callback_data="afg")
     builder.button(text="✔️ Tayyor", callback_data="assign_done")
     builder.button(text="❌ Bekor qilish", callback_data="cancel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def group_picker_keyboard(companies: List, groups: List, exclude_company_id=None) -> InlineKeyboardMarkup:
+    """Boshqa guruh/kompaniyani tanlash klaviaturasi"""
+    builder = InlineKeyboardBuilder()
+    for c in companies:
+        if exclude_company_id and c.id == exclude_company_id:
+            continue
+        builder.button(text=f"🏢 {c.name}", callback_data=f"afg_c:{c.id}")
+    for g in groups:
+        builder.button(text=f"👥 {g.name}", callback_data=f"afg_g:{g.id}")
+    builder.button(text="📨 Taklif havolasi yuborish", callback_data="afg_invite")
+    builder.button(text="‹ Orqaga", callback_data="afg_back")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def ext_members_keyboard(members: List, already_ids: set) -> InlineKeyboardMarkup:
+    """Tashqi guruh a'zolarini ko'rsatish"""
+    builder = InlineKeyboardBuilder()
+    for member in members:
+        u = member.user if hasattr(member, 'user') else member
+        if u.id in already_ids:
+            builder.button(text=f"✅ {u.full_name}", callback_data=f"afg_noop")
+        else:
+            builder.button(text=f"➕ {u.full_name}", callback_data=f"afg_add:{u.id}")
+    builder.button(text="‹ Orqaga", callback_data="afg_back")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -182,11 +228,25 @@ def task_actions_keyboard(task: Task, user_role: UserRole, is_assignee: bool = F
     
     builder.button(text="💬 Izohlar", callback_data=f"task_comments:{task.id}")
     builder.button(text="📝 Tarix", callback_data=f"task_history:{task.id}")
-    
+
+    # Mediya tugmasi — faqat attachmentlar bo'lsa ko'rsatiladi
+    if task.attachments:
+        media_count = len(task.attachments)
+        builder.button(
+            text=f"🖼 Mediya ({media_count})",
+            callback_data=f"task_media:{task.id}"
+        )
+
+    # Sub-task tugmalari
+    if task.subtasks:
+        builder.button(text=f"📂 Sub-tasklar ({len(task.subtasks)})", callback_data=f"subtask_list:{task.id}")
+    if user_role in (UserRole.ADMIN, UserRole.MANAGER) and not task.parent_id:
+        builder.button(text="📂➕ Sub-task qo'shish", callback_data=f"subtask_add:{task.id}")
+
     if user_role in (UserRole.ADMIN, UserRole.MANAGER):
         builder.button(text="✏️ Tahrirlash", callback_data=f"task_edit:{task.id}")
         builder.button(text="🗑 O'chirish", callback_data=f"task_delete:{task.id}")
-    
+
     builder.button(text="🔙 Orqaga", callback_data="menu:mytasks")
     builder.adjust(2)
     return builder.as_markup()

@@ -11,16 +11,16 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from aiogram.fsm.storage.redis import RedisStorage
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     ErrorEvent, BotCommand, BotCommandScopeDefault,
+    BotCommandScopeAllGroupChats,
     MenuButtonWebApp, MenuButtonDefault, WebAppInfo,
 )
-from redis.asyncio import Redis
 
 from config import settings
 from database.db import init_db, close_db
-from handlers import start, tasks, groups, stats, admin, common, company, ai_handler, workflow
+from handlers import start, tasks, groups, stats, admin, common, company, workflow
 from middlewares.auth import AuthMiddleware
 from middlewares.throttling import ThrottlingMiddleware
 from utils.scheduler import setup_scheduler, shutdown_scheduler
@@ -67,13 +67,29 @@ async def on_startup(bot: Bot) -> None:
     except Exception as e:
         logger.warning(f"Buyruqlarni ro'yxatga olib bo'lmadi: {e}")
 
+    # Guruh chatlari uchun buyruqlar (+ tugmasida ko'rinadi)
+    group_commands = [
+        BotCommand(command="newtask", description="➕ Yangi vazifa yaratish (Mini App)"),
+        BotCommand(command="mytasks", description="📋 Mening vazifalarim"),
+        BotCommand(command="alltasks", description="📑 Guruh vazifalari"),
+        BotCommand(command="stats", description="📊 Statistika"),
+        BotCommand(command="overdue", description="⏰ Kechikkan vazifalar"),
+        BotCommand(command="leavegroup", description="🚪 Guruhdan chiqish"),
+        BotCommand(command="help", description="❓ Yordam"),
+    ]
+    try:
+        await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
+        logger.info("Guruh buyruqlari ro'yxatga olindi")
+    except Exception as e:
+        logger.warning(f"Guruh buyruqlarini ro'yxatga olib bo'lmadi: {e}")
+
     # Chat bar menyu tugmasi — WebApp
     if settings.WEBAPP_URL:
         try:
             await bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(
                     text="🚀 Ochish",
-                    web_app=WebAppInfo(url=settings.WEBAPP_URL),
+                    web_app=WebAppInfo(url=f"{settings.WEBAPP_URL.rstrip('/')}/?v=67"),
                 )
             )
             logger.info(f"WebApp menu tugma o'rnatildi: {settings.WEBAPP_URL}")
@@ -100,9 +116,8 @@ async def on_shutdown(bot: Bot) -> None:
 
 async def main() -> None:
     """Asosiy funksiya - Bot + API server"""
-    redis = Redis.from_url(settings.REDIS_URL)
-    storage = RedisStorage(redis=redis)
-    
+    storage = MemoryStorage()
+
     bot = Bot(
         token=settings.BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
@@ -151,7 +166,6 @@ async def main() -> None:
     dp.include_router(stats.router)
     dp.include_router(admin.router)
     dp.include_router(common.router)      # ⚙️ Sozlamalar va boshqa aniq matnlar
-    dp.include_router(ai_handler.router)  # AI fallback — eng oxirida
     
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
@@ -170,7 +184,6 @@ async def main() -> None:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         await runner.cleanup()
-        await redis.close()
 
 
 if __name__ == "__main__":

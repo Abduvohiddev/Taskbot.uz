@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TaskBot</title>
-    <link rel="stylesheet" href="/css/style.css?v=v23">
+    <link rel="stylesheet" href="/css/style.css?v=v79&t=1779200000">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
@@ -23,21 +23,141 @@
         <!-- Header -->
         <header class="header">
             <div class="header-content">
-                <div class="header-left">
-                    <div class="avatar" id="user-avatar">A</div>
-                    <div class="header-info">
-                        <h1 class="header-name" id="user-name">TaskBot</h1>
-                        <p class="header-subtitle" id="user-stats" data-i18n="app.header.subtitle">Vazifalar boshqaruvi</p>
-                    </div>
+                <!-- LEFT: hamburger OR back button (only one visible at a time) -->
+                <button class="hamburger-btn" id="hamburger-btn" onclick="openSidebar()" aria-label="Menu">
+                    <span></span><span></span><span></span>
+                </button>
+                <button class="back-btn hidden" id="back-btn" onclick="goBack()" aria-label="Orqaga">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+                </button>
+                <!-- CENTER: page title -->
+                <div class="header-center">
+                    <h1 class="header-title" id="header-title">Vazifalar</h1>
                 </div>
+                <!-- RIGHT: workspace select + avatar -->
                 <div class="header-right">
                     <select id="workspace-select" class="workspace-select" onchange="changeWorkspace()">
-                        <option value="all" data-i18n="app.workspace.all">🌍 Hammasi</option>
-                        <option value="personal" data-i18n="app.workspace.personal">👤 Shaxsiy</option>
+                        <option value="all">🌍 Hammasi</option>
+                        <option value="personal">👤 Shaxsiy</option>
                     </select>
+                    <div class="avatar" id="user-avatar">A</div>
                 </div>
             </div>
         </header>
+
+        <!-- Ghost nav: JS tab tizimi uchun kerak, ko'rinmaydi -->
+        <div style="position:absolute;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none" aria-hidden="true">
+            <button class="bnav-btn" data-tab="tasks"></button>
+            <button class="bnav-btn" data-tab="calendar"></button>
+            <button class="bnav-btn" data-tab="create"></button>
+            <button class="bnav-btn" data-tab="kanban"></button>
+            <button class="bnav-btn" data-tab="stats"></button>
+            <button class="bnav-btn" data-tab="priority"></button>
+        </div>
+
+        <!-- Floating Add Button -->
+        <button class="fab-create" onclick="switchTab('create')" aria-label="Vazifa qo'shish">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+
+        <!-- Sidebar overlay -->
+        <div class="sidebar-overlay hidden" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+        <!-- Sidebar drawer -->
+        <div class="sidebar hidden" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-profile">
+                    <div class="sb-avatar" id="sb-avatar">A</div>
+                    <div class="sb-info">
+                        <div class="sb-name" id="sb-name">Foydalanuvchi</div>
+                        <div class="sb-sub" id="sb-sub">@username</div>
+                    </div>
+                </div>
+                <button class="sidebar-close" onclick="closeSidebar()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="sb-item active" onclick="closeSidebar();switchTab('tasks')">
+                    <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></span>
+                    <span>Vazifalarim</span>
+                </button>
+                <button class="sb-item" onclick="closeSidebar();switchTab('kanban')">
+                    <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="11" rx="1"/><rect x="17" y="3" width="5" height="15" rx="1"/></svg></span>
+                    <span>Kanban</span>
+                </button>
+                <button class="sb-item" onclick="closeSidebar();switchTab('calendar')">
+                    <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                    <span>Kalendar</span>
+                </button>
+                <button class="sb-item" onclick="closeSidebar();switchTab('stats')">
+                    <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
+                    <span>Statistika</span>
+                </button>
+                <div class="sb-divider"></div>
+                <button class="sb-item" onclick="openTeamsPanel()">
+                    <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span>
+                    <span>Jamoalar & Guruhlar</span>
+                    <span class="sb-badge" id="sb-companies-count"></span>
+                </button>
+                <button class="sb-item" onclick="openSettingsPanel()">
+                    <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
+                    <span>Sozlamalar</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- Teams Panel (companies + telegram groups) -->
+        <div class="side-panel hidden" id="companies-panel">
+            <div class="sp-header">
+                <button class="sp-back" onclick="closeCompaniesPanel()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Orqaga</button>
+                <span class="sp-title">🏢 Jamoalar & Guruhlar</span>
+            </div>
+            <div class="sp-body" id="companies-list">
+                <div class="sp-loading">⏳ Yuklanmoqda...</div>
+            </div>
+        </div>
+
+        <!-- Company/Team Detail Panel -->
+        <div class="side-panel hidden" id="company-detail-panel">
+            <div class="sp-header">
+                <button class="sp-back" onclick="closeCompanyDetail()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Orqaga</button>
+                <span class="sp-title" id="company-detail-name">Jamoa</span>
+                <button class="sp-action-btn hidden" id="company-edit-btn" onclick="toggleCompanyEdit()">✏️</button>
+            </div>
+            <div class="sp-body" id="company-detail-body"></div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div class="side-panel hidden" id="settings-panel">
+            <div class="sp-header">
+                <button class="sp-back" onclick="closeSettingsPanel()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Orqaga</button>
+                <span class="sp-title">⚙️ Sozlamalar</span>
+            </div>
+            <div class="sp-body">
+                <div class="settings-section">
+                    <div class="settings-label">🌐 Til</div>
+                    <div class="settings-lang-row">
+                        <button class="lang-btn" data-lang="uz" onclick="setAppLanguage('uz')">🇺🇿 O'zbek</button>
+                        <button class="lang-btn" data-lang="ru" onclick="setAppLanguage('ru')">🇷🇺 Русский</button>
+                        <button class="lang-btn" data-lang="en" onclick="setAppLanguage('en')">🇬🇧 English</button>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-label">📱 Mini App</div>
+                    <div class="settings-info-row">
+                        <span>Versiya</span>
+                        <span class="settings-val">v63</span>
+                    </div>
+                    <div class="settings-info-row">
+                        <span>Bot</span>
+                        <span class="settings-val">@task_cardinar_bot</span>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-label">🌐 Veb-sayt</div>
+                    <a href="https://taskbot.uz" target="_blank" class="settings-link-btn">taskbot.uz →</a>
+                </div>
+            </div>
+        </div>
 
         <!-- Quick Stats -->
         <div class="quick-stats" id="quick-stats">
@@ -62,42 +182,66 @@
 
         <!-- Tab Content -->
         <div class="tab-content">
-            <!-- Tasks Tab -->
+            <!-- Tasks Tab (Oddiy + Ketma-ketlik) -->
             <div class="tab-pane active" id="tab-tasks">
-                <!-- Filter chips -->
-                <div class="filter-chips">
-                    <button class="chip active" data-filter="active" data-i18n="app.filter.active">⚡ Faol</button>
-                    <button class="chip" data-filter="all" data-i18n="app.filter.all">📋 Barchasi</button>
-                    <button class="chip" data-filter="done" data-i18n="app.filter.done">✅ Bajarilgan</button>
-                    <button class="chip" data-filter="overdue" data-i18n="app.filter.overdue">⏰ Kechikkan</button>
+                <!-- Sub-tab toggle -->
+                <div class="tasks-subtab-bar">
+                    <button class="tasks-subtab active" id="subtab-regular" onclick="switchTasksSubtab('regular')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Oddiy vazifalar
+                    </button>
+                    <button class="tasks-subtab" id="subtab-workflow" onclick="switchTasksSubtab('workflow')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg> Ketma-ketlik
+                    </button>
                 </div>
 
-                <div class="task-list" id="task-list">
-                    <!-- Tasks will be rendered here -->
+                <!-- Regular tasks panel -->
+                <div id="panel-regular">
+                    <div class="filter-chips">
+                        <button class="chip active" data-filter="active" data-i18n="app.filter.active"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Faol</button>
+                        <button class="chip" data-filter="all" data-i18n="app.filter.all"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> Barchasi</button>
+                        <button class="chip" data-filter="done" data-i18n="app.filter.done"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg> Bajarilgan</button>
+                        <button class="chip" data-filter="overdue" data-i18n="app.filter.overdue"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Kechikkan</button>
+                    </div>
+                    <div class="task-list" id="task-list"></div>
+                    <div class="empty-state hidden" id="empty-tasks">
+                        <div class="empty-icon">📋</div>
+                        <h3 data-i18n="app.empty.title">Vazifalar yo'q</h3>
+                        <p data-i18n="app.empty.desc">Yangi vazifa yaratish uchun + tugmasini bosing</p>
+                    </div>
                 </div>
 
-                <div class="empty-state hidden" id="empty-tasks">
-                    <div class="empty-icon">📋</div>
-                    <h3 data-i18n="app.empty.title">Vazifalar yo'q</h3>
-                    <p data-i18n="app.empty.desc">Yangi vazifa yaratish uchun "Yaratish" tabini bosing</p>
+                <!-- Workflow (Ketma-ketlik) panel -->
+                <div id="panel-workflow" class="hidden">
+                    <div class="wf-filter-chips">
+                        <button class="chip active" data-wf-filter="all"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> Barchasi</button>
+                        <button class="chip" data-wf-filter="me"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Mening navbatim</button>
+                        <button class="chip" data-wf-filter="active"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg> Aktiv</button>
+                        <button class="chip" data-wf-filter="done"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg> Tugagan</button>
+                    </div>
+                    <div id="workflow-list" class="workflow-list">
+                        <div class="wf-empty">⏳ Yuklanmoqda...</div>
+                    </div>
+                    <div class="wf-tip">
+                        💡 Yangi ketma-ketlik yaratish: bot'da <code>/newworkflow</code>
+                    </div>
                 </div>
             </div>
 
             <!-- Create Tab -->
             <div class="tab-pane" id="tab-create">
                 <div class="create-form">
-                    <h2 class="form-title" data-i18n="app.create.title">➕ Yangi vazifa</h2>
+                    <h2 class="form-title" data-i18n="app.create.title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Yangi vazifa</h2>
 
                     <!-- Task Type Selector -->
                     <div class="form-group">
                         <label class="form-label" data-i18n="app.create.type">Vazifa turi</label>
                         <div class="task-type-selector">
                             <button class="task-type-btn selected" data-type="regular" onclick="selectTaskType('regular')">
-                                <span class="task-type-icon">📝</span>
+                                <span class="task-type-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
                                 <span class="task-type-text" data-i18n="app.create.regular">Oddiy task</span>
                             </button>
                             <button class="task-type-btn" data-type="workflow" onclick="selectTaskType('workflow')">
-                                <span class="task-type-icon">🔗</span>
+                                <span class="task-type-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></span>
                                 <span class="task-type-text" data-i18n="app.create.workflow">Workflow</span>
                             </button>
                         </div>
@@ -128,16 +272,27 @@
                     <div class="form-group">
                         <label class="form-label" data-i18n="app.create.priority">Muhimlik</label>
                         <div class="priority-selector" id="priority-selector">
-                            <button class="priority-btn" data-priority="low" data-i18n="app.priority.low">🟢 Past</button>
-                            <button class="priority-btn selected" data-priority="medium" data-i18n="app.priority.medium">🟡 O'rta</button>
-                            <button class="priority-btn" data-priority="high" data-i18n="app.priority.high">🟠 Yuqori</button>
-                            <button class="priority-btn" data-priority="urgent" data-i18n="app.priority.urgent">🔴 Muhim</button>
+                            <button class="priority-btn" data-priority="low" data-i18n="app.priority.low"><svg width="12" height="12" viewBox="0 0 24 24" fill="#22c55e" stroke="none"><circle cx="12" cy="12" r="8"/></svg> Past</button>
+                            <button class="priority-btn selected" data-priority="medium" data-i18n="app.priority.medium"><svg width="12" height="12" viewBox="0 0 24 24" fill="#eab308" stroke="none"><circle cx="12" cy="12" r="8"/></svg> O'rta</button>
+                            <button class="priority-btn" data-priority="high" data-i18n="app.priority.high"><svg width="12" height="12" viewBox="0 0 24 24" fill="#f97316" stroke="none"><circle cx="12" cy="12" r="8"/></svg> Yuqori</button>
+                            <button class="priority-btn" data-priority="urgent" data-i18n="app.priority.urgent"><svg width="12" height="12" viewBox="0 0 24 24" fill="#ef4444" stroke="none"><circle cx="12" cy="12" r="8"/></svg> Muhim</button>
                         </div>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label" data-i18n="app.create.deadline">Deadline</label>
-                        <input type="datetime-local" class="form-input" id="task-deadline">
+                        <button type="button" class="dl-picker-btn" id="dl-picker-btn" onclick="openDeadlinePicker()">
+                            <span class="dl-picker-icon">📅</span>
+                            <span class="dl-picker-text" id="dl-picker-text">Sana va vaqt tanlang</span>
+                            <span class="dl-picker-clear hidden" id="dl-picker-clear" onclick="event.stopPropagation();clearDeadline()">✕</span>
+                        </button>
+                        <input type="hidden" id="task-deadline">
+                        <!-- Quick presets -->
+                        <div class="dl-quick-row">
+                            <button type="button" class="dl-quick-btn" onclick="setQuickDeadline('today')">Bugun 18:00</button>
+                            <button type="button" class="dl-quick-btn" onclick="setQuickDeadline('tomorrow')">Ertaga 12:00</button>
+                            <button type="button" class="dl-quick-btn" onclick="setQuickDeadline('week')">Hafta oxiri</button>
+                        </div>
                     </div>
 
                     <!-- Workflow Steps (hidden by default) -->
@@ -145,18 +300,24 @@
                         <label class="form-label" data-i18n="app.create.steps">🪜 Qadamlar</label>
                         <div id="workflow-steps-list" class="workflow-steps-list"></div>
                         <button type="button" class="btn-add-step" onclick="addWorkflowStep()" data-i18n="app.create.add_step">
-                            ➕ Qadam qo'shish
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Qadam qo'shish
                         </button>
                     </div>
 
                     <div class="form-group hidden" id="assignees-group">
-                        <label class="form-label" data-i18n="app.create.assignees">Ijrochilar (kimga biriktiriladi)</label>
+                        <label class="form-label">👥 Ijrochilar</label>
                         <div class="assignees-list" id="assignees-list"></div>
-                        <div class="form-hint" id="assignees-hint" data-i18n="app.create.assignees_hint">Kamida bitta xodim tanlang</div>
+                        <div class="form-hint" id="assignees-hint">Kamida bitta xodim tanlang</div>
+                    </div>
+
+                    <!-- Mas'ul shaxs -->
+                    <div class="form-group hidden" id="responsible-group">
+                        <label class="form-label">⭐ Mas'ul shaxs</label>
+                        <div id="resp-display"></div>
                     </div>
 
                     <button class="btn-create" id="btn-create-task" onclick="createTask()">
-                        <span class="btn-text" data-i18n="app.create.submit">✅ Vazifa yaratish</span>
+                        <span class="btn-text" data-i18n="app.create.submit"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg> Vazifa yaratish</span>
                         <span class="btn-loading hidden" data-i18n="app.create.submitting">⏳ Yaratilmoqda...</span>
                     </button>
                 </div>
@@ -199,6 +360,70 @@
                 </div>
             </div>
 
+            <!-- Kanban Tab -->
+            <div class="tab-pane" id="tab-kanban">
+                <div class="kanban-wrap">
+                    <!-- Member filter bar -->
+                    <div class="kanban-member-bar" id="kanban-member-bar"></div>
+
+                    <!-- Column tabs (click or sync with scroll) -->
+                    <div class="kanban-col-tabs" id="kanban-col-tabs">
+                        <div class="kct-tab kct-new active" data-col="new" onclick="kanbanScrollTo('new')">
+                            <span class="kct-icon">🆕</span>
+                            <span class="kct-count" id="kanban-count-new">0</span>
+                            <span>Yangi</span>
+                        </div>
+                        <div class="kct-tab kct-progress" data-col="in_progress" onclick="kanbanScrollTo('in_progress')">
+                            <span class="kct-icon">⚙️</span>
+                            <span class="kct-count" id="kanban-count-in_progress">0</span>
+                            <span>Jarayonda</span>
+                        </div>
+                        <div class="kct-tab kct-review" data-col="review" onclick="kanbanScrollTo('review')">
+                            <span class="kct-icon">🔍</span>
+                            <span class="kct-count" id="kanban-count-review">0</span>
+                            <span>Ko'rilmoqda</span>
+                        </div>
+                        <div class="kct-tab kct-done" data-col="done" onclick="kanbanScrollTo('done')">
+                            <span class="kct-icon">✅</span>
+                            <span class="kct-count" id="kanban-count-done">0</span>
+                            <span>Bajarildi</span>
+                        </div>
+                    </div>
+
+                    <!-- Swipe board -->
+                    <div class="kanban-board" id="kanban-board">
+                        <div class="kanban-col" id="kanban-new" ondragover="_kbDragOver(event,'new')" ondrop="_kbDrop(event,'new')" ondragleave="_kbDragLeave(event)">
+                            <div class="kanban-col-header kanban-new-h">
+                                <span>🆕 Yangi</span>
+                                <span class="kanban-col-count" id="kanban-count-new2">0</span>
+                            </div>
+                            <div class="kanban-cards" id="kanban-cards-new"></div>
+                        </div>
+                        <div class="kanban-col" id="kanban-in_progress" ondragover="_kbDragOver(event,'in_progress')" ondrop="_kbDrop(event,'in_progress')" ondragleave="_kbDragLeave(event)">
+                            <div class="kanban-col-header kanban-progress-h">
+                                <span>⚙️ Jarayonda</span>
+                                <span class="kanban-col-count" id="kanban-count-in_progress2">0</span>
+                            </div>
+                            <div class="kanban-cards" id="kanban-cards-in_progress"></div>
+                        </div>
+                        <div class="kanban-col" id="kanban-review" ondragover="_kbDragOver(event,'review')" ondrop="_kbDrop(event,'review')" ondragleave="_kbDragLeave(event)">
+                            <div class="kanban-col-header kanban-review-h">
+                                <span>🔍 Ko'rilmoqda</span>
+                                <span class="kanban-col-count" id="kanban-count-review2">0</span>
+                            </div>
+                            <div class="kanban-cards" id="kanban-cards-review"></div>
+                        </div>
+                        <div class="kanban-col" id="kanban-done" ondragover="_kbDragOver(event,'done')" ondrop="_kbDrop(event,'done')" ondragleave="_kbDragLeave(event)">
+                            <div class="kanban-col-header kanban-done-h">
+                                <span>✅ Bajarildi</span>
+                                <span class="kanban-col-count" id="kanban-count-done2">0</span>
+                            </div>
+                            <div class="kanban-cards" id="kanban-cards-done"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Priority Tab -->
             <div class="tab-pane" id="tab-priority">
                 <div class="priority-header">
@@ -208,31 +433,11 @@
                 <div id="priority-list"></div>
             </div>
 
-            <!-- Workflow Tab -->
-            <div class="tab-pane" id="tab-workflow">
-                <div class="wf-header">
-                    <h2>🔗 Workflow vazifalar</h2>
-                    <p class="wf-sub">Ketma-ket bajariladigan vazifalar — kim qayerda turibdi</p>
-                </div>
-                <div class="wf-filter-chips">
-                    <button class="chip active" data-wf-filter="all">📋 Barchasi</button>
-                    <button class="chip" data-wf-filter="me">🙋 Mening navbatim</button>
-                    <button class="chip" data-wf-filter="active">🔄 Aktiv</button>
-                    <button class="chip" data-wf-filter="done">✅ Tugagan</button>
-                </div>
-                <div id="workflow-list" class="workflow-list">
-                    <div class="wf-empty">⏳ Yuklanmoqda...</div>
-                </div>
-                <div class="wf-tip">
-                    💡 Yangi workflow yaratish uchun bot'da: <code>/newworkflow</code>
-                </div>
-            </div>
-
             <!-- Stats Tab -->
             <div class="tab-pane" id="tab-stats">
                 <div class="stats-container" id="stats-container">
                     <div class="stats-header">
-                        <h2>📊 Statistikangiz</h2>
+                        <h2 id="stats-tab-title">📊 Statistikangiz</h2>
                         <p class="stats-period">Oxirgi 30 kun</p>
                     </div>
 
@@ -346,82 +551,123 @@
         <span id="toast-message">Muvaffaqiyatli!</span>
     </div>
 
-    <!-- AI Chat floating button -->
-    <button class="ai-fab" id="ai-fab" onclick="openAiChat()" aria-label="AI chat">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-        </svg>
-        <span class="ai-fab-label">AI</span>
-    </button>
-
-    <!-- AI Chat modal -->
-    <div class="ai-chat-overlay hidden" id="ai-chat-overlay">
-        <div class="ai-chat">
-            <div class="ai-chat-header">
-                <div class="ai-chat-title">
-                    <span class="ai-chat-avatar">🤖</span>
-                    <div>
-                        <div class="ai-chat-name">AI Yordamchi</div>
-                        <div class="ai-chat-sub">Vazifa yarating, ro'yxat oling, boshqaring</div>
-                    </div>
-                </div>
-                <div style="display:flex;align-items:center;gap:6px">
-                    <button class="ai-chat-clear" onclick="clearAiChat()" title="Tozalash">🗑</button>
-                    <button class="ai-chat-close" onclick="closeAiChat()">&times;</button>
-                </div>
+    <!-- Group Picker Sheet (boshqa guruhdan qo'shish) -->
+    <div class="gp-overlay hidden" id="group-picker-sheet" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="gp-sheet">
+            <div class="gp-sheet-header">
+                <span class="gp-sheet-title">🏢 Guruhni tanlang</span>
+                <button class="gp-close-btn" onclick="document.getElementById('group-picker-sheet').classList.add('hidden')">✕</button>
             </div>
-            <div class="ai-chat-messages" id="ai-chat-messages">
-                <div class="ai-msg ai-msg-bot">
-                    Salom! Men TaskBot AI yordamchisiman. Menga vazifa yarating, ro'yxat so'rang yoki savol bering. 🎯
-                </div>
-            </div>
-            <div class="ai-chat-input-wrap">
-                <textarea id="ai-chat-input" class="ai-chat-input"
-                          placeholder="Xabar yozing..." rows="1"
-                          onkeydown="aiChatKey(event)"></textarea>
-                <button class="ai-chat-send" id="ai-chat-send" onclick="sendAiMessage()">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <line x1="22" y1="2" x2="11" y2="13"/>
-                        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                    </svg>
-                </button>
+            <div class="gp-sheet-body" id="group-picker-list">
+                <!-- Populated by openGroupPickerSheet() -->
             </div>
         </div>
     </div>
 
-    <!-- Bottom Navigation Bar -->
-    <nav class="bottom-nav" id="bottom-nav">
-        <button class="bnav-btn active" data-tab="tasks" onclick="switchTab('tasks')">
-            <div class="bnav-icon">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+    <!-- Group Member Sheet -->
+    <div class="gp-overlay hidden" id="group-member-sheet" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="gp-sheet">
+            <div class="gp-sheet-header">
+                <button class="gp-back-btn" onclick="document.getElementById('group-member-sheet').classList.add('hidden');document.getElementById('group-picker-sheet').classList.remove('hidden')">‹ Orqaga</button>
+                <span class="gp-sheet-title" id="gm-sheet-title">A'zolar</span>
+                <button class="gp-close-btn" onclick="document.getElementById('group-member-sheet').classList.add('hidden')">✕</button>
             </div>
-            <span class="bnav-label" data-i18n="app.tab.tasks">Vazifalar</span>
-        </button>
-        <button class="bnav-btn" data-tab="calendar" onclick="switchTab('calendar')">
-            <div class="bnav-icon">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <div class="gp-sheet-body" id="gm-sheet-list">
+                <!-- Populated by openGroupMemberSheet() -->
             </div>
-            <span class="bnav-label" data-i18n="app.tab.calendar">Kalendar</span>
-        </button>
-        <button class="bnav-btn bnav-create" data-tab="create" onclick="switchTab('create')">
-            <div class="bnav-icon bnav-create-icon">
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            </div>
-        </button>
-        <button class="bnav-btn" data-tab="workflow" onclick="switchTab('workflow')">
-            <div class="bnav-icon">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><path d="M6 9v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9"/></svg>
-            </div>
-            <span class="bnav-label" data-i18n="app.tab.workflow">Workflow</span>
-        </button>
-        <button class="bnav-btn" data-tab="stats" onclick="switchTab('stats')">
-            <div class="bnav-icon">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-            </div>
-            <span class="bnav-label" data-i18n="app.tab.stats">Statistika</span>
-        </button>
-    </nav>
+        </div>
+    </div>
 
-    <script src="/js/app.js?v=v23"></script>
+    <!-- Responsible Sheet -->
+    <div class="gp-overlay hidden" id="resp-sheet" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="gp-sheet">
+            <div class="gp-sheet-header">
+                <span class="gp-sheet-title">⭐ Mas'ul shaxsni tanlang</span>
+                <button class="gp-close-btn" onclick="document.getElementById('resp-sheet').classList.add('hidden')">✕</button>
+            </div>
+            <div class="gp-sheet-body" id="resp-sheet-list">
+                <!-- Populated by openResponsibleSheet() -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Deadline Picker Sheet -->
+    <div class="gp-overlay hidden" id="dl-sheet" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="gp-sheet dl-sheet">
+            <div class="gp-sheet-header">
+                <span class="gp-sheet-title">📅 Deadline tanlash</span>
+                <button class="gp-close-btn" onclick="document.getElementById('dl-sheet').classList.add('hidden')">✕</button>
+            </div>
+            <div class="gp-sheet-body" style="padding:0 0 16px">
+                <!-- Selected date preview -->
+                <div class="dl-sel-preview" id="dl-sel-preview">
+                    <span class="dl-sel-icon">📅</span>
+                    <span class="dl-sel-text" id="dl-sel-text">Sana tanlanmagan</span>
+                </div>
+                <!-- Calendar -->
+                <div class="dl-cal-wrap">
+                    <div class="dl-cal-header">
+                        <button class="dl-cal-nav" onclick="dlCalNav(-1)">‹</button>
+                        <span class="dl-cal-month" id="dl-cal-month">April 2026</span>
+                        <button class="dl-cal-nav" onclick="dlCalNav(1)">›</button>
+                    </div>
+                    <div class="dl-cal-days-h"><span>Du</span><span>Se</span><span>Ch</span><span>Pa</span><span>Ju</span><span>Sh</span><span>Ya</span></div>
+                    <div class="dl-cal-grid" id="dl-cal-grid"></div>
+                </div>
+                <!-- Time wheel -->
+                <div class="dl-time-wrap">
+                    <div class="dl-time-label">⏰ Vaqt</div>
+                    <div class="dl-time-row">
+                        <div class="dl-time-col">
+                            <button class="dl-time-arrow" onclick="dlTimeNudge('h',1)">▲</button>
+                            <div class="dl-time-val" id="dl-hour">14</div>
+                            <button class="dl-time-arrow" onclick="dlTimeNudge('h',-1)">▼</button>
+                        </div>
+                        <span class="dl-time-sep">:</span>
+                        <div class="dl-time-col">
+                            <button class="dl-time-arrow" onclick="dlTimeNudge('m',5)">▲</button>
+                            <div class="dl-time-val" id="dl-min">00</div>
+                            <button class="dl-time-arrow" onclick="dlTimeNudge('m',-5)">▼</button>
+                        </div>
+                    </div>
+                    <div class="dl-time-presets">
+                        <button class="dl-time-pre" onclick="dlSetTime(9,0)">09:00</button>
+                        <button class="dl-time-pre" onclick="dlSetTime(12,0)">12:00</button>
+                        <button class="dl-time-pre" onclick="dlSetTime(15,0)">15:00</button>
+                        <button class="dl-time-pre" onclick="dlSetTime(18,0)">18:00</button>
+                        <button class="dl-time-pre" onclick="dlSetTime(21,0)">21:00</button>
+                    </div>
+                </div>
+                <div class="dl-foot">
+                    <button class="dl-btn-cancel" onclick="document.getElementById('dl-sheet').classList.add('hidden')">Bekor</button>
+                    <button class="dl-btn-ok" onclick="confirmDeadlinePicker()">✅ Tasdiqlash</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Invite Link Sheet -->
+    <div class="gp-overlay hidden" id="invite-sheet" onclick="if(event.target===this)this.classList.add('hidden')">
+        <div class="gp-sheet">
+            <div class="gp-sheet-header">
+                <span class="gp-sheet-title">📨 Taklif havolasi</span>
+                <button class="gp-close-btn" onclick="document.getElementById('invite-sheet').classList.add('hidden')">✕</button>
+            </div>
+            <div class="gp-sheet-body" style="padding:16px">
+                <p style="font-size:13px;color:var(--text2);margin-bottom:14px">
+                    Quyidagi havolani ulashing — odam botga o'tib, jamoangizga qo'shilishi mumkin:
+                </p>
+                <div class="invite-link-box">
+                    <span class="invite-link-text" id="invite-link-val">⏳ Yuklanmoqda...</span>
+                </div>
+                <div style="display:flex;gap:10px;margin-top:14px">
+                    <button class="gp-invite-btn" style="flex:1" onclick="copyInviteLink()">📋 Nusxalash</button>
+                    <button class="gp-invite-btn" style="flex:1;background:var(--accent);color:#fff" onclick="shareInviteLink()">📤 Ulashish</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/app.js?v=v74&t=1778700000"></script>
 </body>
 </html>

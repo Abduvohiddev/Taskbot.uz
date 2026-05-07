@@ -3,6 +3,7 @@ Tasks handler - vazifalar yaratish, ko'rish, status o'zgartirish
 """
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
@@ -11,12 +12,16 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from database.db import get_session
-from database.models import User, TaskStatus, Priority, UserRole, TaskAttachment
+from database.models import User, TaskStatus, Priority, UserRole, TaskAttachment, Company, Group
+from config import settings
+
+_TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
 from keyboards.inline import (
     priority_keyboard, deadline_keyboard, assignee_keyboard,
     multi_assignee_keyboard, workspace_picker_keyboard,
     task_actions_keyboard, task_list_keyboard, filter_tasks_keyboard,
     confirm_keyboard, cancel_keyboard, back_to_menu_keyboard,
+    group_picker_keyboard, ext_members_keyboard,
 )
 from services.task_service import TaskService
 from services.group_service import GroupService
@@ -42,6 +47,8 @@ class NewTaskStates(StatesGroup):
     waiting_workspace = State()
     waiting_assignee = State()
     waiting_multi_assignee = State()
+    waiting_responsible = State()     # Masul tanlash
+    waiting_subtask_title = State()   # Sub-task yaratish
 
 
 def _attach_prompt_text(files_count: int = 0) -> str:
@@ -350,12 +357,12 @@ async def process_deadline(callback: CallbackQuery, state: FSMContext, user: Use
     
     if value == "custom":
         await state.set_state(NewTaskStates.waiting_custom_deadline)
+        _now = datetime.now(_TZ)
+        _ex_d  = _now.strftime("%d.%m.%Y")
+        _ex_dt = _now.strftime("%d.%m.%Y %H:%M")
         await callback.message.edit_text(
-            "✏️ <b>Deadline kiriting:</b>\n\n"
-            "<b>Formatlar:</b>\n"
-            "• <code>25.04.2026 18:00</code>\n"
-            "• <code>25.04.2026</code>\n"
-            "• <code>2026-04-25 18:00</code>\n\n"
+            f"✏️ <b>Deadline kiriting:</b>\n\n"
+            f"Misol: <code>{_ex_d}</code> yoki <code>{_ex_dt}</code>\n\n"
             "<i>Faqat shu formatlar qabul qilinadi</i>",
             reply_markup=cancel_keyboard(),
         )
@@ -367,7 +374,7 @@ async def process_deadline(callback: CallbackQuery, state: FSMContext, user: Use
     else:
         try:
             timestamp = float(value)
-            deadline = datetime.fromtimestamp(timestamp)
+            deadline = datetime.fromtimestamp(timestamp, tz=_TZ)
             await state.update_data(deadline=deadline.isoformat())
         except (ValueError, OSError) as e:
             logger.warning(f"Deadline parsing xatosi: {e}")
@@ -388,15 +395,16 @@ async def process_custom_deadline(message: Message, state: FSMContext, user: Use
     deadline = parse_datetime(message.text)
     
     if not deadline:
+        _now = datetime.now(_TZ)
+        _ex_d  = _now.strftime("%d.%m.%Y")
+        _ex_dt = _now.strftime("%d.%m.%Y %H:%M")
         await message.answer(
-            "❗ Sana formati noto'g'ri.\n\n"
-            "To'g'ri formatlar:\n"
-            "• <code>25.04.2026 18:00</code>\n"
-            "• <code>25.04.2026</code>"
+            f"❗ Sana formati noto'g'ri.\n\n"
+            f"Misol: <code>{_ex_d}</code> yoki <code>{_ex_dt}</code>"
         )
         return
     
-    if deadline < datetime.now():
+    if deadline < datetime.now(_TZ):
         await message.answer("❗ Deadline o'tib ketgan sana bo'lmasligi kerak.")
         return
     
@@ -409,7 +417,7 @@ async def _proceed_to_assignee(message: Message, state: FSMContext, user: User) 
     data = await state.get_data()
     group_id = data.get("group_id")
 
-    # Agar guruh chatidan ochilgan bo'lsa — to'g'ridan-to'g'ri guruh a'zolarini ko'rsatish
+    # Agar guruh chatidan ochilgan bo'lsa — multi-select + masul tanlash
     if group_id:
         async with get_session() as session:
             members = await GroupService.get_members(session, group_id)
@@ -420,15 +428,16 @@ async def _proceed_to_assignee(message: Message, state: FSMContext, user: User) 
             )
             await state.clear()
             return
-        await state.set_state(NewTaskStates.waiting_assignee)
+        await state.update_data(selected_assignees=[])
+        await state.set_state(NewTaskStates.waiting_multi_assignee)
         text = (
-            f"👥 <b>6/6 qadam:</b> Ijrochi tanlang:\n\n"
+            f"👥 <b>Ijrochilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
             f"<i>Guruhdagi {len(members)} a'zo</i>"
         )
         try:
-            await message.edit_text(text, reply_markup=assignee_keyboard(members))
+            await message.edit_text(text, reply_markup=multi_assignee_keyboard(members, []))
         except Exception:
-            await message.answer(text, reply_markup=assignee_keyboard(members))
+            await message.answer(text, reply_markup=multi_assignee_keyboard(members, []))
         return
 
     # Shaxsiy chat: foydalanuvchining kompaniya/guruhlarini tekshirib, workspace picker yoki default
@@ -493,15 +502,51 @@ async def process_workspace(callback: CallbackQuery, state: FSMContext, user: Us
         if not members:
             await callback.answer("Guruhda a'zolar yo'q", show_alert=True)
             return
-        await state.update_data(group_id=group_id)
-        await state.set_state(NewTaskStates.waiting_assignee)
+        await state.update_data(group_id=group_id, selected_assignees=[])
+        await state.set_state(NewTaskStates.waiting_multi_assignee)
         text = (
-            f"👥 <b>Ijrochi tanlang</b>\n\n"
+            f"👥 <b>Ijrochilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
             f"<i>Guruhdagi {len(members)} a'zo</i>"
         )
-        await callback.message.edit_text(text, reply_markup=assignee_keyboard(members))
+        await callback.message.edit_text(
+            text, reply_markup=multi_assignee_keyboard(members, [])
+        )
         await callback.answer()
         return
+
+
+async def _render_assignee_msg(callback_or_msg, state: FSMContext, *, answer=False):
+    """Assignee tanlov ekranini yangilash yoki yuborish (helper)"""
+    data = await state.get_data()
+    company_id = data.get("company_id")
+    group_id   = data.get("group_id")
+    selected = list(data.get("selected_assignees") or [])
+    external = list(data.get("external_assignees") or [])
+    total = len(selected) + len(external)
+
+    async with get_session() as session:
+        if group_id and not company_id:
+            members = await GroupService.get_members(session, group_id)
+            context_label = f"Guruhdagi {len(members)} a'zo"
+        else:
+            members = await CompanyService.get_members(session, company_id)
+            context_label = f"Kompaniyada {len(members)} xodim"
+
+    new_kb = multi_assignee_keyboard(members, selected, external=external)
+    ext_note = f" + {len(external)} tashqi" if external else ""
+    text = (
+        f"👥 <b>Ijrochilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
+        f"<i>{context_label}{ext_note} — Tanlangan: {total}</i>"
+    )
+    msg = callback_or_msg if hasattr(callback_or_msg, 'edit_text') else callback_or_msg.message
+    if answer:
+        await msg.answer(text, reply_markup=new_kb)
+    else:
+        try:
+            await msg.edit_text(text, reply_markup=new_kb)
+        except Exception as e:
+            if "not modified" not in str(e).lower():
+                await msg.answer(text, reply_markup=new_kb)
 
 
 @router.callback_query(NewTaskStates.waiting_multi_assignee, F.data.startswith("assign_toggle:"))
@@ -515,47 +560,301 @@ async def process_multi_assignee_toggle(callback: CallbackQuery, state: FSMConte
     else:
         selected.append(uid)
     await state.update_data(selected_assignees=selected)
+    await _render_assignee_msg(callback.message, state)
+    await callback.answer("✅" if uid in selected else "☐")
 
-    company_id = data.get("company_id")
+
+@router.callback_query(NewTaskStates.waiting_multi_assignee, F.data.startswith("assign_toggle_ext:"))
+async def process_ext_toggle(callback: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Tashqi guruh a'zosini olib tashlash (toggle — faqat remove)"""
+    uid = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    external = list(data.get("external_assignees") or [])
+    external = [e for e in external if e["id"] != uid]
+    await state.update_data(external_assignees=external)
+    await _render_assignee_msg(callback.message, state)
+    await callback.answer("🗑 O'chirildi")
+
+
+# ─── Boshqa guruhdan qo'shish oqimi ────────────────────────────────────────
+
+@router.callback_query(NewTaskStates.waiting_multi_assignee, F.data == "afg")
+async def afg_show_groups(callback: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Boshqa guruhlarni ko'rsatish"""
+    data = await state.get_data()
+    current_company_id = data.get("company_id")
+    async with get_session() as session:
+        companies = await CompanyService.get_user_companies(session, user.id)
+        groups    = await GroupService.get_user_groups(session, user.id)
+
+    kb = group_picker_keyboard(companies, groups, exclude_company_id=current_company_id)
+    await callback.message.edit_text(
+        "🏢 <b>Qaysi guruhdan qo'shmoqchisiz?</b>\n\n"
+        "<i>Kerakli guruhni tanlang yoki taklif havolasi yuboring</i>",
+        reply_markup=kb,
+    )
+    await callback.answer()
+
+
+@router.callback_query(NewTaskStates.waiting_multi_assignee, F.data.startswith("afg_c:"))
+async def afg_company_members(callback: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Kompaniya a'zolarini ko'rsatish"""
+    company_id = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    selected = list(data.get("selected_assignees") or [])
+    external = list(data.get("external_assignees") or [])
+    already_ids = set(selected) | {e["id"] for e in external}
+
     async with get_session() as session:
         members = await CompanyService.get_members(session, company_id)
 
-    try:
-        await callback.message.edit_reply_markup(
-            reply_markup=multi_assignee_keyboard(members, selected)
-        )
-    except Exception:
-        pass
-    await callback.answer(f"Tanlangan: {len(selected)}")
+    if not members:
+        await callback.answer("Bu guruhda a'zolar yo'q", show_alert=True)
+        return
+
+    # Company nomini olish
+    async with get_session() as session:
+        c = await session.get(Company, company_id)
+        c_name = c.name if c else f"#{company_id}"
+
+    # State ga joriy ko'rinish uchun company_id saqlash
+    await state.update_data(_afg_company_id=company_id, _afg_company_name=c_name)
+
+    kb = ext_members_keyboard(members, already_ids)
+    await callback.message.edit_text(
+        f"👥 <b>{c_name}</b> — A'zolarni tanlang:\n\n"
+        "<i>Tanlangan odamlar taskga qo'shiladi</i>",
+        reply_markup=kb,
+    )
+    await callback.answer()
+
+
+@router.callback_query(NewTaskStates.waiting_multi_assignee, F.data.startswith("afg_g:"))
+async def afg_group_members(callback: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Guruh (Group) a'zolarini ko'rsatish"""
+    group_id = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    selected = list(data.get("selected_assignees") or [])
+    external = list(data.get("external_assignees") or [])
+    already_ids = set(selected) | {e["id"] for e in external}
+
+    async with get_session() as session:
+        members = await GroupService.get_members(session, group_id)
+        g = await session.get(Group, group_id)
+        g_name = g.name if g else f"#{group_id}"
+
+    if not members:
+        await callback.answer("Bu guruhda a'zolar yo'q", show_alert=True)
+        return
+
+    await state.update_data(_afg_group_id=group_id, _afg_company_name=g_name)
+    kb = ext_members_keyboard(members, already_ids)
+    await callback.message.edit_text(
+        f"👥 <b>{g_name}</b> — A'zolarni tanlang:\n\n"
+        "<i>Tanlangan odamlar taskga qo'shiladi</i>",
+        reply_markup=kb,
+    )
+    await callback.answer()
+
+
+@router.callback_query(NewTaskStates.waiting_multi_assignee, F.data.startswith("afg_add:"))
+async def afg_add_member(callback: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Tashqi a'zoni taskga qo'shish"""
+    uid = int(callback.data.split(":")[1])
+    data = await state.get_data()
+    external = list(data.get("external_assignees") or [])
+
+    if any(e["id"] == uid for e in external):
+        await callback.answer("Allaqachon qo'shilgan", show_alert=True)
+        return
+
+    # User nomini olish
+    async with get_session() as session:
+        u = await session.get(User, uid)
+        name = u.full_name if u else f"#{uid}"
+
+    group_name = data.get("_afg_company_name", "Boshqa guruh")
+    external.append({"id": uid, "name": name, "group_name": group_name})
+    await state.update_data(external_assignees=external)
+
+    await callback.answer(f"✅ {name} qo'shildi", show_alert=False)
+    # Assignee asosiy ekraniga qaytish
+    await _render_assignee_msg(callback.message, state)
+
+
+@router.callback_query(NewTaskStates.waiting_multi_assignee, F.data == "afg_back")
+async def afg_back(callback: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Asosiy assignee ekraniga qaytish"""
+    await _render_assignee_msg(callback.message, state)
+    await callback.answer()
+
+
+@router.callback_query(NewTaskStates.waiting_multi_assignee, F.data == "afg_invite")
+async def afg_invite(callback: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Taklif havolasini yuborish"""
+    from config import settings as _cfg
+    bot_username = _cfg.BOT_USERNAME.lstrip("@")
+    link = f"https://t.me/{bot_username}?start=invite_{user.id}"
+    await callback.message.edit_text(
+        f"📨 <b>Taklif havolasi</b>\n\n"
+        f"Quyidagi havolani ulashing — odam botga o'tib, jamoangizga qo'shilishi mumkin:\n\n"
+        f"<code>{link}</code>\n\n"
+        "<i>Havola nusxalandi, do'stingizga yuboring!</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="‹ Orqaga", callback_data="afg_back")
+        ]]),
+    )
+    await callback.answer("📋 Havola tayyorlandi")
+
+
+@router.callback_query(NewTaskStates.waiting_multi_assignee, F.data == "afg_noop")
+async def afg_noop(callback: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Allaqachon tanlangan — hech narsa qilmaymiz"""
+    await callback.answer("Allaqachon qo'shilgan", show_alert=False)
+
+
+def _build_responsible_kb(selected_members: list, chosen_resp: set) -> InlineKeyboardMarkup:
+    """Masul tanlash klaviaturasi — ko'p tanlov (checkbox style)"""
+    buttons = []
+    for m in selected_members:
+        name = m.display_name or (m.user.full_name if m.user else f"#{m.user_id}")
+        icon = "✅" if m.user_id in chosen_resp else "☐"
+        buttons.append([InlineKeyboardButton(
+            text=f"{icon} {name}",
+            callback_data=f"resp:{m.user_id}"
+        )])
+    done_txt = f"✅ Tayyor ({len(chosen_resp)} masul)" if chosen_resp else "➡️ Masulsiz davom etish"
+    buttons.append([InlineKeyboardButton(text=done_txt, callback_data="resp:done")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 @router.callback_query(NewTaskStates.waiting_multi_assignee, F.data == "assign_done")
 async def process_multi_assignee_done(callback: CallbackQuery, state: FSMContext, user: User, bot: Bot) -> None:
-    """Kompaniya ijrochilar tanlovini yakunlash"""
+    """Kompaniya ijrochilar tanlovini yakunlash — masul tanlash"""
     data = await state.get_data()
     selected = list(data.get("selected_assignees") or [])
-    if not selected:
+    external = list(data.get("external_assignees") or [])
+    ext_ids = [e["id"] for e in external]
+
+    all_assignee_ids = selected + [eid for eid in ext_ids if eid not in selected]
+
+    if not all_assignee_ids:
         await callback.answer("Kamida bitta xodim tanlang", show_alert=True)
         return
-    await _create_task_final(callback.message, state, user, selected, bot=bot)
-    await callback.answer("✅ Vazifa yaratildi!")
+
+    await state.update_data(final_assignees=all_assignee_ids, chosen_responsibles=[])
+
+    if len(all_assignee_ids) == 1:
+        await _create_task_final(callback.message, state, user, all_assignee_ids,
+                                 responsible_user_ids=[all_assignee_ids[0]], bot=bot)
+        await callback.answer("✅ Vazifa yaratildi!")
+        return
+
+    # Ko'p kishi — masul tanlash (ko'p tanlov)
+    company_id = data.get("company_id")
+    group_id   = data.get("group_id")
+    async with get_session() as session:
+        if group_id and not company_id:
+            members = await GroupService.get_members(session, group_id)
+        else:
+            members = await CompanyService.get_members(session, company_id)
+
+    # Asosiy + tashqi a'zolar uchun _resp_members
+    resp_members_raw = []
+    for m in members:
+        mid = m.user_id if hasattr(m, 'user_id') else (m.user.id if hasattr(m, 'user') else None)
+        if mid in all_assignee_ids:
+            dname = (getattr(m, 'display_name', None)
+                     or (m.user.full_name if hasattr(m, 'user') and m.user else f"#{mid}"))
+            resp_members_raw.append({"user_id": mid, "display_name": dname})
+    # Tashqi a'zolarni qo'shish
+    main_ids = {(m.user_id if hasattr(m, 'user_id') else m.user.id) for m in members}
+    for e in external:
+        if e["id"] not in main_ids:
+            resp_members_raw.append({"user_id": e["id"], "display_name": f"{e['name']} 🔗"})
+
+    await state.update_data(_resp_members=resp_members_raw)
+    await state.set_state(NewTaskStates.waiting_responsible)
+
+    class _FakeMember:
+        def __init__(self, d): self.user_id = d["user_id"]; self.display_name = d["display_name"]; self.user = None
+    fake_members = [_FakeMember(d) for d in resp_members_raw]
+    kb = _build_responsible_kb(fake_members, set())
+    try:
+        await callback.message.edit_text(
+            "⭐ <b>Kim masul (responsible)?</b>\n\n"
+            "Bir yoki bir nechta kishini belgilang.\n"
+            "Masul kishilar vazifani nazorat qiladi va alohida xabar oladi.",
+            reply_markup=kb,
+        )
+    except Exception:
+        await callback.message.answer(
+            "⭐ <b>Kim masul (responsible)?</b>", reply_markup=kb
+        )
+    await callback.answer()
+
+
+@router.callback_query(NewTaskStates.waiting_responsible, F.data.startswith("resp:"))
+async def process_responsible_selected(callback: CallbackQuery, state: FSMContext, user: User, bot: Bot) -> None:
+    """Masul tanlash — toggle va yakunlash"""
+    val = callback.data.split(":", 1)[1]
+    data = await state.get_data()
+    selected = data.get("final_assignees") or []
+    chosen = set(data.get("chosen_responsibles") or [])
+    resp_members_raw = data.get("_resp_members") or []
+
+    if val == "done":
+        # Yakunlash
+        await _create_task_final(
+            callback.message, state, user, selected,
+            responsible_user_ids=list(chosen) if chosen else None,
+            bot=bot
+        )
+        await callback.answer("✅ Vazifa yaratildi!")
+        return
+
+    # Toggle
+    try:
+        uid = int(val)
+    except ValueError:
+        await callback.answer("Xato", show_alert=True)
+        return
+
+    if uid in chosen:
+        chosen.discard(uid)
+    else:
+        chosen.add(uid)
+    await state.update_data(chosen_responsibles=list(chosen))
+
+    # Klaviaturani yangilash
+    class _FakeMember:
+        def __init__(self, d): self.user_id = d["user_id"]; self.display_name = d["display_name"]; self.user = None
+    fake_members = [_FakeMember(d) for d in resp_members_raw]
+    kb = _build_responsible_kb(fake_members, chosen)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=kb)
+    except Exception:
+        pass
+    await callback.answer()
 
 
 @router.callback_query(NewTaskStates.waiting_assignee, F.data.startswith("assignee:"))
 async def process_assignee(callback: CallbackQuery, state: FSMContext, user: User, bot: Bot) -> None:
-    """Ijrochi tanlash va vazifani yaratish"""
+    """Ijrochi tanlash va vazifani yaratish (bitta kishi — avtomatik masul)"""
     assignee_id = int(callback.data.split(":")[1])
-    await _create_task_final(callback.message, state, user, [assignee_id], bot=bot)
+    await _create_task_final(callback.message, state, user, [assignee_id], responsible_user_id=assignee_id, bot=bot)
     await callback.answer("✅ Vazifa yaratildi!")
 
 
 async def _create_task_final(
     message: Message, state: FSMContext, user: User,
-    assignee_ids: list, bot: Bot = None
+    assignee_ids: list, bot: Bot = None,
+    responsible_user_id: int = None,
+    responsible_user_ids: list = None,
 ) -> None:
     """Yakuniy vazifa yaratish"""
     data = await state.get_data()
-    
+
     # Ma'lumotlar borligini tekshirish
     if "title" not in data or "priority" not in data:
         await state.clear()
@@ -564,14 +863,15 @@ async def _create_task_final(
             reply_markup=back_to_menu_keyboard(),
         )
         return
-    
+
     deadline = None
     if data.get("deadline"):
         try:
             deadline = datetime.fromisoformat(data["deadline"])
         except (ValueError, TypeError):
             pass
-    
+
+    text = "✅ Vazifa yaratildi!"
     try:
         async with get_session() as session:
             task = await TaskService.create_task(
@@ -584,6 +884,9 @@ async def _create_task_final(
                 group_id=data.get("group_id"),
                 company_id=data.get("company_id"),
                 assignee_ids=assignee_ids,
+                responsible_user_id=responsible_user_id,
+                responsible_user_ids=responsible_user_ids,
+                parent_id=data.get("parent_id"),
             )
             # Fayl biriktirmalarini saqlash
             atts = data.get("attachments") or []
@@ -603,13 +906,26 @@ async def _create_task_final(
 
             await session.commit()
 
-            # Qayta yuklash (barcha relations bilan)
+            # Qayta yuklash (barcha relations bilan) — session ichida!
             task = await TaskService.get_task(session, task.id)
-            
+
+            # Matnni session ichida generatsiya qilamiz (lazy load xavfi yo'q)
+            if task:
+                text = (
+                    f"✅ <b>Vazifa muvaffaqiyatli yaratildi!</b>\n\n"
+                    f"{format_task_detailed(task)}"
+                )
+
+            # Masul ro'yxatini bildirishnoma uchun aniqlaymiz
+            resp_ids = responsible_user_ids or (
+                [responsible_user_id] if responsible_user_id else []
+            )
+
             if bot and task:
                 try:
                     await NotificationService.notify_task_assigned(
-                        bot, session, task, assignee_ids
+                        bot, session, task, assignee_ids,
+                        responsible_user_ids=resp_ids,
                     )
                 except Exception as e:
                     logger.warning(f"Task notification xatosi: {e}")
@@ -620,19 +936,11 @@ async def _create_task_final(
                 except Exception as e:
                     logger.warning(f"Group task announce xatosi: {e}")
 
-        if task:
-            text = (
-                f"✅ <b>Vazifa muvaffaqiyatli yaratildi!</b>\n\n"
-                f"{format_task_detailed(task)}"
-            )
-        else:
-            text = "✅ Vazifa yaratildi!"
-
         try:
             await message.edit_text(text, reply_markup=back_to_menu_keyboard())
         except Exception:
             await message.answer(text, reply_markup=back_to_menu_keyboard())
-    
+
     except Exception as e:
         logger.exception(f"Vazifa yaratishda xatolik: {e}")
         try:
@@ -833,6 +1141,7 @@ async def callback_tasks_page(callback: CallbackQuery, user: User) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("view_task:"))
 @router.callback_query(F.data.startswith("task_view:"))
 async def callback_task_view(callback: CallbackQuery, user: User) -> None:
     """Vazifa tafsilotlarini ko'rsatish"""
@@ -1033,13 +1342,43 @@ async def _get_group_telegram_id(session, group_id: int) -> int | None:
     return g.telegram_group_id if g else None
 
 
+async def _resolve_tg_chat_id(session, task) -> int | None:
+    """
+    Vazifaning telegram guruh chat ID sini aniqlash.
+    1. task.group_id → Group.telegram_group_id
+    2. task.company_id → kompaniyaning birinchi aktiv guruh telegram_group_id
+    """
+    from database.models import Group
+    from sqlalchemy import select as sa_select
+
+    if task.group_id:
+        tg_id = await _get_group_telegram_id(session, task.group_id)
+        logger.info(f"Task {task.id}: group_id={task.group_id}, telegram_group_id={tg_id}")
+        if tg_id:
+            return tg_id
+
+    if task.company_id:
+        res = await session.execute(
+            sa_select(Group).where(
+                Group.company_id == task.company_id,
+                Group.telegram_group_id.isnot(None),
+                Group.is_active == True,
+            ).limit(1)
+        )
+        grp = res.scalar_one_or_none()
+        tg_id = grp.telegram_group_id if grp else None
+        logger.info(f"Task {task.id}: company_id={task.company_id} → group telegram_group_id={tg_id}")
+        return tg_id
+
+    logger.info(f"Task {task.id}: group_id=None, company_id=None — guruh topilmadi")
+    return None
+
+
 async def _notify_group_task_created(bot: Bot, session, task, assignee_ids: list) -> None:
     """Guruh chatiga yangi task e'lon yuborish"""
-    if not task.group_id:
-        return
-
-    tg_chat_id = await _get_group_telegram_id(session, task.group_id)
+    tg_chat_id = await _resolve_tg_chat_id(session, task)
     if not tg_chat_id:
+        logger.info(f"Task {task.id} uchun guruh chat ID topilmadi — guruh xabari yuborilmadi")
         return
 
     # Ijrochilar ismlarini olamiz
@@ -1057,7 +1396,7 @@ async def _notify_group_task_created(bot: Bot, session, task, assignee_ids: list
 
     deadline_txt = ""
     if task.deadline:
-        deadline_txt = f"\n⏰ Deadline: <b>{task.deadline.strftime('%d.%m.%Y %H:%M')}</b>"
+        deadline_txt = f"\n⏰ Deadline: <b>{task.deadline.astimezone(_TZ).strftime('%d.%m.%Y %H:%M')}</b>"
 
     assignees_txt = ", ".join(names) if names else "—"
 
@@ -1082,10 +1421,7 @@ async def _notify_group_status_changed(
     bot: Bot, session, task, old_status: TaskStatus, new_status: TaskStatus, changer: User
 ) -> None:
     """Guruh chatiga status o'zgarishi xabari"""
-    if not task.group_id:
-        return
-
-    tg_chat_id = await _get_group_telegram_id(session, task.group_id)
+    tg_chat_id = await _resolve_tg_chat_id(session, task)
     if not tg_chat_id:
         return
 
@@ -1255,8 +1591,98 @@ async def cmd_view_task_by_id(message: Message, user: User) -> None:
                 user_role = role
         elif task.creator_id == user.id:
             user_role = UserRole.ADMIN
-    
+
     await message.answer(
         format_task_detailed(task),
         reply_markup=task_actions_keyboard(task, user_role, is_assignee),
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SUB-TASK (ICHKI VAZIFA) YARATISH
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("subtask_add:"))
+async def callback_subtask_add(callback: CallbackQuery, state: FSMContext, user: User) -> None:
+    """Sub-task yaratishni boshlash"""
+    task_id = int(callback.data.split(":")[1])
+
+    async with get_session() as session:
+        task = await TaskService.get_task(session, task_id, load_relations=False)
+        if not task:
+            await callback.answer("❗ Vazifa topilmadi", show_alert=True)
+            return
+        if task.creator_id != user.id:
+            await callback.answer("🚫 Faqat yaratuvchi sub-task qo'sha oladi", show_alert=True)
+            return
+
+    await state.set_state(NewTaskStates.waiting_subtask_title)
+    await state.update_data(parent_id=task_id)
+
+    await callback.message.answer(
+        f"📂 <b>Sub-task yaratish</b> — #{task_id} vazifasi ichiga\n\n"
+        "Sub-task nomini yozing:",
+        reply_markup=cancel_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.message(NewTaskStates.waiting_subtask_title)
+async def process_subtask_title(message: Message, state: FSMContext, user: User) -> None:
+    """Sub-task nomini qabul qilib, tez yaratish"""
+    if not message.text:
+        await message.answer("❗ Matn yuboring.")
+        return
+
+    title = message.text.strip()[:500]
+    data = await state.get_data()
+    parent_id = data.get("parent_id")
+
+    async with get_session() as session:
+        task = await TaskService.create_task(
+            session=session,
+            title=title,
+            creator_id=user.id,
+            assignee_ids=[user.id],
+            responsible_user_id=user.id,
+            parent_id=parent_id,
+        )
+        await session.flush()
+        task_id = task.id
+
+    await state.clear()
+    await message.answer(
+        f"✅ <b>Sub-task yaratildi!</b>\n\n"
+        f"📂 <b>Nom:</b> {title}\n"
+        f"🔗 <b>Ota-vazifa:</b> #{parent_id}\n\n"
+        f"Ko'rish: /task_{task_id}",
+        reply_markup=back_to_menu_keyboard(),
+    )
+
+
+@router.callback_query(F.data.startswith("subtask_list:"))
+async def callback_subtask_list(callback: CallbackQuery, user: User) -> None:
+    """Sub-task ro'yxatini ko'rsatish"""
+    task_id = int(callback.data.split(":")[1])
+
+    async with get_session() as session:
+        from sqlalchemy import select as _sel
+        from database.models import Task as _Task
+        result = await session.execute(
+            _sel(_Task).where(_Task.parent_id == task_id)
+        )
+        subtasks = list(result.scalars().all())
+
+    if not subtasks:
+        await callback.answer("Hali sub-tasklar yo'q", show_alert=True)
+        return
+
+    STATUS_EMOJI_MAP = {"new": "🆕", "in_progress": "⚙️", "done": "✅",
+                        "overdue": "⏰", "review": "🔍", "cancelled": "🚫"}
+    lines = [f"📂 <b>#{task_id} — Sub-tasklar:</b>\n"]
+    for st in subtasks:
+        em = STATUS_EMOJI_MAP.get(st.status.value if hasattr(st.status, 'value') else str(st.status), "•")
+        lines.append(f"{em} /task_{st.id} — {st.title[:60]}")
+
+    await callback.message.answer("\n".join(lines))
+    await callback.answer()

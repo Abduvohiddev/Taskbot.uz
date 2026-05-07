@@ -5,6 +5,48 @@
 const tg = window.Telegram?.WebApp;
 const API_BASE = '/api';
 
+/**
+ * URL dagi ?token= parametrini bir marta o'qib saqlaymiz.
+ * Telegram Desktop da initData bo'lmaganda fallback sifatida ishlatiladi.
+ */
+const _URL_AUTH_TOKEN = (() => {
+    try {
+        return new URLSearchParams(window.location.search).get('token') || '';
+    } catch (e) { return ''; }
+})();
+
+/**
+ * initData ni olish — Telegram Desktop da URL hash dan olinadi.
+ * SDK da bo'lmasa, window.location.hash ichidagi tgWebAppData ni ishlatadi.
+ */
+function getInitData() {
+    // 1) SDK orqali (mobil Telegram) — har doim window.Telegram dan yangi o'qiymiz
+    const initD = window.Telegram?.WebApp?.initData;
+    if (initD) return initD;
+    // 2) URL hash orqali (Telegram Desktop / ba'zi versiyalar)
+    try {
+        const hash = window.location.hash.slice(1);
+        const params = new URLSearchParams(hash);
+        const data = params.get('tgWebAppData');
+        if (data) return decodeURIComponent(data);
+    } catch (e) { /* ignore */ }
+    return '';
+}
+
+/**
+ * API so'rovlar uchun auth headerlarini qo'shadi.
+ * initData → X-Telegram-Init-Data
+ * token → X-Auth-Token (Telegram Desktop fallback)
+ */
+function applyAuthHeaders(headers) {
+    const id = getInitData();
+    if (id) {
+        headers['X-Telegram-Init-Data'] = id;
+    } else if (_URL_AUTH_TOKEN) {
+        headers['X-Auth-Token'] = _URL_AUTH_TOKEN;
+    }
+}
+
 // ===== i18n state =====
 let I18N = {
     lang: 'uz',
@@ -43,7 +85,7 @@ function applyI18n(root = document) {
 async function loadI18n() {
     try {
         const headers = {};
-        if (tg?.initData) headers['X-Telegram-Init-Data'] = tg.initData;
+        applyAuthHeaders(headers);
         const res = await fetch(API_BASE + '/i18n', { headers });
         if (!res.ok) return;
         const data = await res.json();
@@ -60,7 +102,7 @@ async function loadI18n() {
 async function setAppLanguage(lang) {
     try {
         const headers = { 'Content-Type': 'application/json' };
-        if (tg?.initData) headers['X-Telegram-Init-Data'] = tg.initData;
+        applyAuthHeaders(headers);
         const res = await fetch(API_BASE + '/i18n/set-lang', {
             method: 'POST',
             headers,
@@ -83,14 +125,14 @@ let currentWorkspaceId = 'personal';
 let currentWorkspaceName = 'Shaxsiy';
 let companyMembers = [];
 let selectedAssigneeIds = [];
+let externalAssignees = [];      // [{id,name,role,group_id,group_name}] — boshqa guruhdan
+let selectedResponsibleIds = []; // mas'ul shaxslar ID lari (ko'p tanlash)
+let _allWorkspaces = [];          // cache: [{id,name}]
 let statusChart = null;
 let membersChart = null;
 let priorityChart = null;
 let trendChart = null;
 let overdueChart = null;
-
-// ===== AI Chat State =====
-let aiHistory = [];   // [{role:'user'|'assistant', content:'...'}]
 
 // ===== Calendar State =====
 let calendarDate = new Date();   // currently viewed month
@@ -103,8 +145,16 @@ document.addEventListener('DOMContentLoaded', () => {
         tg.expand();
         tg.enableClosingConfirmation();
         
-        // Apply Telegram theme
-        document.body.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color || '#0a0a1a');
+        // Force dark theme — override any Telegram light theme vars
+        document.body.style.setProperty('--tg-theme-bg-color',          '#0A0A14');
+        document.body.style.setProperty('--tg-theme-secondary-bg-color','#11111E');
+        document.body.style.setProperty('--tg-theme-text-color',         '#EEEEF8');
+        document.body.style.setProperty('--tg-theme-hint-color',         '#9090B0');
+        document.body.style.setProperty('--tg-theme-link-color',         '#6366F1');
+        document.body.style.setProperty('--tg-theme-button-color',       '#6366F1');
+        document.body.style.setProperty('--tg-theme-button-text-color',  '#FFFFFF');
+        try { tg.setHeaderColor('#0A0A14'); } catch(e) {}
+        try { tg.setBackgroundColor('#0A0A14'); } catch(e) {}
     }
 
     // Tarjimalarni eng birinchi yuklaymiz — UI darhol o'z tilida ko'rinsin
@@ -131,7 +181,7 @@ async function loadAvatar(el) {
     if (!el) return;
     try {
         const headers = {};
-        if (tg?.initData) headers['X-Telegram-Init-Data'] = tg.initData;
+        applyAuthHeaders(headers);
         const res = await fetch(API_BASE + '/avatar', { headers });
         if (!res.ok) return;
         const blob = await res.blob();
@@ -148,9 +198,7 @@ async function loadAvatar(el) {
 async function apiRequest(endpoint, method = 'GET', body = null) {
     const headers = { 'Content-Type': 'application/json' };
     
-    if (tg?.initData) {
-        headers['X-Telegram-Init-Data'] = tg.initData;
-    }
+    applyAuthHeaders(headers);
 
     const opts = { method, headers };
     if (body) opts.body = JSON.stringify(body);
@@ -191,18 +239,35 @@ async function loadApp() {
         updateCreateWorkspaceUI();
 
         allTasks = tasksData.tasks || [];
+        window._myUserId = tasksData.user_id || null;
 
-        // User info
-        const userName = tasksData.user_name || (tg?.initDataUnsafe?.user?.first_name) || 'Foydalanuvchi';
-        document.getElementById('user-name').textContent = `Salom, ${userName}!`;
+        // User info — Telegram dan to'g'ridan-to'g'ri olamiz (har kim o'zini ko'radi)
+        const tgUser = tg?.initDataUnsafe?.user;
+        const userName = tgUser?.first_name
+            ? (tgUser.last_name ? `${tgUser.first_name} ${tgUser.last_name}` : tgUser.first_name)
+            : (tasksData.user_name || 'Foydalanuvchi');
+        window._currentUserName = userName;
+        // Eski header-name element bo'lsa yangilaymiz (backward compat)
+        const oldNameEl = document.getElementById('user-name');
+        if (oldNameEl) oldNameEl.textContent = `Salom, ${userName}!`;
         const avatarEl = document.getElementById('user-avatar');
         avatarEl.textContent = userName.charAt(0).toUpperCase();
         avatarEl.style.backgroundImage = '';
-        loadAvatar(avatarEl);
+        // photo_url — Telegram Mini App da har foydalanuvchi uchun o'ziga xos
+        if (tgUser?.photo_url) {
+            avatarEl.style.backgroundImage = `url('${tgUser.photo_url}')`;
+            avatarEl.style.backgroundSize = 'cover';
+            avatarEl.style.backgroundPosition = 'center';
+            avatarEl.textContent = '';
+            avatarEl.classList.add('avatar-loaded');
+        } else {
+            loadAvatar(avatarEl);
+        }
 
         updateQuickStats(statsData);
         updateStatsTab(statsData);
         renderTasks();
+        startCountdownTicker(); // Live countdown ticker
 
         // Hide loading
         const loading = document.getElementById('loading-screen');
@@ -222,6 +287,28 @@ async function loadApp() {
     }
 }
 
+// ===== Leave Company/Workspace =====
+async function leaveWorkspace(companyId) {
+    if (!companyId || companyId === 'personal' || companyId === 'all') return;
+    const confirmed = await new Promise(resolve => {
+        if (tg?.showConfirm) {
+            tg.showConfirm('Bu kompaniyadan chiqmoqchimisiz? Uning vazifalari ko\'rinmay qoladi.', resolve);
+        } else {
+            resolve(window.confirm('Bu kompaniyadan chiqmoqchimisiz?'));
+        }
+    });
+    if (!confirmed) return;
+
+    try {
+        const r = await apiRequest(`/companies/${companyId}/leave`, 'DELETE');
+        showToast('✅ Kompaniyadan chiqdingiz');
+        // Reload workspaces
+        window.location.reload();
+    } catch (e) {
+        showToast('❌ ' + (e.message || 'Xatolik'), true);
+    }
+}
+
 // ===== Workspace Switcher =====
 async function changeWorkspace() {
     const wsSelect = document.getElementById('workspace-select');
@@ -232,6 +319,14 @@ async function changeWorkspace() {
     currentWorkspaceName = opt ? opt.text : 'Shaxsiy';
 
     if (tg) tg.HapticFeedback?.selectionChanged();
+
+    // Show/hide leave button
+    const leaveBtn = document.getElementById('leave-workspace-btn');
+    if (leaveBtn) {
+        const isCompany = currentWorkspaceId !== 'personal' && currentWorkspaceId !== 'all';
+        leaveBtn.classList.toggle('hidden', !isCompany);
+        leaveBtn.onclick = () => leaveWorkspace(currentWorkspaceId);
+    }
 
     updateCreateWorkspaceUI();
 
@@ -245,6 +340,7 @@ async function changeWorkspace() {
         ]);
 
         allTasks = tasksData.tasks || [];
+        _kanbanMemberId = null;  // workspace o'zgarganda filter reset
         updateQuickStats(statsData);
         updateStatsTab(statsData);
         renderTasks();
@@ -269,11 +365,14 @@ async function updateCreateWorkspaceUI() {
     const hint = document.getElementById('assignees-hint');
 
     selectedAssigneeIds = [];
+    externalAssignees = [];
+    selectedResponsibleIds = [];
     companyMembers = [];
 
     if (currentWorkspaceId === 'personal' || currentWorkspaceId === 'all') {
         group.classList.add('hidden');
-        list.innerHTML = '';
+        if (list) list.innerHTML = '';
+        renderResponsibleSection();
         return;
     }
 
@@ -285,10 +384,11 @@ async function updateCreateWorkspaceUI() {
         if (self) selectedAssigneeIds.push(self.id);
         renderAssignees();
         group.classList.remove('hidden');
+        renderResponsibleSection();
         if (hint) hint.textContent = `${companyMembers.length} xodim - Tanlangan: ${selectedAssigneeIds.length}`;
     } catch (e) {
         group.classList.add('hidden');
-        list.innerHTML = '';
+        if (list) list.innerHTML = '';
         console.error('Members load error:', e);
     }
 }
@@ -296,18 +396,40 @@ async function updateCreateWorkspaceUI() {
 function renderAssignees() {
     const list = document.getElementById('assignees-list');
     if (!list) return;
-    list.innerHTML = companyMembers.map(m => {
+
+    const totalSelected = selectedAssigneeIds.length + externalAssignees.length;
+
+    // Asosiy guruh a'zolari
+    const mainHtml = companyMembers.map(m => {
         const selected = selectedAssigneeIds.includes(m.id);
         const initial = (m.name || '?').charAt(0).toUpperCase();
         const roleBadge = m.role === 'owner' ? '👑' : (m.role === 'admin' ? '🛡' : '👤');
         return `
-            <div class="assignee-chip ${selected ? 'selected' : ''}" data-uid="${m.id}" onclick="toggleAssignee(${m.id})">
+            <div class="assignee-chip ${selected ? 'selected' : ''}" onclick="toggleAssignee(${m.id})">
                 <span class="assignee-avatar">${escapeHtml(initial)}</span>
                 <span class="assignee-name">${roleBadge} ${escapeHtml(m.name)}${m.is_self ? ' (siz)' : ''}</span>
                 <span class="assignee-check">${selected ? '✓' : ''}</span>
-            </div>
-        `;
+            </div>`;
     }).join('');
+
+    // Tashqi guruhdan qo'shilganlar
+    const extHtml = externalAssignees.length ? `
+        <div class="assignee-ext-header">➕ Boshqa guruhdan qo'shilganlar</div>
+        ${externalAssignees.map(m => `
+            <div class="assignee-chip selected ext-member">
+                <span class="assignee-avatar">${escapeHtml((m.name||'?')[0].toUpperCase())}</span>
+                <span class="assignee-name">👤 ${escapeHtml(m.name)} <span class="ext-group-tag">${escapeHtml(m.group_name)}</span></span>
+                <span class="assignee-check remove-ext" onclick="event.stopPropagation();removeExternalAssignee(${m.id})">✕</span>
+            </div>`).join('')}
+    ` : '';
+
+    // "Boshqa guruhdan qo'shish" tugmasi
+    const addBtn = `
+        <button class="assignee-add-group-btn" onclick="openGroupPickerSheet()">
+            ➕ Boshqa guruhdan qo'shish
+        </button>`;
+
+    list.innerHTML = mainHtml + extHtml + addBtn;
 }
 
 function toggleAssignee(uid) {
@@ -315,9 +437,419 @@ function toggleAssignee(uid) {
     if (idx >= 0) selectedAssigneeIds.splice(idx, 1);
     else selectedAssigneeIds.push(uid);
     renderAssignees();
+    renderResponsibleSection();
+    const totalSel = selectedAssigneeIds.length + externalAssignees.length;
     const hint = document.getElementById('assignees-hint');
-    if (hint) hint.textContent = `${companyMembers.length} xodim - Tanlangan: ${selectedAssigneeIds.length}`;
+    if (hint) hint.textContent = `${companyMembers.length} xodim - Tanlangan: ${totalSel}`;
     if (tg) tg.HapticFeedback?.selectionChanged();
+}
+
+function removeExternalAssignee(uid) {
+    externalAssignees = externalAssignees.filter(m => m.id !== uid);
+    selectedResponsibleIds = selectedResponsibleIds.filter(id => id !== uid);
+    renderAssignees();
+    renderResponsibleSection();
+    if (tg) tg.HapticFeedback?.selectionChanged();
+}
+
+// ===== Mas'ul shaxs (Responsible) =====
+function renderResponsibleSection() {
+    const sec = document.getElementById('responsible-group');
+    if (!sec) return;
+    const allSel = getAllSelectedAssignees();
+    const hasMembers = companyMembers.length > 0 || allSel.length > 0;
+    if (!hasMembers) {
+        sec.classList.add('hidden');
+        return;
+    }
+    sec.classList.remove('hidden');
+    const respChips = selectedResponsibleIds
+        .map(id => {
+            const m = companyMembers.find(x => x.id === id) || allSel.find(x => x.id === id);
+            return m ? `<span class="resp-chip">⭐ ${escapeHtml(m.name)} <button class="resp-clear-btn" onclick="toggleResponsibleUser(${id})">✕</button></span>` : '';
+        })
+        .filter(Boolean)
+        .join('');
+    const respDisplay = document.getElementById('resp-display');
+    if (respDisplay) respDisplay.innerHTML =
+        respChips
+        + `<button class="resp-pick-btn" onclick="openResponsibleSheet()">➕ Mas'ul qo'shish</button>`;
+}
+
+function getAllSelectedAssignees() {
+    const fromMain = companyMembers.filter(m => selectedAssigneeIds.includes(m.id));
+    return [...fromMain, ...externalAssignees];
+}
+
+function clearResponsible() {
+    selectedResponsibleIds = [];
+    renderResponsibleSection();
+}
+
+function openResponsibleSheet() {
+    const sheet = document.getElementById('resp-sheet');
+    const list = document.getElementById('resp-sheet-list');
+    // Show ALL company members
+    const allMembers = companyMembers.length > 0 ? companyMembers : getAllSelectedAssignees();
+    if (allMembers.length === 0) return;
+    list.innerHTML = allMembers.map(m => {
+        const isResp = selectedResponsibleIds.includes(m.id);
+        return `
+        <div class="gp-member-row ${isResp ? 'selected' : ''}" onclick="toggleResponsibleUser(${m.id})">
+            <span class="gp-member-avatar">${escapeHtml((m.name||'?')[0].toUpperCase())}</span>
+            <span class="gp-member-name">${escapeHtml(m.name)}${m.is_self ? ' (siz)' : ''}</span>
+            ${isResp ? '<span class="gp-check">⭐</span>' : ''}
+        </div>`;
+    }).join('');
+    sheet.classList.remove('hidden');
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+}
+
+function toggleResponsibleUser(uid) {
+    if (selectedResponsibleIds.includes(uid)) {
+        selectedResponsibleIds = selectedResponsibleIds.filter(id => id !== uid);
+    } else {
+        selectedResponsibleIds.push(uid);
+    }
+    // Update sheet list in-place if open
+    const sheet = document.getElementById('resp-sheet');
+    if (sheet && !sheet.classList.contains('hidden')) {
+        openResponsibleSheet(); // re-render
+    }
+    renderResponsibleSection();
+    if (tg) tg.HapticFeedback?.selectionChanged();
+}
+
+function setResponsibleUser(uid) {
+    toggleResponsibleUser(uid);
+}
+
+// ===== Boshqa guruhdan qo'shish =====
+let _gmCurrentGroupName = '';
+let _gmCurrentGroupId = null;
+
+async function openGroupPickerSheet() {
+    const sheet = document.getElementById('group-picker-sheet');
+    const list = document.getElementById('group-picker-list');
+    sheet.classList.remove('hidden');
+    list.innerHTML = '<div class="gp-loading">⏳ Guruhlar yuklanmoqda...</div>';
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+
+    try {
+        // Load all workspaces (cache them)
+        if (!_allWorkspaces.length) {
+            const data = await apiRequest('/workspaces');
+            _allWorkspaces = (data.workspaces || []).filter(w => w.id !== 'personal' && w.id !== 'all');
+        }
+        const others = _allWorkspaces.filter(w => String(w.id) !== String(currentWorkspaceId));
+        if (others.length === 0) {
+            list.innerHTML = `
+                <div class="gp-empty">Boshqa guruhlar yo'q</div>
+                <button class="gp-invite-btn" id="gp-invite-btn-empty">📨 Taklif havolasi yuborish</button>`;
+            document.getElementById('gp-invite-btn-empty')?.addEventListener('click', openInviteSheet);
+            return;
+        }
+        // Build with data attributes (no inline onclick = no escape issues)
+        list.innerHTML = others.map(w => `
+            <div class="gp-group-row" data-gid="${w.id}">
+                <span class="gp-group-icon">🏢</span>
+                <span class="gp-group-name">${escapeHtml(w.name)}</span>
+                <span class="gp-arrow">›</span>
+            </div>`).join('') +
+            `<div class="gp-divider"></div>
+             <button class="gp-invite-btn" id="gp-invite-btn-pick">📨 Taklif havolasi yuborish</button>`;
+
+        // Attach click handlers via JS
+        list.querySelectorAll('.gp-group-row').forEach((el, idx) => {
+            el.addEventListener('click', () => {
+                const gid = el.dataset.gid;
+                const w = others.find(x => String(x.id) === String(gid));
+                if (w) openGroupMemberSheet(w.id, w.name);
+            });
+        });
+        document.getElementById('gp-invite-btn-pick')?.addEventListener('click', openInviteSheet);
+    } catch(e) {
+        list.innerHTML = '<div class="gp-empty">Xatolik yuz berdi</div>';
+        console.error(e);
+    }
+}
+
+async function openGroupMemberSheet(groupId, groupName) {
+    _gmCurrentGroupId = groupId;
+    _gmCurrentGroupName = groupName;
+    const sheet = document.getElementById('group-member-sheet');
+    const title = document.getElementById('gm-sheet-title');
+    const list = document.getElementById('gm-sheet-list');
+    if (title) title.textContent = '🏢 ' + groupName;
+    sheet.classList.remove('hidden');
+    document.getElementById('group-picker-sheet').classList.add('hidden');
+    list.innerHTML = '<div class="gp-loading">⏳ A\'zolar yuklanmoqda...</div>';
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+
+    try {
+        const data = await apiRequest(`/companies/${groupId}/members`);
+        const members = data.members || [];
+        const alreadyIds = new Set([...selectedAssigneeIds, ...externalAssignees.map(e => e.id)]);
+        if (members.length === 0) {
+            list.innerHTML = '<div class="gp-empty">Bu guruhda a\'zolar yo\'q</div>';
+            return;
+        }
+        // data-* attributes — no escape problems
+        list.innerHTML = members.map(m => {
+            const alreadySel = alreadyIds.has(m.id);
+            return `
+            <div class="gp-member-row ${alreadySel ? 'already-added' : ''}" data-uid="${m.id}" data-already="${alreadySel ? '1' : '0'}">
+                <span class="gp-member-avatar">${escapeHtml((m.name||'?')[0].toUpperCase())}</span>
+                <span class="gp-member-name">${escapeHtml(m.name)}${m.is_self ? ' (siz)' : ''}</span>
+                <span class="gp-check">${alreadySel ? '✓' : '+'}</span>
+            </div>`;
+        }).join('') +
+        `<div class="gp-divider"></div>
+         <button class="gp-invite-btn" id="gp-invite-btn-mem">📨 Bu guruhda yo'q? Taklif yuboring</button>`;
+
+        // Attach event listeners
+        list.querySelectorAll('.gp-member-row').forEach(el => {
+            if (el.dataset.already === '1') return;
+            el.addEventListener('click', () => {
+                const uid = parseInt(el.dataset.uid);
+                const m = members.find(x => x.id === uid);
+                if (m) addExternalAssignee(m.id, m.name, m.role || 'member', _gmCurrentGroupId, _gmCurrentGroupName);
+            });
+        });
+        document.getElementById('gp-invite-btn-mem')?.addEventListener('click', openInviteSheet);
+    } catch(e) {
+        list.innerHTML = '<div class="gp-empty">Xatolik yuz berdi</div>';
+        console.error(e);
+    }
+}
+
+function addExternalAssignee(id, name, role, groupId, groupName) {
+    if (externalAssignees.some(e => e.id === id)) return;
+    externalAssignees.push({ id, name, role, group_id: groupId, group_name: groupName });
+    document.getElementById('group-member-sheet')?.classList.add('hidden');
+    document.getElementById('group-picker-sheet')?.classList.add('hidden');
+    renderAssignees();
+    renderResponsibleSection();
+    const totalSel = selectedAssigneeIds.length + externalAssignees.length;
+    const hint = document.getElementById('assignees-hint');
+    if (hint) hint.textContent = `Tanlangan: ${totalSel}`;
+    showToast(`✅ ${name} qo'shildi`);
+    if (tg) tg.HapticFeedback?.notificationOccurred('success');
+}
+
+// ===== Invite sheet =====
+async function openInviteSheet() {
+    document.getElementById('group-member-sheet')?.classList.add('hidden');
+    document.getElementById('group-picker-sheet')?.classList.add('hidden');
+    const sheet = document.getElementById('invite-sheet');
+    sheet.classList.remove('hidden');
+    document.getElementById('invite-link-val').textContent = '⏳ Yuklanmoqda...';
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+
+    try {
+        const data = await apiRequest('/invite-link');
+        const link = data.link || '';
+        document.getElementById('invite-link-val').textContent = link;
+        document.getElementById('invite-link-val').dataset.link = link;
+    } catch(e) {
+        document.getElementById('invite-link-val').textContent = 'Xatolik';
+    }
+}
+
+function copyInviteLink() {
+    const el = document.getElementById('invite-link-val');
+    const link = el.dataset.link || el.textContent;
+    if (!link || link === '⏳ Yuklanmoqda...' || link === 'Xatolik') return;
+    navigator.clipboard?.writeText(link).catch(() => {});
+    showToast('✅ Havola nusxalandi!');
+    if (tg) tg.HapticFeedback?.notificationOccurred('success');
+}
+
+function shareInviteLink() {
+    const el = document.getElementById('invite-link-val');
+    const link = el.dataset.link || el.textContent;
+    if (!link || link === '⏳ Yuklanmoqda...' || link === 'Xatolik') return;
+    const shareText = encodeURIComponent('Vazifalar botiga qo\'shiling: ');
+    const shareLink = encodeURIComponent(link);
+    if (tg) {
+        tg.openTelegramLink(`https://t.me/share/url?url=${shareLink}&text=${shareText}`);
+    } else {
+        window.open(`https://t.me/share/url?url=${shareLink}&text=${shareText}`, '_blank');
+    }
+}
+
+// ===== Custom Deadline Picker =====
+const _MONTH_UZ = ['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentyabr','Oktyabr','Noyabr','Dekabr'];
+let _dlState = { y: 0, m: 0, d: 0, hour: 14, minute: 0, viewY: 0, viewM: 0 };
+
+function _dlInit() {
+    const now = new Date();
+    if (!_dlState.y) {
+        _dlState.y = now.getFullYear();
+        _dlState.m = now.getMonth();
+        _dlState.d = now.getDate();
+        _dlState.hour = now.getHours();
+        _dlState.minute = Math.round(now.getMinutes()/5)*5;
+        _dlState.viewY = _dlState.y;
+        _dlState.viewM = _dlState.m;
+    }
+}
+
+function openDeadlinePicker() {
+    _dlInit();
+    document.getElementById('dl-sheet').classList.remove('hidden');
+    _dlRenderCal();
+    _dlUpdatePreview();
+    _dlRenderTime();
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+}
+
+function _dlRenderCal() {
+    const y = _dlState.viewY, m = _dlState.viewM;
+    document.getElementById('dl-cal-month').textContent = `${_MONTH_UZ[m]} ${y}`;
+
+    const first = new Date(y, m, 1);
+    const startDow = (first.getDay() + 6) % 7;  // Mon=0
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const daysPrev = new Date(y, m, 0).getDate();
+
+    const today = new Date();
+    const tY = today.getFullYear(), tM = today.getMonth(), tD = today.getDate();
+
+    let html = '';
+    // Prev month tail
+    for (let i = startDow - 1; i >= 0; i--) {
+        html += `<button class="dl-d dl-d-out" disabled>${daysPrev - i}</button>`;
+    }
+    // Current month
+    for (let d = 1; d <= daysInMonth; d++) {
+        const isPast = (y < tY) || (y === tY && m < tM) || (y === tY && m === tM && d < tD);
+        const isSelected = (y === _dlState.y && m === _dlState.m && d === _dlState.d);
+        const isToday = (y === tY && m === tM && d === tD);
+        let cls = 'dl-d';
+        if (isPast) cls += ' dl-d-past';
+        if (isSelected) cls += ' dl-d-sel';
+        if (isToday) cls += ' dl-d-today';
+        const dis = isPast ? 'disabled' : '';
+        html += `<button class="${cls}" ${dis} onclick="dlSelectDay(${y},${m},${d})">${d}</button>`;
+    }
+    // Next month head — fill grid
+    const total = startDow + daysInMonth;
+    const tail = (7 - (total % 7)) % 7;
+    for (let i = 1; i <= tail; i++) {
+        html += `<button class="dl-d dl-d-out" disabled>${i}</button>`;
+    }
+    document.getElementById('dl-cal-grid').innerHTML = html;
+}
+
+function dlCalNav(delta) {
+    let y = _dlState.viewY, m = _dlState.viewM + delta;
+    while (m < 0) { m += 12; y--; }
+    while (m > 11) { m -= 12; y++; }
+    _dlState.viewY = y; _dlState.viewM = m;
+    _dlRenderCal();
+    if (tg) tg.HapticFeedback?.selectionChanged();
+}
+
+function dlSelectDay(y, m, d) {
+    _dlState.y = y; _dlState.m = m; _dlState.d = d;
+    _dlRenderCal();
+    _dlUpdatePreview();
+    if (tg) tg.HapticFeedback?.selectionChanged();
+}
+
+function _dlRenderTime() {
+    document.getElementById('dl-hour').textContent = String(_dlState.hour).padStart(2,'0');
+    document.getElementById('dl-min').textContent  = String(_dlState.minute).padStart(2,'0');
+    _dlUpdatePreview();
+}
+
+function _dlUpdatePreview() {
+    const el = document.getElementById('dl-sel-text');
+    if (!el || !_dlState.y) return;
+    const pad = n => String(n).padStart(2,'0');
+    const mn = ['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentyabr','Oktyabr','Noyabr','Dekabr'];
+    el.textContent = `${_dlState.d} ${mn[_dlState.m]} ${_dlState.y}, soat ${pad(_dlState.hour)}:${pad(_dlState.minute)}`;
+}
+
+function dlTimeNudge(field, delta) {
+    if (field === 'h') {
+        _dlState.hour = (_dlState.hour + delta + 24) % 24;
+    } else {
+        _dlState.minute = (_dlState.minute + delta + 60) % 60;
+    }
+    _dlRenderTime();
+    if (tg) tg.HapticFeedback?.selectionChanged();
+}
+
+function dlSetTime(h, m) {
+    _dlState.hour = h; _dlState.minute = m;
+    _dlRenderTime();
+    if (tg) tg.HapticFeedback?.selectionChanged();
+}
+
+// Optional one-shot callback — set before opening picker, cleared after use
+let _dlOnConfirm = null;
+
+function confirmDeadlinePicker() {
+    const dt = new Date(_dlState.y, _dlState.m, _dlState.d, _dlState.hour, _dlState.minute);
+    if (dt < new Date()) {
+        showToast("⚠️ O'tib ketgan vaqt tanlandi", true);
+        return;
+    }
+    const pad = n => String(n).padStart(2,'0');
+    const isoLocal = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    document.getElementById('dl-sheet').classList.add('hidden');
+    if (tg) tg.HapticFeedback?.notificationOccurred('success');
+
+    // If a one-shot callback is registered (e.g. step deadline), use it
+    if (typeof _dlOnConfirm === 'function') {
+        const cb = _dlOnConfirm;
+        _dlOnConfirm = null;
+        cb(isoLocal);
+        showToast('✅ Deadline belgilandi');
+        return;
+    }
+
+    // Default: write to main task form
+    document.getElementById('task-deadline').value = isoLocal;
+    const display = `${pad(dt.getDate())}.${pad(dt.getMonth()+1)}.${dt.getFullYear()} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    document.getElementById('dl-picker-text').textContent = '⏰ ' + display;
+    document.getElementById('dl-picker-text').classList.add('chosen');
+    document.getElementById('dl-picker-clear').classList.remove('hidden');
+    showToast('✅ Deadline belgilandi');
+}
+
+function clearDeadline() {
+    document.getElementById('task-deadline').value = '';
+    document.getElementById('dl-picker-text').textContent = 'Sana va vaqt tanlang';
+    document.getElementById('dl-picker-text').classList.remove('chosen');
+    document.getElementById('dl-picker-clear').classList.add('hidden');
+    if (tg) tg.HapticFeedback?.selectionChanged();
+}
+
+function setQuickDeadline(kind) {
+    const now = new Date();
+    let dt;
+    if (kind === 'today') {
+        dt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0);
+    } else if (kind === 'tomorrow') {
+        dt = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1, 12, 0);
+    } else if (kind === 'week') {
+        // Next Sunday 18:00
+        const d = new Date(now);
+        const daysToSun = (7 - d.getDay()) % 7 || 7;
+        d.setDate(d.getDate() + daysToSun);
+        dt = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 18, 0);
+    }
+    _dlState.y = dt.getFullYear();
+    _dlState.m = dt.getMonth();
+    _dlState.d = dt.getDate();
+    _dlState.hour = dt.getHours();
+    _dlState.minute = dt.getMinutes();
+    _dlState.viewY = _dlState.y;
+    _dlState.viewM = _dlState.m;
+    confirmDeadlinePicker();
 }
 
 // ===== Quick Stats =====
@@ -327,8 +859,8 @@ function updateQuickStats(stats) {
     animateNumber('stat-done', stats.done || 0);
     animateNumber('stat-overdue', stats.overdue || 0);
     
-    document.getElementById('user-stats').textContent = 
-        `${stats.total || 0} vazifa - ${stats.completion_rate || 0}% bajarildi`;
+    const statsEl = document.getElementById('user-stats');
+    if (statsEl) statsEl.textContent = `${stats.total || 0} vazifa - ${stats.completion_rate || 0}% bajarildi`;
 }
 
 function animateNumber(id, target) {
@@ -344,18 +876,37 @@ function animateNumber(id, target) {
 }
 
 // ===== Stats Tab =====
+let _statsMemberId = null;   // CEO filter: tanlangan a'zo ID
+let _statsLastData = null;   // oxirgi stats ma'lumotlari (member list uchun)
+
 function updateStatsTab(stats) {
-    document.getElementById('stats-total').textContent = stats.total || 0;
-    document.getElementById('stats-done-count').textContent = stats.done || 0;
-    document.getElementById('stats-progress').textContent = (stats.in_progress || 0);
-    document.getElementById('stats-overdue-count').textContent = stats.overdue || 0;
+    _statsLastData = stats;
+
+    // CEO member filter panel
+    _renderStatsMemberFilter(stats);
+
+    // Title: agar member filter qo'llanilgan bo'lsa
+    const titleEl = document.getElementById('stats-tab-title');
+    if (titleEl) {
+        if (stats.member_name) {
+            titleEl.textContent = `📊 ${stats.member_name}`;
+        } else {
+            titleEl.textContent = '📊 Statistikangiz';
+        }
+    }
+
+    const _se = id => document.getElementById(id);
+    if (_se('stats-total'))       _se('stats-total').textContent       = stats.total || 0;
+    if (_se('stats-done-count'))  _se('stats-done-count').textContent  = stats.done || 0;
+    if (_se('stats-progress'))    _se('stats-progress').textContent    = stats.in_progress || 0;
+    if (_se('stats-overdue-count')) _se('stats-overdue-count').textContent = stats.overdue || 0;
 
     // Progress circle
     const rate = stats.completion_rate || 0;
-    document.getElementById('completion-rate').textContent = rate;
+    if (_se('completion-rate')) _se('completion-rate').textContent = rate;
     const circle = document.getElementById('progress-circle');
     if (circle) {
-        const circumference = 2 * Math.PI * 52; // r=52
+        const circumference = 2 * Math.PI * 52;
         const offset = circumference - (rate / 100) * circumference;
         setTimeout(() => { circle.style.strokeDashoffset = offset; }, 300);
     }
@@ -365,6 +916,112 @@ function updateStatsTab(stats) {
     renderTrendChart(stats);
     renderOverdueChart(stats);
     renderMembersChart(stats);
+}
+
+const _ROLE_META = {
+    owner:  { icon: '👑', label: 'Owner',  cls: 'smf-role-owner'  },
+    admin:  { icon: '⭐', label: 'Admin',  cls: 'smf-role-admin'  },
+    member: { icon: '👤', label: 'Member', cls: 'smf-role-member' },
+};
+
+function _renderStatsMemberFilter(stats) {
+    let panel = document.getElementById('stats-member-filter-panel');
+    if (!stats.is_admin || !Array.isArray(stats.employee_stats) || stats.employee_stats.length === 0) {
+        if (panel) panel.remove();
+        return;
+    }
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'stats-member-filter-panel';
+        panel.className = 'smf-panel';
+        const statsSection = document.querySelector('#tab-stats .stats-tab-content');
+        const progressSec  = document.querySelector('#tab-stats .progress-section');
+        if (progressSec) progressSec.after(panel);
+        else {
+            const statsGrid = document.querySelector('#tab-stats .stats-grid');
+            if (statsGrid) statsGrid.parentNode.insertBefore(panel, statsGrid);
+            else document.getElementById('tab-stats')?.prepend(panel);
+        }
+    }
+
+    // "Hammasi" chip
+    const allActive = !_statsMemberId;
+    let chipsHtml = `
+        <button class="smf-chip ${allActive ? 'smf-chip-active' : ''}"
+                onclick="filterStatsByMember('')">
+            <span class="smf-chip-icon">🌍</span>
+            <span class="smf-chip-name">Hammasi</span>
+        </button>
+    `;
+
+    // Har bir a'zo uchun chip
+    stats.employee_stats.forEach(e => {
+        const role = e.role || 'member';
+        const rm = _ROLE_META[role] || _ROLE_META.member;
+        const isActive = _statsMemberId == e.id;
+        const total = e.total || 0;
+        const done  = e.done  || 0;
+        const pct   = total ? Math.round(done / total * 100) : 0;
+
+        chipsHtml += `
+            <button class="smf-chip ${isActive ? 'smf-chip-active' : ''} ${rm.cls}"
+                    onclick="filterStatsByMember(${e.id})">
+                <div class="smf-chip-top">
+                    <span class="smf-chip-role-icon">${rm.icon}</span>
+                    <span class="smf-chip-name">${escapeHtml((e.name||'').split(' ')[0])}</span>
+                </div>
+                <div class="smf-chip-stats">
+                    <span class="smf-chip-pct">${pct}%</span>
+                    <span class="smf-chip-sub">${done}/${total}</span>
+                </div>
+            </button>
+        `;
+    });
+
+    // Tanlangan a'zo nomi ko'rsatiladigan sarlavha
+    let selectedLabel = '';
+    if (_statsMemberId) {
+        const sel = stats.employee_stats.find(e => e.id == _statsMemberId);
+        if (sel) {
+            const rm = _ROLE_META[sel.role] || _ROLE_META.member;
+            selectedLabel = `
+                <div class="smf-selected-label">
+                    ${rm.icon} <b>${escapeHtml(sel.name)}</b>
+                    <span class="smf-role-badge ${rm.cls}">${rm.label}</span>
+                    <button class="smf-deselect" onclick="filterStatsByMember('')">✕ Tozalash</button>
+                </div>
+            `;
+        }
+    }
+
+    panel.innerHTML = `
+        <div class="smf-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            Jamoa a'zolari bo'yicha
+        </div>
+        <div class="smf-chips-row">${chipsHtml}</div>
+        ${selectedLabel}
+    `;
+}
+
+async function filterStatsByMember(memberId) {
+    _statsMemberId = memberId ? parseInt(memberId) : null;
+    const ws = currentWorkspaceId;
+    let url = `${API_BASE}/stats?company_id=${ws}`;
+    if (_statsMemberId) url += `&member_id=${_statsMemberId}`;
+    try {
+        const headers = {};
+        applyAuthHeaders(headers);
+        const res = await fetch(url, { headers });
+        if (!res.ok) return;
+        const stats = await res.json();
+        // employee_stats ni saqlab qolish (member filterlashda yo'qolmasin)
+        if (_statsLastData && _statsLastData.employee_stats && !stats.employee_stats?.length) {
+            stats.employee_stats = _statsLastData.employee_stats;
+            stats.is_admin = _statsLastData.is_admin;
+        }
+        updateStatsTab(stats);
+    } catch (e) { console.warn('filterStats error', e); }
 }
 
 function renderStatusChart(stats) {
@@ -424,7 +1081,7 @@ function renderStatusChart(stats) {
 
 function renderMembersChart(stats) {
     const section = document.getElementById('members-chart-section');
-    const canvas = document.getElementById('members-chart');
+    const canvas  = document.getElementById('members-chart');
     if (!section || !canvas || typeof Chart === 'undefined') return;
 
     const hasData = stats.is_admin && Array.isArray(stats.employee_stats) && stats.employee_stats.length > 0;
@@ -433,22 +1090,26 @@ function renderMembersChart(stats) {
         if (membersChart) { membersChart.destroy(); membersChart = null; }
         return;
     }
-
     section.classList.remove('hidden');
 
-    // Faqat birinchi ismi
-    const labels     = stats.employee_stats.map(e => (e.name || '').split(' ')[0]);
-    const done       = stats.employee_stats.map(e => e.done || 0);
-    const inProgress = stats.employee_stats.map(e => (e.in_progress || 0) + (e.review || 0));
-    const overdue    = stats.employee_stats.map(e => e.overdue || 0);
+    // Har bir a'zo uchun ism + rol belgisi
+    const labels = stats.employee_stats.map(e => {
+        const roleMark = e.role === 'owner' ? ' 👑' : e.role === 'admin' ? ' ⭐' : '';
+        return (e.name || '').split(' ')[0] + roleMark;
+    });
 
-    // Dinamik balandlik: har 1 kishi uchun 52px, min 220
-    const barH = Math.max(220, labels.length * 52 + 80);
+    // 4 xil status
+    const newTasks   = stats.employee_stats.map(e => e.new        || 0);
+    const inProgress = stats.employee_stats.map(e => (e.in_progress || 0) + (e.review || 0));
+    const done       = stats.employee_stats.map(e => e.done       || 0);
+    const overdue    = stats.employee_stats.map(e => e.overdue    || 0);
+
+    // Vertikal chart uchun balandlik
+    const barH = Math.max(260, labels.length * 80 + 60);
     canvas.parentElement.style.height = barH + 'px';
 
     if (membersChart) membersChart.destroy();
 
-    // Plugin: faqat 0 dan katta qiymatlarni ko'rsat
     const datalabelsPlugin = window.ChartDataLabels;
 
     membersChart = new Chart(canvas, {
@@ -458,75 +1119,114 @@ function renderMembersChart(stats) {
             labels,
             datasets: [
                 {
-                    label: 'Bajarildi',
-                    data: done,
-                    backgroundColor: 'rgba(76,175,80,0.85)',
-                    borderColor: '#4CAF50',
-                    borderWidth: 1,
-                    borderRadius: 5,
-                    borderSkipped: false,
+                    label: '🔴 Boshlanmagan',
+                    data: newTasks,
+                    backgroundColor: 'rgba(239,68,68,0.82)',
+                    borderColor: '#EF4444',
+                    borderWidth: 1.5,
+                    borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 6, bottomRight: 6 },
+                    borderSkipped: 'bottom',
+                    stack: 'tasks',
                 },
                 {
-                    label: 'Jarayonda',
+                    label: '🟡 Jarayonda',
                     data: inProgress,
-                    backgroundColor: 'rgba(255,152,0,0.85)',
-                    borderColor: '#FF9800',
-                    borderWidth: 1,
-                    borderRadius: 5,
+                    backgroundColor: 'rgba(234,179,8,0.85)',
+                    borderColor: '#EAB308',
+                    borderWidth: 1.5,
+                    borderRadius: 0,
                     borderSkipped: false,
+                    stack: 'tasks',
                 },
                 {
-                    label: 'Kechikdi',
-                    data: overdue,
-                    backgroundColor: 'rgba(244,67,54,0.85)',
-                    borderColor: '#F44336',
-                    borderWidth: 1,
-                    borderRadius: 5,
+                    label: '🟢 Bajarildi',
+                    data: done,
+                    backgroundColor: 'rgba(34,197,94,0.85)',
+                    borderColor: '#22C55E',
+                    borderWidth: 1.5,
+                    borderRadius: 0,
                     borderSkipped: false,
+                    stack: 'tasks',
+                },
+                {
+                    label: '🟠 Kechikdi',
+                    data: overdue,
+                    backgroundColor: 'rgba(249,115,22,0.9)',
+                    borderColor: '#F97316',
+                    borderWidth: 1.5,
+                    borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 0, bottomRight: 0 },
+                    borderSkipped: 'top',
+                    stack: 'tasks',
                 },
             ],
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            indexAxis: 'y',          // Gorizontal bar — nom o'qiganda qulay
+            // indexAxis: 'x'  → vertikal (pastdan tepaga)
             scales: {
                 x: {
-                    beginAtZero: true,
-                    ticks: { color: 'rgba(255,255,255,0.6)', stepSize: 1, precision: 0 },
-                    grid: { color: 'rgba(255,255,255,0.06)' },
-                    title: { display: true, text: 'Vazifalar soni', color: 'rgba(255,255,255,0.5)', font: { size: 11 } },
+                    stacked: true,
+                    ticks: {
+                        color: 'rgba(255,255,255,0.9)',
+                        font: { weight: '700', size: 12 },
+                    },
+                    grid: { display: false },
                 },
                 y: {
-                    ticks: { color: 'rgba(255,255,255,0.9)', font: { weight: '700', size: 12 } },
-                    grid: { display: false },
+                    stacked: true,
+                    beginAtZero: true,
+                    ticks: {
+                        color: 'rgba(255,255,255,0.6)',
+                        stepSize: 1, precision: 0,
+                    },
+                    grid: { color: 'rgba(255,255,255,0.06)' },
+                    title: {
+                        display: true, text: 'Vazifalar soni',
+                        color: 'rgba(255,255,255,0.4)', font: { size: 11 },
+                    },
                 },
             },
             plugins: {
                 legend: {
                     position: 'top',
-                    labels: { color: 'rgba(255,255,255,0.85)', font: { size: 12 }, boxWidth: 14, padding: 12 },
+                    labels: {
+                        color: 'rgba(255,255,255,0.88)',
+                        font: { size: 11 },
+                        boxWidth: 12, padding: 10,
+                    },
                 },
                 tooltip: {
+                    mode: 'index',
+                    intersect: false,
                     callbacks: {
-                        afterBody: (items) => {
+                        title: (items) => {
                             const idx = items[0]?.dataIndex;
                             const emp = stats.employee_stats[idx];
                             if (!emp) return '';
-                            const total = (emp.done||0)+(emp.in_progress||0)+(emp.overdue||0)+(emp.review||0)+(emp.new||0);
-                            return [`Jami: ${total} ta`];
+                            const roleTxt = emp.role === 'owner' ? '👑 Owner' :
+                                            emp.role === 'admin' ? '⭐ Admin' : '👤 Member';
+                            return `${emp.name}  ${roleTxt}`;
+                        },
+                        footer: (items) => {
+                            const idx = items[0]?.dataIndex;
+                            const emp = stats.employee_stats[idx];
+                            if (!emp) return '';
+                            const total = (emp.new||0)+(emp.in_progress||0)+(emp.review||0)+(emp.done||0)+(emp.overdue||0);
+                            const pct   = total ? Math.round((emp.done||0)/total*100) : 0;
+                            return [`Jami: ${total} ta  ·  Bajarildi: ${pct}%`];
                         },
                     },
                 },
                 datalabels: datalabelsPlugin ? {
-                    anchor: 'end',
-                    align: 'end',
+                    display: (ctx) => ctx.dataset.data[ctx.dataIndex] > 0,
+                    anchor: 'center',
+                    align: 'center',
                     formatter: (val) => val > 0 ? val : '',
-                    color: (ctx) => {
-                        const colors = ['#81C784', '#FFB74D', '#EF9A9A'];
-                        return colors[ctx.datasetIndex] || '#fff';
-                    },
-                    font: { weight: 'bold', size: 12 },
+                    color: '#fff',
+                    font: { weight: 'bold', size: 11 },
+                    textShadowColor: 'rgba(0,0,0,0.4)',
+                    textShadowBlur: 3,
                 } : undefined,
             },
         },
@@ -556,7 +1256,7 @@ function renderPriorityChart(stats) {
     priorityChart = new Chart(canvas, {
         type: 'bar',
         data: {
-            labels: ['Juda muhim', 'Yuqori', "O'rta", 'Past'],
+            labels: ['Juda muhum', 'Muhum', "O'rta", 'Past'],
             datasets: [{
                 data: [priorityCounts.urgent, priorityCounts.high, priorityCounts.medium, priorityCounts.low],
                 backgroundColor: ['#F44336', '#FF9800', '#FFC107', '#4CAF50'],
@@ -700,6 +1400,8 @@ function renderOverdueChart(stats) {
 }
 
 // ===== Tabs =====
+let _currentTasksSubtab = 'regular';  // 'regular' | 'workflow'
+
 function initTabs() {
     document.querySelectorAll('.bnav-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -707,16 +1409,65 @@ function initTabs() {
             document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
 
             btn.classList.add('active');
-            const tabId = 'tab-' + btn.dataset.tab;
+            const tabName = btn.dataset.tab;
+            const tabId = 'tab-' + tabName;
             document.getElementById(tabId).classList.add('active');
 
-            if (btn.dataset.tab === 'workflow') {
-                loadWorkflows();
+            // Header title ni yangilaymiz
+            const tabTitles = { tasks: 'Vazifalar', calendar: 'Kalendar', create: 'Yangi vazifa', kanban: 'Kanban', stats: 'Statistika' };
+            const hTitle = document.getElementById('header-title');
+            if (hTitle) hTitle.textContent = tabTitles[tabName] || 'TaskBot';
+            // Tab o'zgarsa nav stack ni tozalaymiz
+            _navStack.length = 0;
+            document.getElementById('back-btn')?.classList.add('hidden');
+            document.getElementById('hamburger-btn')?.classList.remove('hidden');
+
+            // Quick-stats faqat Tasks tabida ko'rinadi
+            const qs = document.getElementById('quick-stats');
+            if (qs) qs.classList.toggle('hidden', tabName !== 'tasks');
+
+            if (tabName === 'kanban') {
+                renderKanbanMemberBar();
+                renderKanban();
+            }
+            if (tabName === 'calendar') {
+                renderCalendar();
             }
 
             if (tg) tg.HapticFeedback?.impactOccurred('light');
         });
     });
+
+    // Workflow filter chips inside tasks tab
+    document.querySelectorAll('.wf-filter-chips .chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.wf-filter-chips .chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            _wfFilter = chip.dataset.wfFilter || 'all';
+            renderWorkflows();
+            if (tg) tg.HapticFeedback?.selectionChanged();
+        });
+    });
+}
+
+function switchTasksSubtab(name) {
+    _currentTasksSubtab = name;
+    document.querySelectorAll('.tasks-subtab').forEach(b => b.classList.remove('active'));
+    document.getElementById('subtab-' + name)?.classList.add('active');
+
+    const panelRegular  = document.getElementById('panel-regular');
+    const panelWorkflow = document.getElementById('panel-workflow');
+
+    if (name === 'regular') {
+        panelRegular?.classList.remove('hidden');
+        panelWorkflow?.classList.add('hidden');
+        renderTasks();
+    } else {
+        panelRegular?.classList.add('hidden');
+        panelWorkflow?.classList.remove('hidden');
+        loadWorkflows();
+    }
+    if (tg) tg.HapticFeedback?.selectionChanged();
 }
 
 // ===== Workflow tab =====
@@ -745,92 +1496,139 @@ function renderWorkflows() {
     if (_wfFilter === 'done')   items = items.filter(w => w.status === 'done');
 
     if (!items.length) {
-        list.innerHTML = '<div class="wf-empty">📭 Workflow vazifa yo\'q</div>';
+        list.innerHTML = '<div class="wf-empty">📭 Workflow vazifa yo\'q<br><span style="font-size:12px;color:var(--text3)">Bot\'da /newworkflow</span></div>';
         return;
     }
 
     list.innerHTML = items.map(w => {
-        const stepsHtml = w.steps.map(s => {
-            const icon = s.status === 'done' ? '✅'
-                       : s.status === 'active' ? '🟢'
-                       : s.status === 'blocked' ? '⏸'
-                       : '⚪';
-            const cls = 'wf-step wf-step-' + s.status + (s.is_me ? ' wf-step-me' : '');
-            const meta = s.completed_at
-                ? `<span class="wf-step-time">⏱ ${s.completed_at}</span>`
-                : (s.status === 'active' ? '<span class="wf-step-time wf-active-pulse">▶ Hozir</span>' : '');
+        const isDone   = w.status === 'done';
+        const statusEm = isDone ? IC.done : w.current_is_me ? IC.play : IC.refresh;
+        const statusCls= isDone ? 'wf-s-done' : w.current_is_me ? 'wf-s-me' : 'wf-s-active';
+        const statusTxt= isDone ? 'Tugagan' : w.current_is_me ? 'Sizning navbat!' : 'Jarayonda';
 
-            // Comments ro'yxati
-            let commentsHtml = '';
-            if (s.comments && s.comments.length) {
-                commentsHtml = '<div class="wf-comments">' + s.comments.map(c =>
-                    `<div class="wf-comment">
-                        <b>${escapeHtml(c.user)}</b> <span class="wf-comment-time">${c.created_at}</span><br>
-                        ${escapeHtml(c.content)}
-                    </div>`
-                ).join('') + '</div>';
-            } else if (s.note) {
-                commentsHtml = `<div class="wf-step-note">💬 ${escapeHtml(s.note)}</div>`;
-            }
-
-            // Attachments ro'yxati
-            let attsHtml = '';
-            if (s.attachments && s.attachments.length) {
-                const typeEm = {photo:'🖼', video:'🎥', document:'📄', audio:'🎵', voice:'🎙'};
-                attsHtml = '<div class="wf-atts">' + s.attachments.map(a =>
-                    `<div class="wf-att">${typeEm[a.file_type]||'📎'} ${escapeHtml(a.file_name || a.file_type)}</div>`
-                ).join('') + '</div>';
-            }
-
-            return `
-                <div class="${cls}">
-                    <div class="wf-step-icon">${icon}</div>
-                    <div class="wf-step-body">
-                        <div class="wf-step-title">${s.order}. ${escapeHtml(s.title)}</div>
-                        <div class="wf-step-assignee">👤 ${escapeHtml(s.assignee_name)}${s.is_me ? ' <b>(siz)</b>' : ''}</div>
-                        ${commentsHtml}
-                        ${attsHtml}
-                    </div>
-                    <div class="wf-step-meta">${meta}</div>
-                </div>
-            `;
-        }).join('');
-
-        const stuckBadge = (w.stuck_minutes != null && w.current_is_me === false && w.status !== 'done')
-            ? `<div class="wf-stuck">⏳ ${w.current_assignee_name} da: ${formatMinutes(w.stuck_minutes)}</div>`
-            : '';
-
-        const curStep = w.steps.find(s => s.is_me);
-        const meBadge = w.current_is_me && curStep
-            ? `<div class="wf-action-row">
-                 <button class="wf-status-btn ${curStep.status === 'pending' ? 'wf-btn-start' : 'wf-btn-done'}"
-                         onclick="handleStepAction(${w.task_id}, '${curStep.status}')">
-                     ${curStep.status === 'pending' ? '▶️ Boshlash' : curStep.status === 'active' ? '✅ Bajarildi' : '✓ Tugagan'}
-                 </button>
-               </div>`
-            : '';
-
-        const status_em = w.status === 'done' ? '🎉' : '🔄';
-        const status_text = w.status === 'done' ? 'Tugagan' : 'Davom etmoqda';
+        const curStep  = w.steps.find(s => s.status === 'active');
+        const curLine  = curStep
+            ? `<div class="wf-cur-step">${IC.play} ${escapeHtml(curStep.title)} — <b>${escapeHtml(curStep.assignee_name)}</b>${curStep.deadline ? ' '+IC.clock+curStep.deadline : ''}</div>`
+            : (isDone ? '' : '<div class="wf-cur-step" style="color:var(--text3)">Kutilmoqda...</div>');
 
         return `
-            <div class="wf-card">
-                <div class="wf-card-head">
-                    <div>
-                        <div class="wf-card-title">${status_em} #${w.task_id} ${escapeHtml(w.title)}</div>
-                        <div class="wf-card-meta">${status_text} • ${w.created_at}</div>
-                    </div>
-                    <div class="wf-progress-wrap">
-                        <div class="wf-progress-text">${w.done_steps}/${w.total_steps} qadam</div>
-                        <div class="wf-progress-bar"><div class="wf-progress-fill" style="width:${w.progress_percent}%"></div></div>
+        <div class="wf-card wf-card-compact" onclick="openWorkflowDetail(${w.task_id})">
+            <div class="wf-card-top">
+                <div class="wf-card-info">
+                    <div class="wf-card-title">#${w.task_id} ${escapeHtml(w.title)}</div>
+                    <span class="wf-status-badge ${statusCls}">${statusEm} ${statusTxt}</span>
+                </div>
+                <div class="wf-progress-wrap">
+                    <div class="wf-progress-text">${w.done_steps}/${w.total_steps}</div>
+                    <div class="wf-progress-bar"><div class="wf-progress-fill" style="width:${w.progress_percent}%"></div></div>
+                </div>
+            </div>
+            ${curLine}
+            <div class="wf-card-footer">📅 ${w.created_at} &nbsp;•&nbsp; 🪜 ${w.total_steps} qadam</div>
+        </div>`;
+    }).join('');
+}
+
+// Workflow detail — xuddi oddiy task modal kabi (bottom-sheet)
+function openWorkflowDetail(taskId) {
+    const w = _wfData.find(x => x.task_id === taskId);
+    if (!w) return;
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+
+    const isDone = w.status === 'done';
+    const typeEm = {photo:'🖼', video:'🎥', document:'📄', audio:'🎵', voice:'🎙'};
+
+    // ---- Progress bar ----
+    const pct = w.progress_percent || 0;
+    const progressBar = `
+        <div style="margin:4px 0 12px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:4px">
+                <span>🪜 Qadamlar: ${w.done_steps}/${w.total_steps}</span>
+                <span>${pct}%</span>
+            </div>
+            <div style="height:6px;border-radius:3px;background:var(--border);overflow:hidden">
+                <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:3px;transition:width .3s"></div>
+            </div>
+        </div>`;
+
+    // ---- Overview rows (like modal-section) ----
+    const statusTxt = isDone ? IC.done+' Tugagan' : IC.refresh+' Jarayonda';
+    let bodyHtml = `
+        <div class="modal-section">
+            <div class="modal-detail">
+                <div class="modal-detail-label">📍 Holat</div>
+                <div class="modal-detail-value">${statusTxt}</div>
+            </div>
+            <div class="modal-detail">
+                <div class="modal-detail-label">📅 Yaratildi</div>
+                <div class="modal-detail-value">${w.created_at}</div>
+            </div>
+        </div>
+        ${w.description ? `<div class="modal-detail"><div class="modal-detail-label">Tavsif</div><div class="modal-detail-value">${escapeHtml(w.description)}</div></div>` : ''}
+        ${progressBar}
+        <div class="modal-detail-label" style="margin-bottom:8px">🪜 QADAMLAR</div>
+    `;
+
+    // ---- Steps ----
+    w.steps.forEach(s => {
+        const icon = s.status === 'done' ? IC.done : s.status === 'active' ? IC.play : s.status === 'blocked' ? IC.pause : IC.circle;
+        const isCur = s.status === 'active';
+        const cardStyle = isCur
+            ? 'background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.35);border-radius:14px;padding:12px 14px;margin-bottom:10px'
+            : 'background:var(--glass);border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:10px;opacity:' + (s.status==='done'?'0.75':'1');
+
+        let meta = [];
+        if (s.started_at)   meta.push(`▶ ${s.started_at}`);
+        if (s.completed_at) meta.push(`✅ ${s.completed_at}`);
+        if (s.deadline)     meta.push(`⏰ ${s.deadline}`);
+        const metaHtml = meta.length ? `<div style="font-size:11px;color:var(--text3);margin-top:5px;display:flex;gap:10px;flex-wrap:wrap">${meta.map(m=>`<span>${m}</span>`).join('')}</div>` : '';
+
+        let noteHtml = '';
+        if (s.comments && s.comments.length) {
+            noteHtml = s.comments.map(c =>
+                `<div style="font-size:12px;background:var(--glass2);padding:6px 10px;border-radius:8px;margin-top:5px;color:var(--text2)">
+                    <b style="color:var(--text)">${escapeHtml(c.user)}</b> <span style="float:right;font-size:10px;color:var(--text3)">${c.created_at}</span><br>${escapeHtml(c.content)}
+                </div>`
+            ).join('');
+        } else if (s.note) {
+            noteHtml = `<div style="font-size:12px;background:var(--glass2);padding:6px 10px;border-radius:8px;margin-top:5px;color:var(--text2)">💬 ${escapeHtml(s.note)}</div>`;
+        }
+
+        let attsHtml = '';
+        if (s.attachments && s.attachments.length) {
+            attsHtml = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${s.attachments.map(a=>`<span style="font-size:11px;background:var(--glass2);padding:3px 8px;border-radius:8px;color:var(--text2)">${typeEm[a.file_type]||'📎'} ${escapeHtml(a.file_name||a.file_type)}</span>`).join('')}</div>`;
+        }
+
+        const meBtnHtml = s.is_me && (s.status === 'active' || s.status === 'pending') && !isDone
+            ? `<button class="modal-action-btn btn-primary" style="margin-top:8px" onclick="handleStepAction(${w.task_id},'${s.status}');closeWfDetailModal()">
+                ${s.status==='pending'?'▶️ Boshlash':'✅ Tugatish'}
+               </button>` : '';
+
+        bodyHtml += `
+            <div style="${cardStyle}">
+                <div style="display:flex;gap:10px;align-items:flex-start">
+                    <div style="font-size:20px;line-height:1;margin-top:1px">${icon}</div>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:14px;font-weight:700;color:var(--text)">${s.order}. ${escapeHtml(s.title)}</div>
+                        <div style="font-size:12px;color:var(--text2);margin-top:2px">
+                            👤 ${escapeHtml(s.assignee_name)}${s.is_me ? ' <b style="color:var(--accent)">(siz)</b>' : ''}
+                        </div>
+                        ${metaHtml}${noteHtml}${attsHtml}${meBtnHtml}
                     </div>
                 </div>
-                ${stuckBadge}
-                <div class="wf-steps">${stepsHtml}</div>
-                ${meBadge}
-            </div>
-        `;
-    }).join('');
+            </div>`;
+    });
+
+    // Use the existing task modal — just fill it
+    document.getElementById('modal-title').textContent = `#${w.task_id} ${w.title}`;
+    document.getElementById('modal-body').innerHTML = bodyHtml;
+    document.getElementById('modal-actions').innerHTML = '';
+    document.getElementById('task-modal').classList.remove('hidden');
+    document.getElementById('task-modal').dataset.wfMode = '1';
+}
+
+function closeWfDetailModal() {
+    closeModal();
 }
 
 // Modal — qadam tugatish formasi (izoh + status)
@@ -922,10 +1720,72 @@ function initFilters() {
 }
 
 // ===== Render Tasks =====
-const TC_STATUS = {
-    new: 'Yangi', in_progress: 'Jarayonda', review: "Ko'rilmoqda",
-    done: 'Bajarildi', overdue: 'Kechikdi', cancelled: 'Bekor',
+// Status labels — resolved at runtime via i18n so they appear in user's language
+function getStatusLabel(status) {
+    const key = 'app.status.' + status;
+    const translated = tr(key);
+    // If key not in dict, fall back to built-in Uzbek defaults
+    if (translated === key) {
+        const FB = { new:'Yangi', in_progress:'Jarayonda', review:"Ko'rilmoqda",
+                     done:'Bajarildi', overdue:'Kechikdi', cancelled:'Bekor' };
+        return FB[status] || status;
+    }
+    return translated;
+}
+// SVG icon helpers
+const IC = {
+    new:        `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
+    progress:   `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
+    review:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    done:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>`,
+    overdue:    `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+    cancelled:  `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
+    fire:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 01-7 7 6.998 6.998 0 01-6-3.49M14.5 18.5a2.5 2.5 0 01-5 0"/></svg>`,
+    clock:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+    play:       `<svg class="ic" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+    check:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>`,
+    xmark:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    send:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+    attach:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>`,
+    star:       `<svg class="ic" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+    eye:        `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    refresh:    `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>`,
+    low:        `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>`,
+    medium:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+    high:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>`,
+    urgent:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    plus:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+    step:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>`,
+    file:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+    pause:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`,
+    circle:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>`,
+    copy:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`,
+    share:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`,
 };
+
+// Kept for backward compat (used in a few places as object map)
+const TC_STATUS = new Proxy({}, { get: (_, s) => getStatusLabel(s) });
+
+// Status icon only (for compact display) - now SVG
+const TC_STATUS_ICON = {
+    new:         IC.new,
+    in_progress: IC.progress,
+    review:      IC.review,
+    done:        IC.done,
+    overdue:     IC.overdue,
+    cancelled:   IC.cancelled,
+};
+
+// Priority labels — resolved at runtime via i18n
+function getPriorityLabel(priority) {
+    const key = 'app.priority.' + priority;
+    const translated = tr(key);
+    if (translated === key) {
+        const FB = { low:'🟢 Past', medium:'🟡 O\'rta', high:'🟠 Muhum', urgent:'🔴 Juda muhum' };
+        return FB[priority] || priority;
+    }
+    return translated;
+}
 
 function renderTasks() {
     const list = document.getElementById('task-list');
@@ -940,7 +1800,7 @@ function renderTasks() {
         }
     });
 
-    // Apply filter - only to root tasks
+    // Root tasks only
     let filtered = allTasks.filter(t => !t.parent_id);
     if (currentFilter === 'active') {
         filtered = filtered.filter(t => !['done', 'cancelled'].includes(t.status));
@@ -948,6 +1808,57 @@ function renderTasks() {
         filtered = filtered.filter(t => t.status === 'done');
     } else if (currentFilter === 'overdue') {
         filtered = filtered.filter(t => t.status === 'overdue');
+    }
+
+    // Also include sub-tasks the current user is assigned to
+    const myId = window._myUserId;
+    if (myId) {
+        const mySubtasks = allTasks.filter(t =>
+            t.parent_id &&
+            t.assignees && t.assignees.some(a => a.id === myId) &&
+            !filtered.some(f => (subtaskMap[f.id] || []).some(c => c.id === t.id))
+        );
+        // Apply same status filter
+        const filteredSubs = currentFilter === 'active'
+            ? mySubtasks.filter(t => !['done','cancelled'].includes(t.status))
+            : currentFilter === 'done' ? mySubtasks.filter(t => t.status === 'done')
+            : currentFilter === 'overdue' ? mySubtasks.filter(t => t.status === 'overdue')
+            : mySubtasks;
+        // Render them as orphan sub-task cards (show parent ref from their parent_id)
+        filteredSubs.forEach(s => {
+            const parent = allTasks.find(t => t.id === s.parent_id);
+            s._parentTitle = parent ? parent.title : null;
+        });
+        if (filteredSubs.length > 0) {
+            if (filtered.length === 0) {
+                list.classList.remove('hidden');
+                empty.classList.add('hidden');
+                list.innerHTML = filteredSubs.map(s => `
+                    <div class="tc-group">
+                        <div class="tc-child-wrap" style="padding-left:0">
+                            <div class="task-card tc-card tc-card-subtask-orphan" data-priority="${s.priority}" data-status="${s.status}" onclick="openTask(${s.id})">
+                                ${_taskCardInner(s, { parentName: s._parentTitle })}
+                            </div>
+                        </div>
+                    </div>`).join('');
+                return;
+            }
+            // Append orphan subtasks after regular tasks
+            list.classList.remove('hidden');
+            empty.classList.add('hidden');
+            list.innerHTML = filtered.map(task => {
+                const children = subtaskMap[task.id] || [];
+                return _renderTaskTree(task, children);
+            }).join('') + filteredSubs.map(s => `
+                <div class="tc-group">
+                    <div class="tc-child-wrap" style="padding-left:0">
+                        <div class="task-card tc-card tc-card-subtask-orphan" data-priority="${s.priority}" data-status="${s.status}" onclick="openTask(${s.id})">
+                            ${_taskCardInner(s, { parentName: s._parentTitle })}
+                        </div>
+                    </div>
+                </div>`).join('');
+            return;
+        }
     }
 
     if (filtered.length === 0) {
@@ -967,7 +1878,7 @@ function renderTasks() {
 
 function _renderTaskTree(task, children) {
     const parentHtml = `
-        <div class="task-card tc-card" data-priority="${task.priority}" onclick="openTask(${task.id})">
+        <div class="task-card tc-card" data-priority="${task.priority}" data-status="${task.status}" onclick="openTask(${task.id})">
             ${_taskCardInner(task, { subtaskCount: children.length })}
         </div>`;
 
@@ -976,7 +1887,7 @@ function _renderTaskTree(task, children) {
     const childrenHtml = children.map(c => `
         <div class="tc-child-wrap">
             <div class="tc-child-dot"></div>
-            <div class="task-card tc-card tc-card-child" data-priority="${c.priority}" onclick="openTask(${c.id})">
+            <div class="task-card tc-card tc-card-child" data-priority="${c.priority}" data-status="${c.status}" onclick="openTask(${c.id})">
                 ${_taskCardInner(c, { parentName: task.title })}
             </div>
         </div>`).join('');
@@ -1020,12 +1931,12 @@ function _taskCardInner(task, opts = {}) {
         refHtml = `<div class="tc-row tc-subtask-ref"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 3v12"/><path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M15 6H6"/><path d="M6 18h8a4 4 0 0 0 0-8h-1"/></svg> ${subtaskCount} subtask</div>`;
     }
 
-    // Deadline row
+    // Deadline row — live countdown
     let dlHtml = '';
     if (task.deadline) {
-        const icon = dlUrgent ? '🔥' : '⏰';
+        const icon = dlUrgent ? IC.fire : IC.clock;
         const dlCls = dlUrgent ? 'tc-dl-urgent' : (dlSoon ? 'tc-dl-soon' : 'tc-dl-normal');
-        dlHtml = `<div class="tc-row ${dlCls}">${icon} ${formatDeadline(task.deadline)}</div>`;
+        dlHtml = `<div class="tc-row ${dlCls} tc-countdown" data-deadline="${task.deadline}" data-status="${task.status}">${icon} <span class="tc-countdown-txt">${formatCountdown(task.deadline, task.status)}</span></div>`;
     }
 
     return `
@@ -1049,11 +1960,9 @@ async function openTask(taskId) {
         
         document.getElementById('modal-title').textContent = task.title;
         
-        const priorityNames = { low: '🟢 Past', medium: '🟡 O\'rta', high: '🟠 Yuqori', urgent: '🔴 Juda muhim' };
-        const statusNames = {
-            new: '🆕 Yangi', in_progress: '⚙️ Jarayonda', review: '🔍 Ko\'rilmoqda',
-            done: '✅ Bajarildi', overdue: '⏰ Kechikdi', cancelled: '🚫 Bekor',
-        };
+        // Use i18n-resolved labels
+        const priorityNames = new Proxy({}, { get: (_, p) => getPriorityLabel(p) });
+        const statusNames   = new Proxy({}, { get: (_, s) => getStatusLabel(s) });
 
         const priorityColors = { low: 'priority-low', medium: 'priority-medium', high: 'priority-high', urgent: 'priority-urgent' };
         let bodyHtml = `
@@ -1097,60 +2006,123 @@ async function openTask(taskId) {
         }
 
         const statusShort = {
-            new: '🆕 Yangi', in_progress: '⚙️ Jarayonda', review: '🔍 Ko\'rilmoqda',
-            done: '✅ Bajarildi', overdue: '⏰ Kechikdi', cancelled: '🚫 Bekor',
+            new: 'Yangi', in_progress: 'Jarayonda', review: 'Ko\'rilmoqda',
+            done: 'Bajarildi', overdue: 'Kechikdi', cancelled: 'Bekor',
         };
 
-        if (task.assignees && task.assignees.length > 0) {
-            const rows = task.assignees.map(a => {
-                const st = a.status || 'new';
-                return `
-                    <div class="assignee-row">
-                        <span class="assignee-row-name">👤 ${escapeHtml(a.name)}</span>
-                        <span class="assignee-row-status badge-${st}">${statusShort[st] || st}</span>
-                    </div>
-                `;
-            }).join('');
-            const doneCount = task.assignees.filter(a => (a.status||'new') === 'done').length;
+        // Masul (responsible)
+        if (task.responsible_name) {
             bodyHtml += `
                 <div class="modal-detail">
-                    <div class="modal-detail-label">Ijrochilar va ularning statusi (${doneCount}/${task.assignees.length} bajardi)</div>
+                    <div class="modal-detail-label">⭐ Masul (Responsible)</div>
+                    <div class="modal-detail-value"><span class="resp-badge">⭐ ${escapeHtml(task.responsible_name)}</span></div>
+                </div>
+            `;
+        }
+
+        if (task.assignees && task.assignees.length > 0) {
+            // Mas'ullar va kuzatuvchilarni ajratib ko'rsatamiz
+            const responsible = task.assignees.filter(a => a.is_responsible);
+            const observers   = task.assignees.filter(a => !a.is_responsible);
+
+            const makeRow = (a, isResp) => {
+                const st = a.status || 'new';
+                const roleIcon = isResp ? '⭐' : '👁';
+                const roleTxt  = isResp
+                    ? `<span class="asgn-role-badge asgn-resp">Mas'ul</span>`
+                    : `<span class="asgn-role-badge asgn-obs">Kuzatuvchi</span>`;
+                // Kuzatuvchi uchun status ko'rsatmaymiz
+                const statusBadge = isResp
+                    ? `<span class="assignee-row-status badge-${st}">${statusShort[st] || st}</span>`
+                    : '';
+                return `
+                    <div class="assignee-row">
+                        <span class="assignee-row-name">${roleIcon} ${escapeHtml(a.name)} ${roleTxt}</span>
+                        ${statusBadge}
+                    </div>
+                `;
+            };
+
+            let rows = responsible.map(a => makeRow(a, true)).join('');
+            if (observers.length) {
+                rows += observers.map(a => makeRow(a, false)).join('');
+            }
+
+            const doneCount = responsible.filter(a => (a.status||'new') === 'done').length;
+            bodyHtml += `
+                <div class="modal-detail">
+                    <div class="modal-detail-label">
+                        Mas'ullar (${doneCount}/${responsible.length} bajardi)
+                        ${observers.length ? `· ${observers.length} kuzatuvchi` : ''}
+                    </div>
                     <div class="modal-detail-value assignees-status-list">${rows}</div>
                 </div>
             `;
         }
 
-        // Subtasks — compact
+        // Subtasks
         const subtasks = task.subtasks || [];
-        if (subtasks.length > 0) {
-            const subItems = subtasks.slice(0, 3).map(s => `
-                <div class="subtask-item" onclick="openTask(${s.id})">
-                    <span class="subtask-status badge-${s.status}" style="font-size:10px">${statusShort[s.status] || s.status}</span>
-                    <span class="subtask-title">${escapeHtml(s.title.slice(0, 30))}</span>
-                </div>
-            `).join('');
+        const isCreator = (task.creator_id === (window._myUserId || -1));
+        const hasParent = !!task.parent_id;
+        {
+            const subItems = subtasks.map(s => {
+                const isDone = s.status === 'done' || s.status === 'DONE';
+                return `
+                    <div class="subtask-item ${isDone ? 'subtask-done' : ''}" onclick="openTask(${s.id})">
+                        <span class="subtask-status">${isDone ? '✅' : '⬜'}</span>
+                        <span class="subtask-title">${escapeHtml(s.title.slice(0, 50))}</span>
+                    </div>
+                `;
+            }).join('');
+            const addBtn = (!hasParent)
+                ? `<button class="subtask-add-btn" onclick="openSubtaskModal(${task.id})">➕ Sub-task qo'shish</button>`
+                : '';
             bodyHtml += `
-                <div class="modal-detail">
-                    <div class="modal-detail-label">🧩 Subtasklar (${subtasks.length})</div>
-                    <div class="subtask-list">${subItems}</div>
-                    ${subtasks.length > 3 ? '<div style="font-size:10px;color:#94a3b8;margin-top:4px">+' + (subtasks.length - 3) + ' yana...</div>' : ''}
+                <div class="subtask-section">
+                    <div class="subtask-section-title">📂 Sub-tasklar${subtasks.length ? ' ('+subtasks.length+')' : ''}</div>
+                    ${subItems || '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">Hali sub-task yo\'q</div>'}
+                    ${addBtn}
                 </div>
             `;
         }
 
-        // Attachments — compact
-        const atts = task.attachments || [];
-        if (atts.length > 0) {
-            const attItems = atts.slice(0, 3).map(a => {
-                const isImg = a.file_type === 'photo' || (a.mime_type||'').startsWith('image/');
-                if (isImg) return `<a class="att-item att-img" href="${a.file_url}" target="_blank"><img src="${a.file_url}" alt=""/></a>`;
-                return `<a class="att-item att-file" href="${a.file_url}" target="_blank" style="font-size:10px">📎</a>`;
+        // Comments section — extracted from history (type === 'comment')
+        const comments = (task.history || []).filter(h => h.type === 'comment');
+        if (comments.length > 0) {
+            const commentsHtml = comments.map(c => {
+                const authorName = escapeHtml(c.user_name || 'Foydalanuvchi');
+                const commentText = escapeHtml(c.content || '');
+                const commentTime = c.created_at ? formatDateTime(c.created_at) : '';
+                return `
+                    <div class="task-comment">
+                        <div class="comment-header">
+                            <span class="comment-author">👤 ${authorName}</span>
+                            <span class="comment-time">${commentTime}</span>
+                        </div>
+                        ${commentText ? `<div class="comment-text">${commentText}</div>` : ''}
+                    </div>
+                `;
             }).join('');
             bodyHtml += `
                 <div class="modal-detail">
-                    <div class="modal-detail-label">📎 Fayllar (${atts.length})</div>
-                    <div class="att-list" style="margin-bottom:6px">${attItems}</div>
-                    ${atts.length > 3 ? '<div style="font-size:10px;color:#94a3b8">+' + (atts.length - 3) + ' fayl</div>' : ''}
+                    <div class="modal-detail-label">💬 Izohlar (${comments.length})</div>
+                    <div class="task-comments-list">${commentsHtml}</div>
+                </div>
+            `;
+        }
+
+        // Media button — media gallery ochish
+        const atts = task.attachments || [];
+        {
+            const mediaCount = atts.length;
+            const mediaLabel = tr('app.media.title') || '📎 Mediya';
+            const hasCommentMedia = comments.filter(c => c.file_url).length;
+            const totalMedia = mediaCount + hasCommentMedia;
+            bodyHtml += `
+                <div class="modal-detail media-section-row">
+                    <button class="media-open-btn" onclick="openMediaGallery(${task.id})">
+                        ${mediaLabel}${totalMedia > 0 ? ` <span class="media-count-badge">${totalMedia}</span>` : ''}
+                    </button>
                 </div>
             `;
         }
@@ -1173,66 +2145,76 @@ async function openTask(taskId) {
             </div>
         `;
 
-        // Tarix / Roadmap — minimal (first 3 only)
+        // Tarix — barcha harakatlar ko'rsatiladi
         if (task.history && task.history.length > 0) {
-            const historyPreview = task.history.slice(0, 3);
             bodyHtml += `
                 <div class="modal-detail">
                     <div class="modal-detail-label">🕐 So'nggi harakatlari (${task.history.length})</div>
-                    <div class="timeline">${_renderTimeline(historyPreview)}</div>
-                    ${task.history.length > 3 ? '<div style="font-size:11px;color:#94a3b8;margin-top:6px">+' + (task.history.length - 3) + ' boshqa...</div>' : ''}
+                    <div class="timeline" id="task-timeline-${task.id}">${_renderTimeline(task.history)}</div>
                 </div>
             `;
         }
 
         document.getElementById('modal-body').innerHTML = bodyHtml;
 
-        // Actions - single state-based button for regular tasks (no workflow)
+        // Actions
         let actionsHtml = '';
-        const myStatus = task.my_status;
-        const isWorkflow = task.has_workflow === true;
+        const myStatus       = task.my_status;
+        const isWorkflow     = task.has_workflow === true;
+        const isResponsible  = task.my_is_responsible === true;
+        const isObserver     = myStatus && !isResponsible;
 
-        if (myStatus && !isWorkflow) {
-            // Single-button state progression for regular tasks
-            let buttonClass = 'wf-btn-start';
-            let buttonText = '▶️ Boshlash';
+        // Status + action buttons block
+        const statusColors = { new:'#818CF8', in_progress:'#FBBF24', done:'#34D399', cancelled:'#6B7280', review:'#22D3EE' };
+        const statusIcons  = { new:'🆕', in_progress:'⚙️', done:'✅', cancelled:'🚫', review:'🔍' };
 
-            if (myStatus === 'in_progress') {
-                buttonClass = 'wf-btn-done';
-                buttonText = '✅ Bajarildi';
-            } else if (myStatus === 'done') {
-                buttonClass = 'wf-btn-secondary';
-                buttonText = '✓ Tugagan';
-            }
-
+        if (myStatus) {
+            const sColor = statusColors[myStatus] || '#818CF8';
+            const sIcon  = statusIcons[myStatus] || '📌';
+            const sLabel = statusShort[myStatus] || myStatus;
+            const roleLabel = isResponsible ? IC.star+' Mas\'ul' : IC.eye+' Kuzatuvchi';
             actionsHtml += `
-                <div class="my-status-hint">Sizning statusingiz: <b>${statusShort[myStatus] || myStatus}</b></div>
-                <button class="wf-status-btn ${buttonClass}" onclick="handleTaskAction(${task.id}, '${myStatus}')">
-                    ${buttonText}
-                </button>
-            `;
-        } else if (myStatus && isWorkflow) {
-            // Original buttons for workflow tasks
-            actionsHtml += `<div class="my-status-hint">Sizning statusingiz: <b>${statusShort[myStatus] || myStatus}</b></div>`;
+                <div class="task-status-card" style="--s-color:${sColor}">
+                    <div class="tsc-role">${roleLabel}</div>
+                    <div class="tsc-status">${sIcon} ${sLabel}</div>
+                </div>`;
+        }
+
+        if (isObserver) {
+            actionsHtml += `<div class="observer-badge">👁 Status faqat mas'ul shaxs tomonidan o'zgartiriladi</div>`;
+        }
+
+        if (myStatus && isResponsible && !isWorkflow) {
+            let btnClass = 'wf-btn-start', btnText = IC.play+' Boshlashni boshlash';
+            if (myStatus === 'new')         { btnClass = 'wf-btn-start'; btnText = IC.play+' Boshlash'; }
+            if (myStatus === 'in_progress') { btnClass = 'wf-btn-done';  btnText = IC.check+' Bajarildi deb belgilash'; }
+            if (myStatus === 'done')        { btnClass = 'wf-btn-secondary'; btnText = IC.check+' Bajarilgan'; }
+            actionsHtml += `<button class="wf-status-btn ${btnClass}" onclick="handleTaskAction(${task.id}, '${myStatus}')">${btnText}</button>`;
+        } else if (myStatus && isResponsible && isWorkflow) {
             if (myStatus === 'new') {
-                actionsHtml += `<button class="modal-action-btn btn-primary" onclick="changeMyStatus(${task.id}, 'in_progress')">▶️ Men boshladim</button>`;
-            }
-            if (myStatus === 'in_progress' || myStatus === 'new') {
-                actionsHtml += `<button class="modal-action-btn btn-success" onclick="changeMyStatus(${task.id}, 'done')">✅ Men bajardim</button>`;
-            }
-            if (myStatus === 'done') {
-                actionsHtml += `<button class="modal-action-btn btn-primary" onclick="changeMyStatus(${task.id}, 'in_progress')">🔄 Qayta ochish</button>`;
+                actionsHtml += `<button class="wf-status-btn wf-btn-start" onclick="changeMyStatus(${task.id}, 'in_progress')">${IC.play} Boshlash</button>`;
+            } else if (myStatus === 'in_progress') {
+                actionsHtml += `<button class="wf-status-btn wf-btn-done" onclick="changeMyStatus(${task.id}, 'done')">${IC.check} Men bajardim</button>`;
+            } else if (myStatus === 'done') {
+                actionsHtml += `<button class="wf-status-btn wf-btn-secondary" onclick="changeMyStatus(${task.id}, 'in_progress')">${IC.refresh} Qayta ochish</button>`;
             }
         }
+
         if (task.is_creator && !['done', 'cancelled'].includes(task.status)) {
-            actionsHtml += `<button class="modal-action-btn btn-danger" onclick="changeStatus(${task.id}, 'cancelled')">🚫 Vazifani bekor qilish</button>`;
+            actionsHtml += `<button class="modal-action-btn btn-danger" onclick="changeStatus(${task.id}, 'cancelled')">${IC.xmark} Vazifani bekor qilish</button>`;
         }
+
 
         actionsHtml += `
-            <div class="comment-input-wrap">
-                <textarea class="comment-input" id="comment-input-${task.id}"
-                    placeholder="💬 Izoh yozing..." rows="2" maxlength="1000"></textarea>
-                <button class="comment-send-btn" onclick="sendComment(${task.id})">Yuborish ➤</button>
+            <div class="comment-row">
+                <label class="comment-attach-btn" title="Fayl biriktirish">
+                    <svg class="ic" style="width:17px;height:17px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                    <input type="file" style="display:none" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip"
+                        onchange="sendCommentWithMedia(${task.id}, this)">
+                </label>
+                <input type="text" class="comment-input-inline" id="comment-input-${task.id}"
+                    placeholder="💬 Izoh yozing..." maxlength="1000">
+                <button class="comment-send-btn-sm" onclick="sendComment(${task.id})"><svg style="width:15px;height:15px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
             </div>
         `;
 
@@ -1269,6 +2251,9 @@ async function loadTaskChart(taskId) {
         const steps = data.steps || [];
 
         // Summary qator
+        const startedLabel = data.task_started_at
+            ? `▶️ ${formatDateTime(data.task_started_at)}`
+            : '—';
         let html = `
             <div class="tc-summary">
                 <div class="tc-sum-item"><span class="tc-sum-val">${data.total_hours}</span><span class="tc-sum-lab">⏱ jami soat</span></div>
@@ -1276,6 +2261,7 @@ async function loadTaskChart(taskId) {
                 <div class="tc-sum-item"><span class="tc-sum-val">${data.totals.comments}</span><span class="tc-sum-lab">💬 izoh</span></div>
                 <div class="tc-sum-item"><span class="tc-sum-val">${data.totals.attachments}</span><span class="tc-sum-lab">📎 fayl</span></div>
             </div>
+            ${data.task_started_at ? `<div class="tc-started-note">⚙️ Ish boshlangan: <b>${startedLabel}</b></div>` : ''}
         `;
 
         if (users.length === 0 && steps.length === 0) {
@@ -1450,7 +2436,10 @@ async function loadTaskChart(taskId) {
 }
 
 function closeModal() {
-    document.getElementById('task-modal').classList.add('hidden');
+    const m = document.getElementById('task-modal');
+    if (!m) return;
+    m.classList.add('hidden');
+    delete m.dataset.wfMode;
     currentTaskId = null;
 }
 
@@ -1643,7 +2632,8 @@ function addWorkflowStep() {
     workflowSteps.push({
         title: '',
         assignee_id: null,
-        assignee_name: ''
+        assignee_name: '',
+        deadline: null,
     });
     renderWorkflowSteps();
 }
@@ -1658,20 +2648,35 @@ function renderWorkflowSteps() {
         return;
     }
 
-    list.innerHTML = workflowSteps.map((step, idx) => `
-        <div class="wf-step-editor" data-index="${idx}">
-            <div class="wf-step-num">${idx + 1}.</div>
-            <input type="text" class="wf-step-title" placeholder="Qadam nomi" value="${step.title}"
-                   onchange="updateWorkflowStep(${idx}, 'title', this.value)">
-            <select class="wf-step-assignee" onchange="updateWorkflowStep(${idx}, 'assignee', this.value)">
-                <option value="">Ijrochini tanlang</option>
-                ${companyMembers.map(m => `
-                    <option value="${m.id}" ${step.assignee_id == m.id ? 'selected' : ''}>👤 ${m.name}</option>
-                `).join('')}
-            </select>
-            <button class="btn-remove-step" onclick="removeWorkflowStep(${idx})">🗑</button>
-        </div>
-    `).join('');
+    list.innerHTML = workflowSteps.map((step, idx) => {
+        const hasDl  = !!step.deadline;
+        const dlLabel = hasDl
+            ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${formatDeadline(step.deadline)}`
+            : `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Deadline`;
+        const dlCls = hasDl ? 'wf-step-dl-pill has-dl' : 'wf-step-dl-pill';
+        const assigneeOpts = companyMembers.map(m =>
+            `<option value="${m.id}" ${step.assignee_id == m.id ? 'selected' : ''}>${escapeHtml(m.name)}</option>`
+        ).join('');
+        return `
+        <div class="wf-step-card" data-index="${idx}">
+            <div class="wf-step-head">
+                <span class="wf-step-badge">${idx + 1}</span>
+                <input type="text" class="wf-step-title-inp" placeholder="Qadam nomini kiriting..."
+                       value="${escapeHtml(step.title)}"
+                       oninput="updateWorkflowStep(${idx}, 'title', this.value)">
+                <button class="wf-step-del" onclick="removeWorkflowStep(${idx})" title="O'chirish">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="wf-step-foot">
+                <select class="wf-step-sel" onchange="updateWorkflowStep(${idx}, 'assignee', this.value)">
+                    <option value="">Ijrochini tanlang</option>
+                    ${assigneeOpts}
+                </select>
+                <button class="${dlCls}" onclick="_openStepDeadline(${idx})">${dlLabel}</button>
+            </div>
+        </div>`;
+    }).join('');
 }
 
 // Update workflow step
@@ -1683,8 +2688,19 @@ function updateWorkflowStep(idx, field, value) {
             workflowSteps[idx].assignee_id = value ? parseInt(value) : null;
             const member = companyMembers.find(m => m.id == value);
             workflowSteps[idx].assignee_name = member?.name || '';
+        } else if (field === 'deadline') {
+            workflowSteps[idx].deadline = value || null;
         }
     }
+}
+
+// Open deadline picker for a specific workflow step
+function _openStepDeadline(idx) {
+    _dlOnConfirm = function(isoStr) {
+        workflowSteps[idx].deadline = isoStr || null;
+        renderWorkflowSteps();
+    };
+    openDeadlinePicker();
 }
 
 // Remove workflow step
@@ -1729,10 +2745,14 @@ async function createTask() {
             const body = {
                 title,
                 priority,
-                steps: workflowSteps.map(s => ({
-                    title: s.title.trim(),
-                    assignee_user_id: s.assignee_id
-                }))
+                steps: workflowSteps.map(s => {
+                    const step = {
+                        title: s.title.trim(),
+                        assignee_user_id: s.assignee_id,
+                    };
+                    if (s.deadline) step.deadline = s.deadline;
+                    return step;
+                }),
             };
             if (description) body.description = description;
             if (deadline) body.deadline = new Date(deadline).toISOString();
@@ -1742,7 +2762,9 @@ async function createTask() {
 
             await apiRequest('/tasks/create-workflow', 'POST', body);
             showToast('✅ Workflow yaratildi!');
-            document.querySelector('.bnav-btn[data-tab="workflow"]').click();
+            // Vazifalar tabiga o'tib, ketma-ketlik sub-tabini ochish
+            document.querySelector('.bnav-btn[data-tab="tasks"]').click();
+            switchTasksSubtab('workflow');
             await loadWorkflows();
         } else {
             // Create regular task
@@ -1751,14 +2773,18 @@ async function createTask() {
             if (deadline) body.deadline = new Date(deadline).toISOString();
             if (currentWorkspaceId !== 'personal') {
                 body.company_id = currentWorkspaceId;
-                if (selectedAssigneeIds.length === 0) {
+                const allSelIds = [...selectedAssigneeIds, ...externalAssignees.map(e => e.id)];
+                if (allSelIds.length === 0) {
                     showToast("Kamida bitta ijrochi tanlang", true);
                     btn.disabled = false;
                     btn.querySelector('.btn-text').classList.remove('hidden');
                     btn.querySelector('.btn-loading').classList.add('hidden');
                     return;
                 }
-                body.assignee_ids = selectedAssigneeIds;
+                body.assignee_ids = allSelIds;
+                if (selectedResponsibleIds.length > 0) {
+                    body.responsible_ids = selectedResponsibleIds.slice();
+                }
             }
 
             const result = await apiRequest('/tasks', 'POST', body);
@@ -1787,10 +2813,13 @@ async function createTask() {
         document.getElementById('task-deadline').value = '';
         document.getElementById('title-count').textContent = '0';
         selectedAssigneeIds = [];
+        externalAssignees = [];
+        selectedResponsibleIds = [];
         currentTaskType = 'regular';
         workflowSteps = [];
         selectTaskType('regular');
-        updateAssigneesList();
+        renderAssignees();
+        renderResponsibleSection();
 
     } catch (err) {
         showToast('Yaratishda xatolik: ' + (err.message || err), true);
@@ -1862,380 +2891,358 @@ function getDeadlineClass(iso, status) {
     return '';
 }
 
-// ============ AI Chat ============
-const AI_SUGGESTIONS = [
-    "Vazifalarimni ko'rsat",
-    "Statistikamni ko'rsat",
-    "Yangi vazifa yaratish",
-    "Kechikkan vazifalar",
-    "Muhim vazifalar",
-];
+/* ============================================================
+   LIVE COUNTDOWN — task kartochkalarida real vaqt sanoq
+   ============================================================ */
+function formatCountdown(iso, status) {
+    if (!iso) return '';
+    const d    = new Date(iso);
+    const now  = new Date();
+    const diff = d - now; // ms
 
-function openAiChat() {
-    const overlay = document.getElementById('ai-chat-overlay');
-    overlay.classList.remove('hidden');
-    _renderAiSuggestions();
-    setTimeout(() => {
-        const input = document.getElementById('ai-chat-input');
-        if (input) input.focus();
-    }, 120);
-}
+    if (status === 'done' || status === 'cancelled') return formatDate(iso);
 
-function closeAiChat() {
-    document.getElementById('ai-chat-overlay').classList.add('hidden');
-}
-
-function clearAiChat() {
-    aiHistory = [];
-    const box = document.getElementById('ai-chat-messages');
-    box.innerHTML = `<div class="ai-msg ai-msg-bot">
-        Salom! Men TaskBot AI yordamchisiman. Menga vazifa yarating, ro'yxat so'rang yoki savol bering. 🎯
-    </div>`;
-    _renderAiSuggestions();
-}
-
-function _renderAiSuggestions() {
-    const box = document.getElementById('ai-chat-messages');
-    const old = box.querySelector('.ai-suggestions');
-    if (old) old.remove();
-    if (aiHistory.length > 0) return;
-    const wrap = document.createElement('div');
-    wrap.className = 'ai-suggestions';
-    wrap.innerHTML = AI_SUGGESTIONS.map(s =>
-        `<button class="ai-sugg-chip" onclick="_aiSuggClick(this,'${s}')">${s}</button>`
-    ).join('');
-    box.appendChild(wrap);
-    box.scrollTop = box.scrollHeight;
-}
-
-function _aiSuggClick(btn, text) {
-    const input = document.getElementById('ai-chat-input');
-    if (input) { input.value = text; }
-    sendAiMessage();
-}
-
-function _aiMsgBox() {
-    return document.getElementById('ai-chat-messages');
-}
-
-function appendAiMsg(text, who) {
-    const box = _aiMsgBox();
-    const sugg = box.querySelector('.ai-suggestions');
-    if (sugg) sugg.remove();
-    const div = document.createElement('div');
-    div.className = 'ai-msg ai-msg-' + who;
-    div.textContent = text;
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-    return div;
-}
-
-function appendAiRich(htmlText, tasks, actions) {
-    const box = _aiMsgBox();
-    const sugg = box.querySelector('.ai-suggestions');
-    if (sugg) sugg.remove();
-
-    const wrap = document.createElement('div');
-    wrap.className = 'ai-msg ai-msg-bot ai-msg-html';
-
-    // Text with HTML (safe - generated by backend)
-    const textDiv = document.createElement('div');
-    textDiv.innerHTML = htmlText;
-    wrap.appendChild(textDiv);
-
-    // Task chips
-    if (tasks && tasks.length > 0) {
-        const chipsDiv = document.createElement('div');
-        chipsDiv.className = 'ai-task-chips';
-        const S_ICON = {new:'🆕',in_progress:'⚙️',done:'✅',overdue:'⏰',review:'🔍',cancelled:'🚫'};
-        const P_ICON = {urgent:'🔴',high:'🟠',medium:'🟡',low:'🟢'};
-        tasks.slice(0, 8).forEach(t => {
-            const btn = document.createElement('button');
-            btn.className = 'ai-task-chip';
-            const si = S_ICON[t.status] || '•';
-            const pi = P_ICON[t.priority] || '';
-            btn.innerHTML = `<span class="ai-chip-icon">${si}${pi}</span><span class="ai-chip-title">${escapeHtml(t.title)}</span><span class="ai-chip-id">#${t.id}</span>`;
-            btn.onclick = () => { closeAiChat(); openTask(t.id); };
-            chipsDiv.appendChild(btn);
-        });
-        wrap.appendChild(chipsDiv);
+    if (diff < 0) {
+        // Kechikkan — to'liq ko'rsatish
+        const abs  = -diff;
+        const days = Math.floor(abs / 86400000);
+        const hrs  = Math.floor((abs % 86400000) / 3600000);
+        const mins = Math.floor((abs % 3600000) / 60000);
+        const secs = Math.floor((abs % 60000) / 1000);
+        if (days > 0) return `${days}k ${String(hrs).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s kechikdi`;
+        if (hrs  > 0) return `${String(hrs).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s kechikdi`;
+        if (mins > 0) return `${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s kechikdi`;
+        return `${String(secs).padStart(2,'0')}s kechikdi`;
     }
 
-    // Action buttons
-    if (actions && actions.length > 0) {
-        const actDiv = document.createElement('div');
-        actDiv.className = 'ai-action-btns';
-        actions.forEach(a => {
-            const btn = document.createElement('button');
-            btn.className = 'ai-action-btn ' + (a.cls || '');
-            btn.textContent = a.label;
-            btn.onclick = a.fn;
-            actDiv.appendChild(btn);
-        });
-        wrap.appendChild(actDiv);
-    }
+    // Qolgan vaqt — to'liq ko'rsatish
+    const days = Math.floor(diff / 86400000);
+    const hrs  = Math.floor((diff % 86400000) / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    const secs = Math.floor((diff % 60000) / 1000);
 
-    box.appendChild(wrap);
-    box.scrollTop = box.scrollHeight;
+    if (days >= 7) return `${days}k ${String(hrs).padStart(2,'0')}h qoldi`;
+    if (days >  0) return `${days}k ${String(hrs).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m qoldi`;
+    if (hrs  >  0) return `${String(hrs).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s qoldi`;
+    if (mins >  0) return `${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s qoldi`;
+    return `${String(secs).padStart(2,'0')}s qoldi`;
 }
 
-function _askWorkspaceInChat(proposal) {
-    return new Promise((resolve) => {
-        const box = _aiMsgBox();
-        const wrap = document.createElement('div');
-        wrap.className = 'ai-msg ai-msg-bot ai-msg-html ai-proposal';
-
-        // Mavjud workspace ro'yxati
-        const wsSel = document.getElementById('workspace-select');
-        const opts = wsSel ? Array.from(wsSel.options).filter(o => o.value !== 'all') : [];
-
-        const intro = document.createElement('div');
-        intro.innerHTML = `📋 <b>Vazifa tafsilotlari to'plandi:</b><br><br>` +
-            `📌 <b>Nomi:</b> ${escapeHtml(proposal.title)}<br>` +
-            `📝 <b>Tavsif:</b> ${escapeHtml(proposal.description)}<br>` +
-            `⚡ <b>Muhimlik:</b> ${proposal.priority}<br>` +
-            `⏰ <b>Deadline:</b> ${escapeHtml(proposal.deadline_display || proposal.deadline)}<br><br>` +
-            `📁 <b>Qaysi workspace ga qo'shaman?</b>`;
-        wrap.appendChild(intro);
-
-        const btnRow = document.createElement('div');
-        btnRow.className = 'ai-proposal-btns ai-ws-btns';
-
-        opts.forEach(o => {
-            const btn = document.createElement('button');
-            btn.className = 'ai-prop-btn ai-prop-ws';
-            btn.textContent = o.text;
-            btn.onclick = () => {
-                wrap.querySelectorAll('button').forEach(b => b.disabled = true);
-                btn.classList.add('ai-prop-ws-active');
-                resolve(o.value);
-            };
-            btnRow.appendChild(btn);
-        });
-
-        const cancel = document.createElement('button');
-        cancel.className = 'ai-prop-btn ai-prop-cancel';
-        cancel.innerHTML = '❌ Bekor';
-        cancel.onclick = () => {
-            wrap.querySelectorAll('button').forEach(b => b.disabled = true);
-            appendAiMsg('Vazifa yaratish bekor qilindi.', 'bot');
-            resolve(null);
-        };
-        btnRow.appendChild(cancel);
-
-        wrap.appendChild(btnRow);
-        box.appendChild(wrap);
-        box.scrollTop = box.scrollHeight;
+let _countdownInterval = null;
+function startCountdownTicker() {
+    if (_countdownInterval) clearInterval(_countdownInterval);
+    _countdownInterval = setInterval(_tickCountdowns, 1000);
+}
+function _tickCountdowns() {
+    document.querySelectorAll('.tc-countdown[data-deadline]').forEach(el => {
+        const iso    = el.dataset.deadline;
+        const status = el.dataset.status || '';
+        const txt    = el.querySelector('.tc-countdown-txt');
+        if (!txt) return;
+        txt.textContent = formatCountdown(iso, status);
+        // Urgency klassini yangilash
+        const diff = new Date(iso) - new Date();
+        el.classList.remove('tc-dl-urgent', 'tc-dl-soon', 'tc-dl-normal');
+        if (status === 'done' || status === 'cancelled') {
+            el.classList.add('tc-dl-normal');
+        } else if (diff < 0 || diff < 86400000) {
+            el.classList.add('tc-dl-urgent');
+        } else if (diff < 259200000) {
+            el.classList.add('tc-dl-soon');
+        } else {
+            el.classList.add('tc-dl-normal');
+        }
     });
 }
 
-async function renderTaskProposal(textHtml, proposal) {
-    const box = _aiMsgBox();
+// ============ AI Chat (o'chirildi) ============
 
-    // 1-qadam: Workspace tanlash
-    let chosenWs = proposal.company_id || null;
-    if (!chosenWs || chosenWs === 'all') {
-        chosenWs = await _askWorkspaceInChat(proposal);
-        if (chosenWs === null) {
-            // Bekor qilindi
-            return;
-        }
-    }
-    proposal.company_id = chosenWs;
+function openAiChat()  { /* removed */ }
+function closeAiChat() { /* removed */ }
+function clearAiChat() { /* removed */ }
 
-    // Workspace nomini topamiz ko'rsatish uchun
-    let wsLabel = '👤 Shaxsiy';
+function removeAiTyping() { /* removed */ }
+function sendAiMessage()  { /* removed */ }
+function aiChatKey()      { /* removed */ }
+
+// ============ Media + Comments Feed ============
+async function openMediaCommentsFeed(taskId) {
+    let task = allTasks.find(t => t.id === taskId);
+    let atts = task?.attachments || [];
+    let comms = [];
+
+    // Always reload fresh for feed
     try {
-        const wsSel = document.getElementById('workspace-select');
-        if (wsSel) {
-            const opt = Array.from(wsSel.options).find(o => o.value === String(chosenWs));
-            if (opt) wsLabel = opt.text;
+        const fresh = await apiRequest(`/tasks/${taskId}`);
+        if (fresh && fresh.task) {
+            atts  = fresh.task.attachments || [];
+            comms = (fresh.task.history || []).filter(h => h.type === 'comment');
         }
-    } catch (_) {}
+    } catch(e) {}
 
-    // textHtml ichidagi Workspace qatorini yangilaymiz
-    const updatedHtml = textHtml.replace(/📁 <b>Workspace:<\/b>[^<\n]*/, `📁 <b>Workspace:</b> ${wsLabel}`);
+    const existing = document.getElementById('feed-modal');
+    if (existing) existing.remove();
 
-    const wrap = document.createElement('div');
-    wrap.className = 'ai-msg ai-msg-bot ai-msg-html ai-proposal';
+    // Merge & sort by created_at
+    const items = [
+        ...atts.map(a => ({ kind: 'media', ...a })),
+        ...comms.map(c => ({ kind: 'comment', ...c })),
+    ].sort((a, b) => (a.created_at || '') < (b.created_at || '') ? -1 : 1);
 
-    const txt = document.createElement('div');
-    txt.innerHTML = updatedHtml;
-    wrap.appendChild(txt);
+    const overlay = document.createElement('div');
+    overlay.id = 'feed-modal';
+    overlay.className = 'feed-overlay';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
 
-    const btnRow = document.createElement('div');
-    btnRow.className = 'ai-proposal-btns';
+    const itemsHtml = items.length ? items.map(item => {
+        if (item.kind === 'media') {
+            const ft   = item.file_type || 'document';
+            const mime = item.mime_type  || '';
+            const url  = item.file_url  || '';
+            const name = escapeHtml(item.file_name || ft);
+            const who  = escapeHtml(item.uploader_name || '?');
+            const when = item.created_at ? formatDateTime(item.created_at) : '';
 
-    const okBtn = document.createElement('button');
-    okBtn.className = 'ai-prop-btn ai-prop-ok';
-    okBtn.innerHTML = '✅ Tasdiqlash va yaratish';
+            let preview = '';
+            if (ft === 'photo' || mime.startsWith('image/')) {
+                preview = `<a href="${url}" target="_blank"><img src="${url}" class="feed-img" loading="lazy"/></a>`;
+            } else if (ft === 'video_note') {
+                preview = `<video src="${url}" class="feed-vidnote" controls preload="metadata" playsinline></video>`;
+            } else if (ft === 'video' || mime.startsWith('video/')) {
+                preview = `<video src="${url}" class="feed-video" controls preload="metadata" playsinline></video>`;
+            } else if (ft === 'voice' || mime.startsWith('audio/')) {
+                preview = `<div class="feed-audio-wrap">🎤 <audio src="${url}" controls class="feed-audio" preload="metadata"></audio></div>`;
+            } else {
+                preview = `<a href="${url}" target="_blank" class="feed-file-link">📎 ${name}</a>`;
+            }
+            return `
+                <div class="feed-item feed-item-media">
+                    <div class="feed-preview">${preview}</div>
+                    <div class="feed-meta">👤 ${who} · <span class="feed-time">${when}</span></div>
+                </div>`;
+        } else {
+            const who  = escapeHtml(item.user_name || '?');
+            const when = item.created_at ? formatDateTime(item.created_at) : '';
+            const txt  = escapeHtml(item.content || '');
+            return `
+                <div class="feed-item feed-item-comment">
+                    <div class="feed-comment-bubble">
+                        <div class="feed-comment-author">👤 ${who}</div>
+                        <div class="feed-comment-text">${txt}</div>
+                        <div class="feed-time">${when}</div>
+                    </div>
+                </div>`;
+        }
+    }).join('') : `<div class="feed-empty">📭 Hali mediya yoki izoh yo'q</div>`;
 
-    const editBtn = document.createElement('button');
-    editBtn.className = 'ai-prop-btn ai-prop-edit';
-    editBtn.innerHTML = '✏️ O\'zgartirish';
+    overlay.innerHTML = `
+        <div class="feed-sheet">
+            <div class="feed-header">
+                <span class="feed-title">🖼 Mediya va Izohlar${items.length ? ' ('+items.length+')' : ''}</span>
+                <button class="feed-close" onclick="document.getElementById('feed-modal').remove()">✕</button>
+            </div>
+            <div class="feed-body">${itemsHtml}</div>
+        </div>`;
 
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'ai-prop-btn ai-prop-cancel';
-    cancelBtn.innerHTML = '❌ Bekor';
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('feed-visible'));
+}
 
-    okBtn.onclick = async () => {
-        okBtn.disabled = true; editBtn.disabled = true; cancelBtn.disabled = true;
-        okBtn.innerHTML = '⏳ Yaratilmoqda...';
+// ============ Media Gallery ============
+async function openMediaGallery(taskId) {
+    // Taskni topamiz (allTasks dan)
+    const task = allTasks.find(t => t.id === taskId);
+    let atts = task?.attachments || [];
+
+    // Agar allTasks da attachment yo'q bo'lsa, API dan yuklaymiz
+    if (!atts.length && task) {
         try {
-            const res = await apiRequest('/ai/confirm-task', 'POST', {
-                title: proposal.title,
-                description: proposal.description,
-                priority: proposal.priority,
-                deadline: proposal.deadline,
-                company_id: proposal.company_id || currentWorkspaceId,
-            });
-            wrap.remove();
-            const actions = [{
-                label: '📋 Vazifani ochish',
-                cls: 'btn-go-task',
-                fn: () => { closeAiChat(); openTask(res.task_id); },
-            }];
-            appendAiRich(res.text, null, actions);
-            // Refresh
-            try {
-                const [tasks, stats] = await Promise.all([
-                    apiRequest(`/tasks?company_id=${currentWorkspaceId}`),
-                    apiRequest(`/stats?company_id=${currentWorkspaceId}`),
-                ]);
-                allTasks = tasks.tasks || [];
-                renderTasks();
-                updateQuickStats(stats);
-                updateStatsTab(stats);
-            } catch (_) {}
-            if (tg) tg.HapticFeedback?.notificationOccurred('success');
-        } catch (e) {
-            okBtn.disabled = false; editBtn.disabled = false; cancelBtn.disabled = false;
-            okBtn.innerHTML = '✅ Tasdiqlash va yaratish';
-            appendAiMsg('Yaratishda xatolik: ' + (e.message || ''), 'bot');
+            const fresh = await apiRequest(`/tasks/${taskId}`);
+            if (fresh && fresh.task) atts = fresh.task.attachments || [];
+        } catch(e) {}
+    }
+
+    const existing = document.getElementById('media-gallery-modal');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'media-gallery-modal';
+    overlay.className = 'media-overlay';
+    overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+
+    const mediaLabel = tr('app.media.title') || '📎 Mediya';
+    const emptyLabel = tr('app.media.empty') || 'Mediya fayllari yo\'q';
+    const uploadLabel = tr('app.media.upload') || '📤 Fayl yuklash';
+    const commentPh = tr('app.media.comment_ph') || '💬 Izoh qo\'shing (ixtiyoriy)...';
+
+    const itemsHtml = atts.length ? atts.map(a => {
+        const ft = a.file_type || 'document';
+        const mime = a.mime_type || '';
+        const isImg       = ft === 'photo'      || mime.startsWith('image/');
+        const isVid       = ft === 'video'      || (mime.startsWith('video/') && ft !== 'video_note');
+        const isVideoNote = ft === 'video_note';
+        const isVoice     = ft === 'voice'      || mime.startsWith('audio/');
+
+        const uploaderName = escapeHtml(a.uploader_name || '?');
+        const dateStr = a.created_at ? formatDateTime(a.created_at) : '';
+        const byLabel = (tr('app.media.by') || '{name} tomonidan').replace('{name}', uploaderName);
+        const sizeStr = a.file_size ? _formatFileSize(a.file_size) : '';
+
+        let preview = '';
+        if (isImg) {
+            preview = `<a href="${a.file_url}" target="_blank" class="mg-img-link">
+                <img src="${a.file_url}" class="mg-img" alt="${escapeHtml(a.file_name||'')}"/>
+            </a>`;
+        } else if (isVideoNote) {
+            // Dumaloq video
+            preview = `<div class="mg-vidnote-wrap">
+                <video src="${a.file_url}" class="mg-vidnote" controls preload="metadata" playsinline></video>
+            </div>`;
+        } else if (isVid) {
+            preview = `<video src="${a.file_url}" class="mg-video" controls preload="metadata" playsinline></video>`;
+        } else if (isVoice) {
+            // Audio / ovozli xabar
+            const dur = a.duration ? `${a.duration}s` : '';
+            preview = `<div class="mg-audio-wrap">
+                <div class="mg-audio-icon">🎤</div>
+                <div class="mg-audio-info">
+                    <div class="mg-audio-label">${ft === 'voice' ? 'Ovozli xabar' : 'Audio'}${dur ? ' · '+dur : ''}</div>
+                    <audio src="${a.file_url}" controls class="mg-audio-player" preload="metadata"></audio>
+                </div>
+            </div>`;
+        } else {
+            preview = `<a href="${a.file_url}" target="_blank" class="mg-file-link">
+                <div class="mg-file-icon">${_fileIcon(mime, a.file_name)}</div>
+                <div class="mg-file-name">${escapeHtml(a.file_name||'Fayl')}</div>
+            </a>`;
         }
-    };
 
-    editBtn.onclick = () => {
-        wrap.remove();
-        appendAiMsg("Yaxshi, qaysi qismini o'zgartiraman? (nom / tavsif / muhimlik / deadline)", 'bot');
-    };
+        const canDownload = !isImg && !isVid && !isVideoNote && !isVoice;
+        return `
+            <div class="mg-item">
+                <div class="mg-preview">${preview}</div>
+                <div class="mg-meta">
+                    <div class="mg-uploader">👤 ${byLabel}</div>
+                    <div class="mg-date">📅 ${dateStr}${sizeStr ? ' · ' + sizeStr : ''}</div>
+                    ${canDownload ? `<a href="${a.file_url}" target="_blank" class="mg-download-btn">⬇️ Yuklab olish</a>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('') : `<div class="mg-empty">${emptyLabel}</div>`;
 
-    cancelBtn.onclick = () => {
-        wrap.remove();
-        appendAiMsg('Vazifa yaratish bekor qilindi.', 'bot');
-        aiHistory.push({ role: 'assistant', content: 'Vazifa yaratish bekor qilindi.' });
-    };
+    overlay.innerHTML = `
+        <div class="media-sheet">
+            <div class="media-sheet-header">
+                <span class="media-sheet-title">${mediaLabel}${atts.length ? ' (' + atts.length + ')' : ''}</span>
+                <button class="media-sheet-close" onclick="document.getElementById('media-gallery-modal').remove()">✕</button>
+            </div>
 
-    btnRow.appendChild(okBtn);
-    btnRow.appendChild(editBtn);
-    btnRow.appendChild(cancelBtn);
-    wrap.appendChild(btnRow);
+            <!-- Upload area -->
+            <div class="mg-upload-area">
+                <textarea id="mg-comment-${taskId}" class="mg-comment-input"
+                    placeholder="${commentPh}" rows="2" maxlength="500"></textarea>
+                <label class="mg-upload-btn">
+                    ${uploadLabel}
+                    <input type="file" style="display:none"
+                        accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.pptx"
+                        onchange="uploadMediaFromGallery(${taskId}, this)">
+                </label>
+            </div>
 
-    box.appendChild(wrap);
-    box.scrollTop = box.scrollHeight;
+            <!-- Media items -->
+            <div class="mg-list">${itemsHtml}</div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.querySelector('.media-sheet').classList.add('media-sheet-open'));
 }
 
-function appendAiTyping() {
-    const box = _aiMsgBox();
-    const div = document.createElement('div');
-    div.className = 'ai-msg ai-msg-bot ai-msg-typing';
-    div.id = 'ai-typing';
-    div.innerHTML = '<span></span><span></span><span></span>';
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
+function _fileIcon(mime, name) {
+    const m = (mime || '').toLowerCase();
+    const ext = (name||'').split('.').pop().toLowerCase();
+    if (m.includes('pdf') || ext === 'pdf') return '📄';
+    if (m.includes('word') || ['doc','docx'].includes(ext)) return '📝';
+    if (m.includes('excel') || m.includes('spreadsheet') || ['xls','xlsx'].includes(ext)) return '📊';
+    if (m.includes('powerpoint') || m.includes('presentation') || ['ppt','pptx'].includes(ext)) return '📑';
+    if (m.includes('zip') || m.includes('rar') || ['zip','rar','7z'].includes(ext)) return '🗜️';
+    return '📎';
 }
 
-function removeAiTyping() {
-    const t = document.getElementById('ai-typing');
-    if (t) t.remove();
+function _formatFileSize(bytes) {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-async function sendAiMessage() {
-    const input = document.getElementById('ai-chat-input');
-    const sendBtn = document.getElementById('ai-chat-send');
-    const text = (input.value || '').trim();
-    if (!text) return;
+async function uploadMediaFromGallery(taskId, input) {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 100 * 1024 * 1024) { showToast('Fayl 100 MB dan kichik bo\'lsin', true); return; }
 
-    input.value = '';
-    input.style.height = 'auto';
-    if (sendBtn) sendBtn.disabled = true;
+    const commentInput = document.getElementById(`mg-comment-${taskId}`);
+    const comment = (commentInput?.value || '').trim();
 
-    appendAiMsg(text, 'user');
-    aiHistory.push({ role: 'user', content: text });
-    appendAiTyping();
+    const fd = new FormData();
+    if (comment) fd.append('comment', comment);
+    fd.append('file', file);
 
+    const uploadBtn = document.querySelector(`#media-gallery-modal .mg-upload-btn`);
+    if (uploadBtn) uploadBtn.textContent = tr('app.media.uploading') || 'Yuklanmoqda...';
+
+    const headers = {};
+    applyAuthHeaders(headers);
     try {
-        const res = await apiRequest('/ai/chat', 'POST', {
-            message: text,
-            company_id: currentWorkspaceId,
-            history: aiHistory.slice(-8),
-        });
-        removeAiTyping();
-
-        const replyText = res.text || "Tushunmadim, qayta yozib bering.";
-        aiHistory.push({ role: 'assistant', content: replyText.replace(/<[^>]+>/g, '') });
-
-        // ===== PROPOSE TASK — tasdiqlash kartasi =====
-        if (res.action === 'propose_task' && res.proposal) {
-            renderTaskProposal(res.text, res.proposal);
-            return;
+        const res = await fetch(`/api/tasks/${taskId}/attachments`, { method: 'POST', body: fd, headers });
+        if (!res.ok) throw new Error('upload failed');
+        showToast('✅ Fayl yuklandi');
+        if (commentInput) commentInput.value = '';
+        input.value = '';
+        // Galleryni yangilaymiz
+        document.getElementById('media-gallery-modal')?.remove();
+        // allTasks ni yangilaymiz
+        const fresh = await apiRequest(`/tasks/${taskId}`);
+        if (fresh && fresh.task) {
+            const idx = allTasks.findIndex(t => t.id === taskId);
+            if (idx !== -1) allTasks[idx] = { ...allTasks[idx], ...fresh.task };
         }
-
-        // Build action buttons
-        const actions = [];
-        if (res.task_id) {
-            actions.push({
-                label: '📋 Vazifani ochish',
-                cls: 'btn-go-task',
-                fn: () => { closeAiChat(); openTask(res.task_id); },
-            });
-        }
-        if (res.action === 'list_tasks' || res.action === 'search_tasks') {
-            actions.push({
-                label: '📋 Vazifalar tabiga o\'tish',
-                cls: 'btn-go-tasks',
-                fn: () => { closeAiChat(); document.querySelector('.bnav-btn[data-tab="tasks"]').click(); },
-            });
-        }
-        if (res.action === 'show_stats') {
-            actions.push({
-                label: '📊 Statistika tabiga o\'tish',
-                cls: 'btn-go-tasks',
-                fn: () => { closeAiChat(); document.querySelector('.bnav-btn[data-tab="stats"]').click(); },
-            });
-        }
-
-        appendAiRich(replyText, res.tasks, actions);
-
-        // Refresh data if AI modified tasks
-        if (res.refreshTasks) {
-            try {
-                const [tasks, stats] = await Promise.all([
-                    apiRequest(`/tasks?company_id=${currentWorkspaceId}`),
-                    apiRequest(`/stats?company_id=${currentWorkspaceId}`),
-                ]);
-                allTasks = tasks.tasks || [];
-                renderTasks();
-                updateQuickStats(stats);
-                updateStatsTab(stats);
-            } catch (_) {}
-            if (tg) tg.HapticFeedback?.notificationOccurred('success');
-        }
+        openMediaGallery(taskId);
     } catch (e) {
-        removeAiTyping();
-        appendAiMsg("Xatolik yuz berdi, qayta urinib ko'ring.", 'bot');
-    } finally {
-        if (sendBtn) sendBtn.disabled = false;
+        showToast('Yuklab bo\'lmadi', true);
+        if (uploadBtn) uploadBtn.textContent = tr('app.media.upload') || '📤 Fayl yuklash';
     }
 }
 
-function aiChatKey(event) {
-    const ta = event.target;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-    if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        sendAiMessage();
+async function sendCommentWithMedia(taskId, input) {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 100 * 1024 * 1024) { showToast('Fayl 100 MB dan kichik bo\'lsin', true); return; }
+
+    const commentInput = document.getElementById(`comment-input-${taskId}`);
+    const comment = (commentInput?.value || '').trim();
+
+    const fd = new FormData();
+    if (comment) fd.append('comment', comment);
+    fd.append('file', file);
+
+    const headers = {};
+    applyAuthHeaders(headers);
+    try {
+        const res = await fetch(`/api/tasks/${taskId}/attachments`, { method: 'POST', body: fd, headers });
+        if (!res.ok) throw new Error('upload failed');
+        showToast('✅ Fayl va izoh yuborildi');
+        if (commentInput) commentInput.value = '';
+        input.value = '';
+        // Taskni qayta yuklaymiz
+        const fresh = await apiRequest(`/tasks/${taskId}`);
+        if (fresh && fresh.task) {
+            const idx = allTasks.findIndex(t => t.id === taskId);
+            if (idx !== -1) allTasks[idx] = { ...allTasks[idx], ...fresh.task };
+        }
+        openTask(taskId);
+    } catch(e) {
+        showToast('Xatolik', true);
     }
 }
 
@@ -2266,7 +3273,7 @@ async function uploadAttachment(taskId, inputEl) {
     const fd = new FormData();
     fd.append('file', file);
     const headers = {};
-    if (tg?.initData) headers['X-Telegram-Init-Data'] = tg.initData;
+    applyAuthHeaders(headers);
     try {
         const res = await fetch(`/api/tasks/${taskId}/attachments`, { method: 'POST', body: fd, headers });
         if (!res.ok) throw new Error('upload failed');
@@ -2293,8 +3300,8 @@ async function setTaskPriority(taskId, priority) {
 
 // ============ Priority tab ============
 const P_CONFIG = {
-    urgent: { label: 'Juda muhim', icon: '🔴', cls: 'urgent', pillCls: 'hero-pill-urgent' },
-    high:   { label: 'Yuqori',     icon: '🟠', cls: 'high',   pillCls: 'hero-pill-high' },
+    urgent: { label: 'Juda muhum', icon: '🔴', cls: 'urgent', pillCls: 'hero-pill-urgent' },
+    high:   { label: 'Muhum',      icon: '🟠', cls: 'high',   pillCls: 'hero-pill-high' },
     medium: { label: "O'rta",      icon: '🟡', cls: 'medium', pillCls: 'hero-pill-medium' },
     low:    { label: 'Past',       icon: '🟢', cls: 'low',    pillCls: 'hero-pill-low' },
 };
@@ -2611,7 +3618,7 @@ function _renderTimeline(history) {
         done: '✅ Bajarildi', overdue: '⏰ Kechikdi', cancelled: '🚫 Bekor',
     };
     const PRIORITY_SHORT = {
-        low: '🟢 Past', medium: '🟡 O\'rta', high: '🟠 Yuqori', urgent: '🔴 Juda muhim',
+        low: '🟢 Past', medium: '🟡 O\'rta', high: '🟠 Muhum', urgent: '🔴 Juda muhum',
     };
     const statusDot = {
         new: 'dot-indigo', in_progress: 'dot-yellow', review: 'dot-purple',
@@ -2819,3 +3826,1138 @@ async function submitTaskComplete(taskId) {
         tg?.showAlert?.('❌ Xato: ' + (e.message || e));
     }
 }
+
+
+// ================================================================
+// KANBAN MEMBER FILTER
+// ================================================================
+
+let _kanbanMemberId = null;   // null = show all
+
+function renderKanbanMemberBar() {
+    const bar = document.getElementById('kanban-member-bar');
+    if (!bar) return;
+
+    // Collect unique members from allTasks (assignees)
+    const memberMap = {};  // id → {id, name, taskCount}
+    const source = allTasks && allTasks.length > 0 ? allTasks : [];
+    source.forEach(t => {
+        if (t.assignees && t.assignees.length) {
+            t.assignees.forEach(a => {
+                if (!memberMap[a.id]) {
+                    memberMap[a.id] = { id: a.id, name: a.name, taskCount: 0 };
+                }
+                if (!['done', 'cancelled'].includes(t.status)) {
+                    memberMap[a.id].taskCount++;
+                }
+            });
+        }
+        // Also include responsible_name if present
+        if (t.responsible_user_id && t.responsible_name && !memberMap[t.responsible_user_id]) {
+            memberMap[t.responsible_user_id] = {
+                id: t.responsible_user_id,
+                name: t.responsible_name,
+                taskCount: 0,
+            };
+        }
+    });
+
+    const members = Object.values(memberMap).sort((a, b) => b.taskCount - a.taskCount);
+
+    bar.style.display = 'flex';
+
+    const allActive = _kanbanMemberId === null;
+    const myId = window._myUserId;
+    const myActive = myId && _kanbanMemberId === myId;
+    let html = `
+        <div class="kmb-chip ${allActive ? 'active' : ''}" onclick="filterKanbanByMember(null)">
+            <div class="kmb-avatar all-icon">👥</div>
+            <span class="kmb-name">Hammasi</span>
+        </div>
+    `;
+
+    if (myId) {
+        html += `
+            <div class="kmb-chip kmb-chip-me ${myActive ? 'active' : ''}" onclick="filterKanbanByMember(${myId})">
+                <div class="kmb-avatar">🙋</div>
+                <span class="kmb-name">Mening</span>
+            </div>
+        `;
+    }
+
+    members.filter(m => m.id !== myId).forEach(m => {
+        const initial = (m.name || '?').charAt(0).toUpperCase();
+        const isActive = _kanbanMemberId === m.id;
+        const badge = m.taskCount > 0 ? `<span class="kmb-badge">${m.taskCount}</span>` : '';
+        html += `
+            <div class="kmb-chip ${isActive ? 'active' : ''}" onclick="filterKanbanByMember(${m.id})">
+                <div class="kmb-avatar">${escapeHtml(initial)}${badge}</div>
+                <span class="kmb-name">${escapeHtml(m.name.split(' ')[0])}</span>
+            </div>
+        `;
+    });
+
+    bar.innerHTML = html;
+}
+
+function filterKanbanByMember(memberId) {
+    _kanbanMemberId = memberId;
+    if (tg) tg.HapticFeedback?.selectionChanged();
+    renderKanbanMemberBar();
+    renderKanban();
+}
+
+// ================================================================
+// KANBAN BOARD
+// ================================================================
+
+function renderKanban() {
+    const cols = ['new', 'in_progress', 'review', 'done'];
+    const pLabels = new Proxy({}, { get: (_, p) => getPriorityLabel(p) });
+    const pClass  = { low: 'prio-low', medium: 'prio-medium', high: 'prio-high', urgent: 'prio-urgent' };
+
+    // Clear columns
+    cols.forEach(c => {
+        const el = document.getElementById('kanban-cards-' + c);
+        if (el) el.innerHTML = '<div class="kanban-empty"><span class="kanban-empty-icon">⏳</span><span>Yuklanmoqda...</span></div>';
+        _setKanbanCount(c, 0);
+    });
+
+    const source = allTasks && allTasks.length > 0 ? allTasks : null;
+
+    function _fill(tasks) {
+        let filtered = tasks;
+        if (_kanbanMemberId !== null) {
+            filtered = tasks.filter(t =>
+                (t.assignees && t.assignees.some(a => a.id === _kanbanMemberId)) ||
+                t.responsible_user_id === _kanbanMemberId
+            );
+        }
+
+        const groups = { new: [], in_progress: [], review: [], done: [] };
+        filtered.forEach(t => { if (groups[t.status]) groups[t.status].push(t); });
+
+        cols.forEach(col => {
+            const el  = document.getElementById('kanban-cards-' + col);
+            const list = groups[col] || [];
+            _setKanbanCount(col, list.length);
+            if (!el) return;
+
+            if (!list.length) {
+                const emptyMsgs = { new:'Yangi vazifa yo\'q', in_progress:'Jarayonda yo\'q', review:'Ko\'rib chiqilmoqda yo\'q', done:'Bajarilgan yo\'q' };
+                const emptyIcons = { new:'📭', in_progress:'🕐', review:'🔍', done:'🎉' };
+                el.innerHTML = `<div class="kanban-empty"><span class="kanban-empty-icon">${emptyIcons[col]||'📭'}</span><span>${emptyMsgs[col]||'Bo\'sh'}</span></div>`;
+                return;
+            }
+
+            el.innerHTML = list.map(t => {
+                const isUrgentDl = t.deadline && (new Date(t.deadline) - Date.now()) < 3600000 && t.status !== 'done';
+                const dlClass = isUrgentDl ? 'kanban-card-dl kanban-card-dl-urgent' : 'kanban-card-dl';
+                const dl   = t.deadline ? `<span class="${dlClass}">⏰ ${formatDateShort(t.deadline)}</span>` : '';
+                const resp = t.responsible_name
+                    ? `<div class="kanban-card-resp">⭐ ${escapeHtml(t.responsible_name.split(' ')[0])}</div>` : '';
+                const assignees = (t.assignees || []).filter(a => !t.responsible_user_id || a.id !== t.responsible_user_id);
+                const asgn = assignees.length
+                    ? `<div class="kanban-card-resp" style="color:var(--text2)">👤 ${assignees.slice(0,2).map(a=>escapeHtml(a.name.split(' ')[0])).join(', ')}${assignees.length>2?' +'+( assignees.length-2):''}</div>` : '';
+                const subs = (t.subtasks_count||0) > 0 ? `<div class="kanban-card-subtasks">📂 ${t.subtasks_count} sub-task</div>` : '';
+                return `
+                    <div class="kanban-card" data-priority="${t.priority}" data-task-id="${t.id}"
+                         draggable="true"
+                         onclick="openTask(${t.id})"
+                         ondragstart="_kbDragStart(event,${t.id})"
+                         ontouchstart="_kbTouchStart(event,${t.id})"
+                         ontouchmove="_kbTouchMove(event)"
+                         ontouchend="_kbTouchEnd(event)">
+                        <div class="kanban-drag-handle">⠿</div>
+                        <div class="kanban-card-title">${escapeHtml(t.title.slice(0, 70))}</div>
+                        <div class="kanban-card-meta">
+                            <span class="kanban-card-prio ${pClass[t.priority]||''}">${pLabels[t.priority]||t.priority}</span>
+                            ${dl}
+                        </div>
+                        ${resp}${asgn}${subs}
+                    </div>`;
+            }).join('');
+        });
+    }
+
+    if (source) {
+        _fill(source);
+    } else {
+        loadTasksForKanban().then(_fill).catch(() => {
+            cols.forEach(c => {
+                const el = document.getElementById('kanban-cards-' + c);
+                if (el) el.innerHTML = '<div class="kanban-empty"><span class="kanban-empty-icon">❌</span><span>Yuklab bo\'lmadi</span></div>';
+            });
+        });
+    }
+
+    // Setup scroll→tab sync
+    _kanbanInitScrollSync();
+}
+
+function _setKanbanCount(col, n) {
+    ['', '2'].forEach(sfx => {
+        const el = document.getElementById('kanban-count-' + col + sfx);
+        if (el) el.textContent = n;
+    });
+}
+
+// Scroll to a specific column by clicking its tab
+function kanbanScrollTo(col) {
+    const board = document.getElementById('kanban-board');
+    const target = document.getElementById('kanban-' + col);
+    if (!board || !target) return;
+    board.scrollTo({ left: target.offsetLeft, behavior: 'smooth' });
+    _kanbanSetActiveTab(col);
+}
+
+function _kanbanSetActiveTab(col) {
+    document.querySelectorAll('#kanban-col-tabs .kct-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.col === col);
+    });
+}
+
+let _kanbanScrollTimer = null;
+function _kanbanInitScrollSync() {
+    const board = document.getElementById('kanban-board');
+    if (!board || board._syncBound) return;
+    board._syncBound = true;
+    board.addEventListener('scroll', () => {
+        clearTimeout(_kanbanScrollTimer);
+        _kanbanScrollTimer = setTimeout(() => {
+            const cols = ['new', 'in_progress', 'review', 'done'];
+            const boardLeft = board.getBoundingClientRect().left;
+            let closest = cols[0], minDist = Infinity;
+            cols.forEach(c => {
+                const el = document.getElementById('kanban-' + c);
+                if (!el) return;
+                const dist = Math.abs(el.getBoundingClientRect().left - boardLeft);
+                if (dist < minDist) { minDist = dist; closest = c; }
+            });
+            _kanbanSetActiveTab(closest);
+        }, 80);
+    }, { passive: true });
+}
+
+async function loadTasksForKanban() {
+    const headers = {};
+    applyAuthHeaders(headers);
+    const ws = currentWorkspace || 'all';
+    const res = await fetch(`${API_BASE}/tasks?filter=all&workspace=${ws}`, { headers });
+    const data = await res.json();
+    return data.tasks || [];
+}
+
+function formatDateShort(iso) {
+    if (!iso) return '';
+    try {
+        const d = new Date(iso);
+        return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+    } catch { return ''; }
+}
+
+// ================================================================
+// KANBAN DRAG AND DROP
+// ================================================================
+
+let _kbDragTaskId = null;
+let _kbDragEl = null;
+let _kbDragClone = null;
+let _kbDragStartX = 0;
+let _kbDragStartY = 0;
+let _kbLastCol = null;
+
+// — Mouse / HTML5 drag —
+function _kbDragStart(e, taskId) {
+    _kbDragTaskId = taskId;
+    _kbDragEl = e.currentTarget;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(taskId));
+    setTimeout(() => { if (_kbDragEl) _kbDragEl.classList.add('kb-dragging'); }, 0);
+}
+
+function _kbDragOver(e, col) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (_kbLastCol !== col) {
+        if (_kbLastCol) document.getElementById('kanban-' + _kbLastCol)?.classList.remove('kb-drop-target');
+        _kbLastCol = col;
+        document.getElementById('kanban-' + col)?.classList.add('kb-drop-target');
+    }
+}
+
+function _kbDragLeave(e) {
+    const col = e.currentTarget?.id?.replace('kanban-', '');
+    if (col) document.getElementById('kanban-' + col)?.classList.remove('kb-drop-target');
+    if (_kbLastCol === col) _kbLastCol = null;
+}
+
+async function _kbDrop(e, col) {
+    e.preventDefault();
+    const cols = ['new','in_progress','review','done'];
+    cols.forEach(c => document.getElementById('kanban-' + c)?.classList.remove('kb-drop-target'));
+    if (_kbDragEl) _kbDragEl.classList.remove('kb-dragging');
+    const taskId = _kbDragTaskId || parseInt(e.dataTransfer.getData('text/plain'));
+    _kbDragTaskId = null;
+    _kbDragEl = null;
+    _kbLastCol = null;
+    if (!taskId || !col) return;
+
+    // Find task in allTasks
+    const task = allTasks.find(t => t.id === taskId);
+    if (!task || task.status === col) return;
+
+    // Optimistic update
+    task.status = col;
+    renderKanban();
+    if (tg) tg.HapticFeedback?.impactOccurred('medium');
+
+    try {
+        await apiRequest(`/tasks/${taskId}/status`, 'PATCH', { status: col });
+        showToast(`✅ Status o'zgartirildi`);
+    } catch (err) {
+        showToast('❌ Xatolik', true);
+        // Revert
+        try {
+            const d = await apiRequest(`/tasks/${taskId}`);
+            const idx = allTasks.findIndex(t => t.id === taskId);
+            if (idx >= 0 && d.task) allTasks[idx] = d.task;
+        } catch {}
+        renderKanban();
+    }
+}
+
+// — Touch drag —
+function _kbTouchStart(e, taskId) {
+    const touch = e.touches[0];
+    _kbDragTaskId = taskId;
+    _kbDragEl = e.currentTarget;
+    _kbDragStartX = touch.clientX;
+    _kbDragStartY = touch.clientY;
+
+    // Clone for visual drag
+    _kbDragClone = _kbDragEl.cloneNode(true);
+    _kbDragClone.style.cssText = `
+        position:fixed; z-index:9999; opacity:0.92; pointer-events:none;
+        width:${_kbDragEl.offsetWidth}px;
+        box-shadow:0 8px 32px rgba(0,0,0,0.5);
+        border-radius:14px; transform:rotate(2deg) scale(1.04);
+        left:${_kbDragEl.getBoundingClientRect().left}px;
+        top:${_kbDragEl.getBoundingClientRect().top}px;
+        transition:none;
+    `;
+    document.body.appendChild(_kbDragClone);
+    _kbDragEl.classList.add('kb-dragging');
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+}
+
+function _kbTouchMove(e) {
+    if (!_kbDragClone) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const dx = touch.clientX - _kbDragStartX;
+    const dy = touch.clientY - _kbDragStartY;
+    const orig = _kbDragEl.getBoundingClientRect();
+    _kbDragClone.style.left = (orig.left + dx) + 'px';
+    _kbDragClone.style.top  = (orig.top  + dy) + 'px';
+
+    // Highlight column under finger
+    const cols = ['new','in_progress','review','done'];
+    const underEl = document.elementFromPoint(touch.clientX, touch.clientY);
+    const targetCol = cols.find(c => document.getElementById('kanban-' + c)?.contains(underEl));
+    cols.forEach(c => document.getElementById('kanban-' + c)?.classList.remove('kb-drop-target'));
+    if (targetCol) document.getElementById('kanban-' + targetCol)?.classList.add('kb-drop-target');
+}
+
+async function _kbTouchEnd(e) {
+    if (!_kbDragClone) return;
+    const touch = e.changedTouches[0];
+    _kbDragClone.remove();
+    _kbDragClone = null;
+    if (_kbDragEl) _kbDragEl.classList.remove('kb-dragging');
+
+    const cols = ['new','in_progress','review','done'];
+    const underEl = document.elementFromPoint(touch.clientX, touch.clientY);
+    const targetCol = cols.find(c => document.getElementById('kanban-' + c)?.contains(underEl));
+    cols.forEach(c => document.getElementById('kanban-' + c)?.classList.remove('kb-drop-target'));
+
+    const taskId = _kbDragTaskId;
+    _kbDragTaskId = null;
+    _kbDragEl = null;
+
+    if (!targetCol || !taskId) return;
+    const task = allTasks.find(t => t.id === taskId);
+    if (!task || task.status === targetCol) return;
+
+    task.status = targetCol;
+    renderKanban();
+    if (tg) tg.HapticFeedback?.impactOccurred('medium');
+
+    try {
+        await apiRequest(`/tasks/${taskId}/status`, 'PATCH', { status: targetCol });
+        showToast(`✅ Status o'zgartirildi`);
+    } catch (err) {
+        showToast('❌ Xatolik', true);
+        try {
+            const d = await apiRequest(`/tasks/${taskId}`);
+            const idx = allTasks.findIndex(t => t.id === taskId);
+            if (idx >= 0 && d.task) allTasks[idx] = d.task;
+        } catch {}
+        renderKanban();
+    }
+}
+
+// ================================================================
+// KANBAN INLINE TOGGLE (Tasks tab ichida)
+// ================================================================
+
+let _kanbanInlineVisible = false;
+
+function toggleKanbanView() {
+    _kanbanInlineVisible = !_kanbanInlineVisible;
+    const wrap = document.getElementById('task-kanban-inline');
+    const list = document.getElementById('task-list');
+    const empty = document.getElementById('empty-tasks');
+    const btn   = document.getElementById('btn-toggle-kanban');
+
+    if (_kanbanInlineVisible) {
+        wrap && wrap.classList.remove('hidden');
+        list && list.classList.add('hidden');
+        empty && empty.classList.add('hidden');
+        btn && btn.classList.add('active');
+        _renderKanbanInline();
+    } else {
+        wrap && wrap.classList.add('hidden');
+        list && list.classList.remove('hidden');
+        btn && btn.classList.remove('active');
+        applyFilter(); // ro'yxatni qayta ko'rsatish
+    }
+}
+
+function _renderKanbanInline() {
+    const cols = ['new', 'in_progress', 'review', 'done'];
+    const pClass = { low: 'prio-low', medium: 'prio-medium', high: 'prio-high', urgent: 'prio-urgent' };
+
+    function fill(tasks) {
+        const groups = { new: [], in_progress: [], review: [], done: [] };
+        tasks.forEach(t => { if (groups[t.status]) groups[t.status].push(t); });
+        cols.forEach(col => {
+            const el  = document.getElementById('ki-cards-' + col);
+            const cnt = document.getElementById('ki-count-' + col);
+            if (!el) return;
+            const list = groups[col] || [];
+            if (cnt) cnt.textContent = list.length;
+            if (!list.length) { el.innerHTML = '<div class="ki-empty">Bo\'sh</div>'; return; }
+            el.innerHTML = list.map(t => `
+                <div class="kanban-card" onclick="openTask(${t.id})">
+                    <div class="kanban-card-title">${escapeHtml(t.title.slice(0, 55))}</div>
+                    <div class="kanban-card-meta">
+                        <span class="kanban-card-prio ${pClass[t.priority] || ''}">${t.priority}</span>
+                        ${t.deadline ? `<span class="kanban-card-dl">⏰ ${formatDateShort(t.deadline)}</span>` : ''}
+                    </div>
+                    ${t.responsible_name ? `<div class="kanban-card-resp">⭐ ${escapeHtml(t.responsible_name)}</div>` : ''}
+                </div>
+            `).join('');
+        });
+    }
+
+    if (allTasks && allTasks.length > 0) { fill(allTasks); return; }
+    loadTasksForKanban().then(fill).catch(() => {
+        cols.forEach(c => { const el = document.getElementById('ki-cards-' + c); if (el) el.innerHTML = '<div class="ki-empty" style="color:red">Xato</div>'; });
+    });
+}
+
+// ================================================================
+// SUBTASK INLINE CREATE
+// ================================================================
+
+async function openSubtaskCreate(parentTaskId) { openSubtaskModal(parentTaskId); }
+
+// Sub-task modal: selected assignee IDs
+let _stAssigneeIds = [];
+
+async function openSubtaskModal(parentTaskId) {
+    const existing = document.getElementById('subtask-full-modal');
+    if (existing) existing.remove();
+
+    _stAssigneeIds = [];
+
+    // Use already-loaded companyMembers; fetch if empty and workspace is set
+    let members = companyMembers.slice();
+    if (!members.length && currentWorkspaceId && currentWorkspaceId !== 'all' && currentWorkspaceId !== 'personal') {
+        try {
+            const data = await apiRequest(`/companies/${currentWorkspaceId}/members`);
+            members = data.members || [];
+        } catch(e) {}
+    }
+    // Pre-select self
+    const selfM = members.find(m => m.is_self);
+    if (selfM) _stAssigneeIds.push(selfM.id);
+
+    const pLow    = tr('app.priority.low')    || '🟢 Past';
+    const pMed    = tr('app.priority.medium') || "🟡 O'rta";
+    const pHigh   = tr('app.priority.high')   || '🟠 Muhum';
+    const pUrgent = tr('app.priority.urgent') || '🔴 Juda muhum';
+
+    const membersHtml = members.length ? members.map(m => {
+        const sel = _stAssigneeIds.includes(m.id);
+        const init = (m.name || '?')[0].toUpperCase();
+        return `<div class="assignee-chip ${sel ? 'selected' : ''}" id="stchip-${m.id}" onclick="_stToggleAssignee(${m.id},this)">
+            <span class="assignee-avatar">${escapeHtml(init)}</span>
+            <span class="assignee-name">👤 ${escapeHtml(m.name)}${m.is_self?' (siz)':''}</span>
+            <span class="assignee-check">${sel ? '✓' : ''}</span>
+        </div>`;
+    }).join('') : `<div class="form-hint" style="margin:0">Shaxsiy workspace — ijrochi tanlanmaydi</div>`;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'subtask-full-modal';
+    overlay.className = 'st-modal-overlay';
+    overlay.innerHTML = `
+        <div class="st-modal-sheet">
+            <div class="st-modal-header">
+                <span class="st-modal-title">📂 Sub-task yaratish</span>
+                <button class="st-modal-close" onclick="document.getElementById('subtask-full-modal').remove()">✕</button>
+            </div>
+
+            <div class="form-group" style="margin-bottom:14px">
+                <label class="form-label">Nomi *</label>
+                <input id="st-title" type="text" placeholder="Sub-task nomi..." maxlength="200" class="st-input">
+            </div>
+
+            <div class="form-group" style="margin-bottom:14px">
+                <label class="form-label">Tavsif</label>
+                <textarea id="st-desc" rows="2" placeholder="Ixtiyoriy..." class="st-textarea"></textarea>
+            </div>
+
+            <div class="form-group" style="margin-bottom:14px">
+                <label class="form-label">Muhimlik</label>
+                <div class="priority-selector" id="st-prio-btns">
+                    <button class="priority-btn" data-prio="low" onclick="_stPrio(this)">${pLow}</button>
+                    <button class="priority-btn selected" data-prio="medium" onclick="_stPrio(this)">${pMed}</button>
+                    <button class="priority-btn" data-prio="high" onclick="_stPrio(this)">${pHigh}</button>
+                    <button class="priority-btn" data-prio="urgent" onclick="_stPrio(this)">${pUrgent}</button>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:14px">
+                <label class="form-label">Deadline</label>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <button class="dl-picker-btn" id="st-dl-btn" onclick="_stOpenDeadline()" style="flex:1;text-align:left">
+                        📅 <span id="st-dl-label">Sana tanlang...</span>
+                    </button>
+                    <button onclick="_stClearDeadline()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;padding:4px">✕</button>
+                </div>
+                <input type="hidden" id="st-deadline">
+            </div>
+
+            ${members.length ? `<div class="form-group" style="margin-bottom:14px">
+                <label class="form-label">👥 Ijrochilar</label>
+                <div id="st-assignees-list">${membersHtml}</div>
+            </div>` : ''}
+
+            <button onclick="_submitSubtaskFull(${parentTaskId})" class="btn-create" style="margin-top:8px">
+                <span>✅ Sub-task yaratish</span>
+            </button>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    setTimeout(() => document.getElementById('st-title')?.focus(), 100);
+}
+
+function _stToggleAssignee(uid, chip) {
+    const idx = _stAssigneeIds.indexOf(uid);
+    if (idx >= 0) {
+        _stAssigneeIds.splice(idx, 1);
+        chip.classList.remove('selected');
+        chip.querySelector('.assignee-check').textContent = '';
+    } else {
+        _stAssigneeIds.push(uid);
+        chip.classList.add('selected');
+        chip.querySelector('.assignee-check').textContent = '✓';
+    }
+    if (tg) tg.HapticFeedback?.selectionChanged();
+}
+
+// Subtask uchun deadline picker (asosiy pickerni subtask kontekstiga bog'laymiz)
+let _stDeadlineActive = false;
+function _stOpenDeadline() {
+    _stDeadlineActive = true;
+    // Asosiy picker ni ochib, callback ni override qilamiz
+    openDeadlinePicker();
+    // confirmDeadlinePicker ni patch qilamiz
+    window._originalConfirmDl = window.confirmDeadlinePicker;
+    window.confirmDeadlinePicker = function() {
+        // Qiymatni st-deadline ga joylashtiramiz
+        const y = _dlState.y, mo = _dlState.m, d = _dlState.d;
+        const h = _dlState.hour, mi = _dlState.minute;
+        const dt = new Date(y, mo, d, h, mi);
+        const iso = dt.toISOString();
+        document.getElementById('st-deadline').value = iso;
+        const label = `${d.toString().padStart(2,'0')}.${(mo+1).toString().padStart(2,'0')}.${y} ${h.toString().padStart(2,'0')}:${mi.toString().padStart(2,'0')}`;
+        const lblEl = document.getElementById('st-dl-label');
+        if (lblEl) lblEl.textContent = label;
+        // Pickerni yopamiz
+        document.getElementById('dl-sheet')?.classList.add('hidden');
+        // Restore
+        window.confirmDeadlinePicker = window._originalConfirmDl;
+        _stDeadlineActive = false;
+    };
+}
+function _stClearDeadline() {
+    document.getElementById('st-deadline').value = '';
+    const lblEl = document.getElementById('st-dl-label');
+    if (lblEl) lblEl.textContent = 'Tanlang...';
+}
+
+function _stPrio(btn) {
+    document.querySelectorAll('#st-prio-btns .priority-btn, #st-prio-btns .st-prio').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+}
+
+async function _submitSubtaskFull(parentTaskId) {
+    const title = (document.getElementById('st-title')?.value || '').trim();
+    if (title.length < 2) { showToast('❗ Nom kamida 2 belgi', true); return; }
+
+    const desc     = (document.getElementById('st-desc')?.value || '').trim() || null;
+    const priority = document.querySelector('#st-prio-btns .selected')?.dataset?.prio || 'medium';
+    const dlRaw    = document.getElementById('st-deadline')?.value;
+    const deadline = dlRaw || null;
+    const assignee_ids = _stAssigneeIds.slice();
+
+    const btn = document.querySelector('#subtask-full-modal button:last-child');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saqlanmoqda...'; }
+
+    try {
+        const r = await apiRequest('/tasks', 'POST', {
+            title, description: desc, priority,
+            deadline, parent_id: parentTaskId,
+            assignee_ids,
+        });
+        if (r && r.ok) {
+            showToast('✅ Sub-task yaratildi!');
+            document.getElementById('subtask-full-modal')?.remove();
+            await openTask(parentTaskId);
+            // allTasks ni yangilaymiz
+            await loadTasks();
+        } else {
+            showToast('❌ ' + (r?.error || 'Xato'), true);
+            if (btn) { btn.disabled = false; btn.textContent = '✅ Yaratish'; }
+        }
+    } catch (e) {
+        showToast('❌ ' + (e.message || 'Server xatosi'), true);
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Yaratish'; }
+    }
+}
+
+async function submitSubtask(parentTaskId) {
+    // Legacy: inline form fallback
+    const input = document.getElementById('subtask-title-input');
+    const title = input?.value?.trim();
+    if (!title) return;
+
+    try {
+        const r = await apiRequest('/tasks', 'POST', {
+            title, parent_id: parentTaskId, priority: 'medium', assignee_ids: [],
+        });
+        if (r && r.ok) {
+            showToast('✅ Sub-task yaratildi!');
+            document.getElementById('subtask-create-form')?.remove();
+            await openTask(parentTaskId);
+        } else {
+            showToast('❌ ' + (r?.error || 'Xato'), true);
+        }
+    } catch (e) {
+        showToast('❌ ' + (e.message || e), true);
+    }
+}
+
+// ── Navigation stack for back button ────────────────────────────────────────
+const _navStack = [];
+
+function pushNav(fn) {
+    _navStack.push(fn);
+    document.getElementById('back-btn')?.classList.remove('hidden');
+    document.getElementById('hamburger-btn')?.classList.add('hidden');
+}
+
+function goBack() {
+    if (_navStack.length > 0) {
+        const fn = _navStack.pop();
+        fn();
+    }
+    if (_navStack.length === 0) {
+        document.getElementById('back-btn')?.classList.add('hidden');
+        document.getElementById('hamburger-btn')?.classList.remove('hidden');
+    }
+}
+
+// ================================================================
+// SIDEBAR (Hamburger Menu)
+// ================================================================
+
+function openSidebar() {
+    const sb = document.getElementById('sidebar');
+    const ov = document.getElementById('sidebar-overlay');
+    if (!sb || !ov) return;
+    ov.classList.remove('hidden');
+    sb.classList.remove('hidden');
+    setTimeout(() => sb.classList.add('open'), 10);
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+
+    // Sync profile info
+    const sbName = document.getElementById('sb-name');
+    const sbSub = document.getElementById('sb-sub');
+    const sbAv = document.getElementById('sb-avatar');
+    if (sbName) sbName.textContent = window._currentUserName || 'Foydalanuvchi';
+    if (sbAv) {
+        const mainAv = document.getElementById('user-avatar');
+        if (mainAv) {
+            sbAv.style.backgroundImage = mainAv.style.backgroundImage;
+            sbAv.style.backgroundSize = 'cover';
+            sbAv.style.backgroundPosition = 'center';
+            const txt = mainAv.textContent;
+            sbAv.textContent = mainAv.style.backgroundImage ? '' : txt;
+        }
+    }
+    if (sbSub && tg?.initDataUnsafe?.user?.username) {
+        sbSub.textContent = '@' + tg.initDataUnsafe.user.username;
+    }
+}
+
+function closeSidebar() {
+    const sb = document.getElementById('sidebar');
+    const ov = document.getElementById('sidebar-overlay');
+    if (!sb) return;
+    sb.classList.remove('open');
+    setTimeout(() => {
+        ov?.classList.add('hidden');
+        sb.classList.add('hidden');
+    }, 300);
+}
+
+// ================================================================
+// COMPANIES PANEL
+// ================================================================
+
+let _companiesCache = null;
+
+async function openTeamsPanel() {
+    openCompaniesPanel();
+}
+
+async function openCompaniesPanel() {
+    closeSidebar();
+    const panel = document.getElementById('companies-panel');
+    const list = document.getElementById('companies-list');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    setTimeout(() => panel.classList.add('open'), 10);
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+
+    list.innerHTML = '<div class="sp-loading">⏳ Yuklanmoqda...</div>';
+    try {
+        const data = await apiRequest('/workspaces');
+        const workspaces = (data.workspaces || []).filter(w => w.id !== 'personal');
+        _companiesCache = workspaces;
+
+        // Also try to load telegram groups
+        let groups = [];
+        try {
+            const gData = await apiRequest('/groups');
+            groups = gData.groups || [];
+        } catch (e) {
+            // /api/groups may not exist yet — ignore
+        }
+
+        // Update sidebar badge
+        const badge = document.getElementById('sb-companies-count');
+        if (badge) badge.textContent = (workspaces.length + groups.length) || '';
+
+        if (!workspaces.length && !groups.length) {
+            list.innerHTML = '<div class="sp-loading">Hech qanday jamoa yo\'q</div>';
+            return;
+        }
+
+        let html = '';
+
+        // Bot jamoalari section
+        if (workspaces.length) {
+            html += `<div class="cmp-action-title" style="margin-bottom:8px">🏢 Bot jamoalari</div>`;
+            html += workspaces.map(w => {
+                const isOwner = w.is_owner;
+                const isAdmin = w.is_admin || isOwner;
+                const roleLabel = isOwner ? '👑 Owner' : (isAdmin ? '🛡 Admin' : '👤 A\'zo');
+                const roleClass = isOwner ? 'owner' : '';
+                return `
+                    <div class="company-card" onclick="openCompanyDetail(${w.id},'${escapeHtml(w.name)}',${isAdmin})">
+                        <div class="company-card-row">
+                            <span class="company-card-name">🏢 ${escapeHtml(w.name)}</span>
+                            <span class="company-card-role ${roleClass}">${roleLabel}</span>
+                        </div>
+                        <div class="company-card-meta">${w.member_count || ''} a'zo • <span class="team-type-badge bot">bot</span></div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Telegram guruhlar section
+        if (groups.length) {
+            html += `<div class="cmp-action-title" style="margin:16px 0 8px">💬 Telegram guruhlar</div>`;
+            html += groups.map(g => {
+                return `
+                    <div class="company-card" onclick="openCompanyDetail(${g.id},'${escapeHtml(g.title || g.name)}',false)">
+                        <div class="company-card-row">
+                            <span class="company-card-name">💬 ${escapeHtml(g.title || g.name)}</span>
+                            <span class="team-type-badge group">guruh</span>
+                        </div>
+                        <div class="company-card-meta">${g.member_count || ''} a'zo</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        list.innerHTML = html;
+    } catch (e) {
+        list.innerHTML = '<div class="sp-loading">❌ Xatolik</div>';
+    }
+}
+
+function closeCompaniesPanel() {
+    const panel = document.getElementById('companies-panel');
+    if (!panel) return;
+    panel.classList.remove('open');
+    setTimeout(() => panel.classList.add('hidden'), 300);
+}
+
+let _currentCompanyIsAdmin = false;
+let _editModeActive = false;
+
+async function openCompanyDetail(companyId, companyName, isAdmin) {
+    const panel = document.getElementById('company-detail-panel');
+    const body = document.getElementById('company-detail-body');
+    const title = document.getElementById('company-detail-name');
+    const editBtn = document.getElementById('company-edit-btn');
+    if (!panel) return;
+    if (title) title.textContent = companyName;
+    _currentCompanyIsAdmin = !!isAdmin;
+    _editModeActive = false;
+    // Show edit button only for admins/owners
+    if (editBtn) {
+        if (isAdmin) editBtn.classList.remove('hidden');
+        else editBtn.classList.add('hidden');
+    }
+    body.innerHTML = '<div class="sp-loading">⏳ Yuklanmoqda...</div>';
+    panel.classList.remove('hidden');
+    setTimeout(() => panel.classList.add('open'), 10);
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+
+    try {
+        const data = await apiRequest(`/companies/${companyId}/info`);
+        renderCompanyDetail(companyId, data);
+    } catch (e) {
+        body.innerHTML = '<div class="sp-loading">❌ ' + escapeHtml(e.message || 'Xatolik') + '</div>';
+    }
+}
+
+function toggleCompanyEdit() {
+    _editModeActive = !_editModeActive;
+    // Re-render with current cached data
+    const body = document.getElementById('company-detail-body');
+    if (!body) return;
+    const editBtn = document.getElementById('company-edit-btn');
+    if (editBtn) editBtn.textContent = _editModeActive ? '✅' : '✏️';
+    // Find all member rows and toggle edit controls
+    body.querySelectorAll('.member-edit-actions').forEach(el => {
+        el.style.display = _editModeActive ? 'flex' : 'none';
+    });
+}
+
+function renderCompanyDetail(companyId, data) {
+    const body = document.getElementById('company-detail-body');
+    const isOwner = data.is_owner;
+    const isAdmin = data.is_admin || isOwner;
+    const members = data.members || [];
+
+    let html = '';
+
+    if (!isOwner) {
+        // Regular member — show leave button
+        html += `
+            <div class="cmp-action-area">
+                <div class="cmp-action-title">⚠️ Jamoadan chiqish</div>
+                <button class="btn-danger" style="width:100%;padding:12px;" onclick="leaveCompanyFromPanel(${companyId})">
+                    🚪 Jamoadan chiqish
+                </button>
+            </div>
+        `;
+    } else {
+        // Owner — show edit options + delete
+        html += `
+            <div class="cmp-action-area">
+                <div class="cmp-action-title">👑 Owner imkoniyatlari</div>
+                <button class="btn-primary" style="width:100%;padding:12px;margin-bottom:8px;" onclick="openInviteLink(${companyId})">
+                    🔗 Taklif havolasi
+                </button>
+                <button class="btn-danger" style="width:100%;padding:12px;" onclick="deleteCompanyFromPanel(${companyId},'${escapeHtml(data.name || '')}')">
+                    🗑 Jamoani o'chirish
+                </button>
+            </div>
+        `;
+    }
+
+    // Members list
+    html += `<div class="cmp-action-title" style="margin-bottom:10px">👥 A'zolar (${members.length})</div>`;
+    html += members.map(m => {
+        const roleLabel = m.is_owner ? '👑 Owner' : (m.role === 'admin' ? '🛡 Admin' : '👤 A\'zo');
+        const canEdit = isAdmin && !m.is_self && !m.is_owner;
+        const canRole = isAdmin && !m.is_self && !m.is_owner;
+        const actionsHtml = canEdit ? `
+            <div class="member-edit-actions" style="display:none">
+                <button class="member-role-btn" onclick="openRoleSheet(${companyId},${m.id},'${escapeHtml(m.name)}','${m.role||'member'}')">
+                    👑 Rol
+                </button>
+                <button class="member-edit-btn" onclick="openReassignSheet(${companyId},${m.id},'${escapeHtml(m.name)}')">
+                    🔄
+                </button>
+                <button class="member-remove-btn" onclick="kickMember(${companyId},${m.id},'${escapeHtml(m.name)}')">
+                    Chiqar
+                </button>
+            </div>
+        ` : '';
+        const selfBadge = m.is_self ? ' <span style="color:var(--accent);font-size:11px">(siz)</span>' : '';
+        return `
+            <div class="member-edit-row">
+                <div class="cmp-avatar">${escapeHtml((m.name||'?')[0].toUpperCase())}</div>
+                <div class="member-edit-info">
+                    <div class="member-edit-name">${escapeHtml(m.name)}${selfBadge}</div>
+                    <div class="member-edit-role">${roleLabel}${m.position ? ' · ' + escapeHtml(m.position) : ''}</div>
+                </div>
+                ${actionsHtml}
+            </div>
+        `;
+    }).join('');
+
+    body.innerHTML = html;
+    // Sync edit mode state
+    if (_editModeActive) {
+        body.querySelectorAll('.member-edit-actions').forEach(el => {
+            el.style.display = 'flex';
+        });
+    }
+}
+
+function closeCompanyDetail() {
+    const panel = document.getElementById('company-detail-panel');
+    if (!panel) return;
+    panel.classList.remove('open');
+    setTimeout(() => panel.classList.add('hidden'), 300);
+}
+
+async function leaveCompanyFromPanel(companyId) {
+    if (!confirm('Haqiqatan ham bu jamoadan chiqmoqchimisiz?')) return;
+    try {
+        await apiRequest(`/companies/${companyId}/leave`, 'DELETE');
+        showToast('✅ Jamoadan chiqdingiz');
+        closeCompanyDetail();
+        closeCompaniesPanel();
+        await changeWorkspace();
+    } catch (e) {
+        showToast('❌ ' + (e.message || 'Xatolik'), true);
+    }
+}
+
+async function deleteCompanyFromPanel(companyId, companyName) {
+    const name = companyName || 'bu jamoani';
+    if (!confirm(`⚠️ "${name}" jamoasini O'CHIRIB YUBORISHNI tasdiqlaysizmi?\n\nBarcha vazifalar va ma'lumotlar butunlay yo'qoladi. Bu amal qaytarib bo'lmaydi!`)) return;
+    try {
+        await apiRequest(`/companies/${companyId}`, 'DELETE');
+        showToast('✅ Jamoa o\'chirildi');
+        closeCompanyDetail();
+        closeCompaniesPanel();
+        await changeWorkspace();
+    } catch (e) {
+        showToast('❌ ' + (e.message || 'Xatolik'), true);
+    }
+}
+
+async function kickMember(companyId, userId, userName) {
+    if (!confirm(`${userName} ni jamoadan chiqarishni tasdiqlaysizmi?`)) return;
+    try {
+        await apiRequest(`/companies/${companyId}/members/${userId}`, 'DELETE');
+        showToast(`✅ ${userName} chiqarildi`);
+        // Refresh company detail
+        const data = await apiRequest(`/companies/${companyId}/info`);
+        renderCompanyDetail(companyId, data);
+    } catch (e) {
+        showToast('❌ ' + (e.message || 'Xatolik'), true);
+    }
+}
+
+// ===== Role Assignment =====
+function openRoleSheet(companyId, userId, userName, currentRole) {
+    const existing = document.getElementById('role-sheet-overlay');
+    if (existing) existing.remove();
+
+    const roles = [
+        { value: 'admin',  icon: '🛡', label: 'Admin',     desc: 'Jamoa boshqarish, a\'zo qo\'shish/chiqarish huquqi' },
+        { value: 'member', icon: '👤', label: 'A\'zo',     desc: 'Odatiy foydalanuvchi, faqat o\'z vazifalari' },
+    ];
+
+    const overlay = document.createElement('div');
+    overlay.id = 'role-sheet-overlay';
+    overlay.className = 'gp-overlay';
+    overlay.innerHTML = `
+        <div class="gp-sheet">
+            <div class="gp-sheet-header">
+                <span class="gp-sheet-title">👑 ${escapeHtml(userName)} — Rol tanlash</span>
+                <button class="gp-close-btn" onclick="document.getElementById('role-sheet-overlay').remove()">✕</button>
+            </div>
+            <div class="gp-sheet-body" style="padding:16px">
+                <p style="font-size:13px;color:var(--text3);margin-bottom:14px">
+                    Yangi rol belgilang. O'zgarish darhol kuchga kiradi.
+                </p>
+                ${roles.map(r => `
+                    <div class="role-option ${r.value === currentRole ? 'role-selected' : ''}"
+                         onclick="assignRole(${companyId}, ${userId}, '${r.value}')">
+                        <span class="role-option-icon">${r.icon}</span>
+                        <div class="role-option-info">
+                            <div class="role-option-label">${r.label}</div>
+                            <div class="role-option-desc">${r.desc}</div>
+                        </div>
+                        ${r.value === currentRole ? '<span class="role-current">✓ Joriy</span>' : ''}
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+}
+
+async function assignRole(companyId, userId, newRole) {
+    document.getElementById('role-sheet-overlay')?.remove();
+    try {
+        await apiRequest(`/companies/${companyId}/members/${userId}`, 'PUT', { role: newRole });
+        const roleLabel = newRole === 'admin' ? 'Admin' : 'A\'zo';
+        showToast(`✅ Rol o'zgartirildi: ${roleLabel}`);
+        if (tg) tg.HapticFeedback?.notificationOccurred('success');
+        // Refresh company detail
+        const data = await apiRequest(`/companies/${companyId}/info`);
+        renderCompanyDetail(companyId, data);
+    } catch (e) {
+        showToast('❌ ' + (e.message || 'Xatolik'), true);
+    }
+}
+
+async function openInviteLink(companyId) {
+    try {
+        const data = await apiRequest('/invite-link');
+        const link = data.link;
+        if (navigator.share) {
+            await navigator.share({ text: link });
+        } else if (navigator.clipboard) {
+            await navigator.clipboard.writeText(link);
+            showToast('✅ Havola nusxalandi!');
+        } else {
+            showToast(link);
+        }
+    } catch (e) {
+        showToast('❌ ' + (e.message || 'Xatolik'), true);
+    }
+}
+
+// Task reassignment sheet
+let _reassignFromId = null;
+let _reassignCompanyId = null;
+let _reassignFromName = '';
+
+async function openReassignSheet(companyId, fromUserId, fromUserName) {
+    _reassignFromId = fromUserId;
+    _reassignCompanyId = companyId;
+    _reassignFromName = fromUserName;
+
+    const existing = document.getElementById('reassign-sheet-overlay');
+    if (existing) existing.remove();
+
+    // Get members for selector
+    let memberOptions = '';
+    try {
+        const data = await apiRequest(`/companies/${companyId}/info`);
+        memberOptions = (data.members || [])
+            .filter(m => m.id !== fromUserId && !m.is_owner)
+            .map(m => `<div class="gp-member-row" onclick="_doReassign(${m.id},'${escapeHtml(m.name)}')">
+                <span class="gp-member-avatar">${escapeHtml((m.name||'?')[0].toUpperCase())}</span>
+                <span class="gp-member-name">${escapeHtml(m.name)}</span>
+            </div>`).join('');
+    } catch (e) {}
+
+    if (!memberOptions) {
+        showToast('Boshqa a\'zolar yo\'q', true);
+        return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'reassign-sheet-overlay';
+    overlay.className = 'reassign-sheet-overlay';
+    overlay.innerHTML = `
+        <div class="reassign-sheet">
+            <div class="reassign-title">🔄 ${escapeHtml(fromUserName)} vazifalarini topshirish</div>
+            <p style="font-size:13px;color:var(--text3);margin-bottom:14px">
+                ${escapeHtml(fromUserName)}ning barcha faol vazifalari yangi ijrochiga o'tkaziladi.
+            </p>
+            ${memberOptions}
+            <button onclick="document.getElementById('reassign-sheet-overlay').remove()"
+                style="width:100%;margin-top:12px;padding:12px;background:var(--bg3);border:none;border-radius:12px;color:var(--text2);font-weight:700;cursor:pointer">
+                Bekor qilish
+            </button>
+        </div>
+    `;
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+}
+
+async function _doReassign(toUserId, toUserName) {
+    document.getElementById('reassign-sheet-overlay')?.remove();
+    if (!_reassignCompanyId || !_reassignFromId) return;
+    try {
+        const r = await apiRequest(`/companies/${_reassignCompanyId}/reassign`, 'POST', {
+            from_user_id: _reassignFromId,
+            to_user_id: toUserId,
+        });
+        showToast(`✅ ${r.reassigned} ta vazifa ${toUserName}ga o'tkazildi`);
+        if (tg) tg.HapticFeedback?.notificationOccurred('success');
+        // Reload tasks
+        await changeWorkspace();
+    } catch (e) {
+        showToast('❌ ' + (e.message || 'Xatolik'), true);
+    }
+}
+
+// ================================================================
+// SETTINGS PANEL
+// ================================================================
+
+function openSettingsPanel() {
+    closeSidebar();
+    const panel = document.getElementById('settings-panel');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    setTimeout(() => panel.classList.add('open'), 10);
+
+    // Highlight current language
+    document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.lang === I18N.lang);
+    });
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+}
+
+function closeSettingsPanel() {
+    const panel = document.getElementById('settings-panel');
+    if (!panel) return;
+    panel.classList.remove('open');
+    setTimeout(() => panel.classList.add('hidden'), 300);
+}
+

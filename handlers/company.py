@@ -40,16 +40,16 @@ def company_detail_keyboard(company: Company, user_role: CompanyRole) -> InlineK
     """Jamoa ma'lumotlari pulti"""
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     builder = InlineKeyboardBuilder()
-    
+
     builder.button(text="👥 Xodimlar", callback_data=f"company_members:{company.id}")
     if user_role in (CompanyRole.OWNER, CompanyRole.ADMIN):
         builder.button(text="🔗 Taklif havolasi", callback_data=f"company_invite:{company.id}")
         builder.button(text="⚙️ Sozlamalar", callback_data=f"company_settings:{company.id}")
-    
+    if user_role == CompanyRole.OWNER:
+        builder.button(text="🗑 Jamoani o'chirish", callback_data=f"company_delete:{company.id}")
+
     builder.button(text="🔙 Orqaga", callback_data="menu:companies")
     builder.adjust(1)
-    if user_role in (CompanyRole.OWNER, CompanyRole.ADMIN):
-        builder.adjust(2, 1, 1)
     return builder.as_markup()
 
 
@@ -354,6 +354,67 @@ async def cb_member_kick_confirm(callback: CallbackQuery, user: User) -> None:
         await cb_company_members(callback, user)
     else:
         await callback.answer("❗ O'chirib bo'lmadi", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("company_delete:"))
+async def cb_company_delete(callback: CallbackQuery, user: User) -> None:
+    """Jamoani o'chirish — tasdiqlash so'rash"""
+    company_id = int(callback.data.split(":")[1])
+
+    async with get_session() as session:
+        company = await CompanyService.get_company(session, company_id)
+        if not company:
+            await callback.answer("Jamoa topilmadi!", show_alert=True)
+            return
+        if company.owner_id != user.id:
+            await callback.answer("Faqat jamoa egasi o'chira oladi!", show_alert=True)
+            return
+        member_count = len(company.members)
+        company_name = company.name
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    b = InlineKeyboardBuilder()
+    b.button(text="🗑 Ha, o'chiraman", callback_data=f"company_delete_confirm:{company_id}")
+    b.button(text="❌ Bekor qilish", callback_data=f"company_view:{company_id}")
+    b.adjust(1)
+
+    await callback.message.edit_text(
+        f"⚠️ <b>Jamoani o'chirishni tasdiqlang</b>\n\n"
+        f"🏢 <b>{company_name}</b>\n"
+        f"👥 A'zolar soni: {member_count}\n\n"
+        f"❗ Bu amal qaytarib bo'lmaydi!\n"
+        f"Jamoaning barcha vazifalari, guruhlari va ma'lumotlari <b>butunlay o'chib ketadi.</b>",
+        reply_markup=b.as_markup()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("company_delete_confirm:"))
+async def cb_company_delete_confirm(callback: CallbackQuery, user: User) -> None:
+    """Jamoani o'chirishni tasdiqlash va bajarish"""
+    company_id = int(callback.data.split(":")[1])
+
+    async with get_session() as session:
+        company = await CompanyService.get_company(session, company_id)
+        if not company:
+            await callback.answer("Jamoa allaqachon o'chirilgan!", show_alert=True)
+            return
+        if company.owner_id != user.id:
+            await callback.answer("Faqat jamoa egasi o'chira oladi!", show_alert=True)
+            return
+        company_name = company.name
+        ok = await CompanyService.delete_company(session, company_id, user.id)
+        if ok:
+            await session.commit()
+
+    if ok:
+        await callback.message.edit_text(
+            f"✅ <b>{company_name}</b> jamoasi muvaffaqiyatli o'chirildi.\n\n"
+            f"Barcha vazifalar va ma'lumotlar o'chirildi."
+        )
+        await callback.answer("✅ Jamoa o'chirildi", show_alert=True)
+    else:
+        await callback.answer("❗ O'chirib bo'lmadi. Qaytadan urining.", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("company_regen_invite:"))

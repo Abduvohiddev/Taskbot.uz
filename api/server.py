@@ -7,18 +7,20 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
+from zoneinfo import ZoneInfo
 
 from aiohttp import web
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 
-from api.auth import validate_init_data
+from api.auth import validate_init_data, validate_auth_token
 from config import settings
 from database.db import get_session
 from database.models import (
     User, Task, TaskStatus, Priority, TaskAssignment,
     TaskHistory, TaskComment, TaskAttachment, GroupMember, Company, CompanyMember, CompanyRole,
-    TaskStep, TaskStepComment, TaskStepAttachment,
+    TaskStep, TaskStepComment, TaskStepAttachment, Group,
 )
 from services.notification_service import NotificationService
 from services.ai_service import AIService
@@ -26,6 +28,8 @@ from services.ai_service import AIService
 logger = logging.getLogger(__name__)
 
 WEBAPP_DIR = Path(__file__).parent.parent / "webapp"
+_TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
+_UTC = ZoneInfo("UTC")
 
 
 # ===== Middleware =====
@@ -42,7 +46,7 @@ async def cors_middleware(request, handler):
             resp = ex
     
     resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Telegram-Init-Data"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Telegram-Init-Data, X-Auth-Token"
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
     return resp
 
@@ -55,18 +59,20 @@ async def auth_middleware(request, handler):
         return await handler(request)
     
     init_data = request.headers.get("X-Telegram-Init-Data", "")
-    user_info = validate_init_data(init_data)
-    
+    user_info = validate_init_data(init_data) if init_data else None
+
+    # Fallback: token-based auth (Telegram Desktop uchun)
     if not user_info:
-        # Dev mode: birinchi foydalanuvchini olish
-        if settings.DEBUG:
-            async with get_session() as session:
-                result = await session.execute(select(User).limit(1))
-                dev_user = result.scalar_one_or_none()
-                if dev_user:
-                    request["user_telegram_id"] = dev_user.telegram_id
-                    return await handler(request)
-        
+        auth_token = request.headers.get("X-Auth-Token", "")
+        if auth_token:
+            user_info = validate_auth_token(auth_token)
+
+    if not user_info:
+        logger.warning(
+            "Auth failed — initData: %s, token: %s",
+            "present" if init_data else "empty",
+            "present" if request.headers.get("X-Auth-Token") else "empty",
+        )
         raise web.HTTPUnauthorized(
             text=json.dumps({"error": "Autentifikatsiya talab qilinadi"}),
             content_type="application/json",
@@ -151,6 +157,7 @@ async def api_get_tasks(request):
             stmt.options(
                 selectinload(Task.creator),
                 selectinload(Task.assignments).selectinload(TaskAssignment.user),
+                selectinload(Task.subtasks),
             )
             .order_by(Task.created_at.desc())
             .distinct()
@@ -162,6 +169,7 @@ async def api_get_tasks(request):
     return web.json_response({
         "tasks": tasks_json,
         "user_name": user.full_name,
+        "user_id": user.id,
         "total": len(tasks_json),
     })
 
@@ -240,6 +248,8 @@ async def api_get_task(request):
             (my_assignment.status.value if hasattr(my_assignment.status, "value") else (my_assignment.status or "new"))
             if my_assignment else None
         )
+        task_dict["my_is_responsible"] = bool(my_assignment.is_responsible) if my_assignment else False
+        task_dict["my_role"] = "responsible" if (my_assignment and my_assignment.is_responsible) else ("observer" if my_assignment else None)
 
         # Check if task has workflow steps
         steps_res = await session.execute(
@@ -297,14 +307,38 @@ async def api_add_comment(request):
 
     bot = request.app.get("bot")
     if bot:
+        # Shaxsiy xabar — comment yozgandan boshqalarga
+        notify_ids = recipient_ids - {user.id}
+        if notify_ids:
+            try:
+                async with get_session() as ns:
+                    await NotificationService.notify_new_comment(
+                        bot, ns, task, user.full_name, content,
+                        recipient_ids=notify_ids,
+                    )
+            except Exception as e:
+                logger.warning(f"Comment personal notification xatosi: {e}")
+
+        # Guruh chatiga izoh xabari
         try:
-            async with get_session() as ns:
-                await NotificationService.notify_new_comment(
-                    bot, ns, task, user.full_name, content,
-                    recipient_ids=recipient_ids,
-                )
+            async with get_session() as gs:
+                grp_tg_id = await _get_task_group_tg_id(gs, task)
+                if grp_tg_id:
+                    preview = content[:120] + "…" if len(content) > 120 else content
+                    group_msg = (
+                        f"💬 <b>Yangi izoh</b>\n\n"
+                        f"📌 <b>{task.title}</b>\n"
+                        f"👤 <b>{user.full_name}:</b>\n"
+                        f"{preview}"
+                    )
+                    try:
+                        await bot.send_message(
+                            chat_id=grp_tg_id, text=group_msg, parse_mode="HTML"
+                        )
+                    except Exception as ex:
+                        logger.warning(f"Guruh comment xabari yuborib bo'lmadi {grp_tg_id}: {ex}")
         except Exception as e:
-            logger.warning(f"Comment notification xatosi: {e}")
+            logger.warning(f"Comment guruh notification xatosi: {e}")
 
     return web.json_response({
         "ok": True,
@@ -314,7 +348,7 @@ async def api_add_comment(request):
             "action": "comment",
             "content": content,
             "user_name": user.full_name,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(_TZ).strftime("%d.%m.%Y %H:%M"),
         }
     }, status=201)
 
@@ -353,10 +387,16 @@ async def api_update_my_status(request):
                 text=json.dumps({"error": "Siz bu vazifa ijrochisi emassiz"}),
                 content_type="application/json",
             )
+        # Faqat mas'ul (is_responsible=True) status o'zgartira oladi
+        if not assignment.is_responsible:
+            raise web.HTTPForbidden(
+                text=json.dumps({"error": "Siz bu vazifaning kuzatuvchisisiz. Faqat mas'ul shaxs status o'zgartira oladi."}),
+                content_type="application/json",
+            )
 
         old_my = assignment.status or "new"
         assignment.status = new_status.value
-        assignment.completed_at = datetime.utcnow() if new_status == TaskStatus.DONE else None
+        assignment.completed_at = datetime.now(_UTC) if new_status == TaskStatus.DONE else None
 
         session.add(TaskHistory(
             task_id=task_id,
@@ -399,7 +439,7 @@ async def api_update_my_status(request):
         if new_task_status != old_task_status:
             task.status = new_task_status
             if new_task_status == TaskStatus.DONE:
-                task.completed_at = datetime.utcnow()
+                task.completed_at = datetime.now(_UTC)
             session.add(TaskHistory(
                 task_id=task_id,
                 user_id=user.id,
@@ -436,6 +476,19 @@ async def api_update_my_status(request):
         except Exception as e:
             logger.warning(f"My-status notification xatosi: {e}")
 
+        # Guruh chatiga status o'zgarishi
+        try:
+            async with get_session() as gs:
+                grp_tg_id = await _get_task_group_tg_id(gs, task)
+                if grp_tg_id:
+                    status_label = new_task_status.value if new_task_status != old_task_status else new_status.value
+                    old_lbl = old_task_status.value if new_task_status != old_task_status else (old_my or "new")
+                    await NotificationService.notify_group_status_changed(
+                        bot, grp_tg_id, task, old_lbl, status_label, user.full_name
+                    )
+        except Exception as e:
+            logger.warning(f"Guruh my-status notification xatosi: {e}")
+
     return web.json_response({
         "ok": True,
         "my_status": new_status.value,
@@ -446,6 +499,33 @@ async def api_update_my_status(request):
 async def _user_can_access_task(session, user: User, task: Task) -> bool:
     """Barcha foydalanuvchilar barcha vazifalarga kira oladi"""
     return True
+
+
+async def _get_task_group_tg_id(session, task: Task) -> Optional[int]:
+    """Vazifaning telegram guruh ID sini qaytaradi (group_id → company_id tartibida)"""
+    # 1. Vazifa to'g'ridan-to'g'ri guruhga biriktirilgan bo'lsa
+    if task.group_id:
+        grp_res = await session.execute(
+            select(Group).where(Group.id == task.group_id)
+        )
+        grp = grp_res.scalar_one_or_none()
+        if grp and grp.telegram_group_id:
+            return grp.telegram_group_id
+
+    # 2. Kompaniya guruhi orqali
+    if task.company_id:
+        grp_res = await session.execute(
+            select(Group).where(
+                Group.company_id == task.company_id,
+                Group.telegram_group_id.isnot(None),
+                Group.is_active == True,
+            ).limit(1)
+        )
+        grp = grp_res.scalar_one_or_none()
+        if grp and grp.telegram_group_id:
+            return grp.telegram_group_id
+
+    return None
 
 
 async def api_create_task(request):
@@ -468,6 +548,8 @@ async def api_create_task(request):
     deadline_str = body.get("deadline")
     company_id_str = body.get("company_id")
     assignee_ids_raw = body.get("assignee_ids") or []
+    responsible_id_raw = body.get("responsible_user_id") or body.get("responsible_id")
+    responsible_ids_raw = body.get("responsible_ids") or []  # Multiple responsible support
 
     try:
         priority = Priority(priority_str)
@@ -500,20 +582,17 @@ async def api_create_task(request):
                     content_type="application/json",
                 )
 
-        # Ijrochilarni tekshirish
+        # Ijrochilarni tekshirish — User jadvalida mavjud bo'lishi yetarli
         try:
             assignee_ids = [int(x) for x in assignee_ids_raw if x]
         except (ValueError, TypeError):
             assignee_ids = []
 
-        if assignee_ids and c_id:
+        if assignee_ids:
+            # Faqat users jadvalida mavjud user_id larni qabul qilamiz
+            # (boshqa kompaniyadan qo'shilgan a'zolar ham tanlana oladi)
             valid_res = await session.execute(
-                select(CompanyMember.user_id).where(
-                    and_(
-                        CompanyMember.company_id == c_id,
-                        CompanyMember.user_id.in_(assignee_ids),
-                    )
-                )
+                select(User.id).where(User.id.in_(assignee_ids))
             )
             valid_ids = {row[0] for row in valid_res.all()}
             assignee_ids = [uid for uid in assignee_ids if uid in valid_ids]
@@ -540,8 +619,29 @@ async def api_create_task(request):
         session.add(task)
         await session.flush()
 
+        try:
+            resp_id = int(responsible_id_raw) if responsible_id_raw else None
+        except (ValueError, TypeError):
+            resp_id = None
+
+        # Build set of responsible user IDs (multiple responsible support)
+        try:
+            resp_ids_list = [int(x) for x in responsible_ids_raw if x]
+        except (ValueError, TypeError):
+            resp_ids_list = []
+
+        if resp_ids_list:
+            resp_ids_set = set(resp_ids_list)
+        elif resp_id:
+            resp_ids_set = {resp_id}
+        elif len(assignee_ids) == 1:
+            resp_ids_set = {assignee_ids[0]}
+        else:
+            resp_ids_set = set()
+
         for uid in assignee_ids:
-            session.add(TaskAssignment(task_id=task.id, user_id=uid))
+            is_resp = uid in resp_ids_set
+            session.add(TaskAssignment(task_id=task.id, user_id=uid, is_responsible=is_resp))
 
         history = TaskHistory(
             task_id=task.id,
@@ -568,26 +668,51 @@ async def api_create_task(request):
             .options(
                 selectinload(Task.creator),
                 selectinload(Task.assignments).selectinload(TaskAssignment.user),
+                selectinload(Task.subtasks),
             )
         )
         task = result.scalar_one()
+        # MUHIM: barcha ijrochilarni xabarnoma ro'yxatiga qo'shamiz (creator dan boshqa)
         notify_ids = [uid for uid in assignee_ids if uid != user.id]
         task_id_for_notify = task.id
+        task_dict = _task_to_dict(task)
         task_for_notify = task
+        # responsible_id ni ham saqlaymiz
+        notify_resp_id = resp_id
         await session.commit()
 
-    # Yangi session bilan notification
+    # Yangi session bilan notification — masul shaxs uchun maxsus xabar
     bot = request.app.get("bot")
-    if bot and notify_ids:
-        try:
-            async with get_session() as ns:
-                await NotificationService.notify_task_assigned(
-                    bot, ns, task_for_notify, notify_ids
-                )
-        except Exception as e:
-            logger.warning(f"Notification xatosi: {e}")
+    if bot:
+        if notify_ids:
+            try:
+                async with get_session() as ns:
+                    await NotificationService.notify_task_assigned(
+                        bot, ns, task_for_notify, notify_ids,
+                        responsible_user_ids=list(resp_ids_set) if resp_ids_set else None,
+                    )
+            except Exception as e:
+                logger.warning(f"Notification xatosi: {e}")
 
-    return web.json_response({"task": _task_to_dict(task_for_notify), "ok": True}, status=201)
+        # Guruh chatiga notification
+        if c_id:
+            try:
+                async with get_session() as gs:
+                    grp_res = await gs.execute(
+                        select(Group).where(
+                            Group.company_id == c_id,
+                            Group.is_active == True,
+                        )
+                    )
+                    grp = grp_res.scalar_one_or_none()
+                    if grp and grp.telegram_group_id:
+                        await NotificationService.notify_group_task_created(
+                            bot, grp.telegram_group_id, task_for_notify
+                        )
+            except Exception as e:
+                logger.warning(f"Guruh task notification xatosi: {e}")
+
+    return web.json_response({"task": task_dict, "ok": True}, status=201)
 
 
 async def api_get_company_members(request):
@@ -680,7 +805,7 @@ async def api_update_status(request):
         task.status = new_status
 
         if new_status == TaskStatus.DONE:
-            task.completed_at = datetime.utcnow()
+            task.completed_at = datetime.now(_UTC)
 
         session.add(TaskHistory(
             task_id=task_id,
@@ -710,50 +835,53 @@ async def api_update_status(request):
         except Exception as e:
             logger.warning(f"Status notification xatosi: {e}")
 
+        # Guruh chatiga status o'zgarishi
+        try:
+            async with get_session() as gs:
+                grp_tg_id = await _get_task_group_tg_id(gs, task)
+                if grp_tg_id:
+                    await NotificationService.notify_group_status_changed(
+                        bot, grp_tg_id, task,
+                        old_status.value, new_status.value, user.full_name
+                    )
+        except Exception as e:
+            logger.warning(f"Guruh status notification xatosi: {e}")
+
     return web.json_response({"ok": True, "status": new_status.value})
 
 
 async def api_get_stats(request):
-    """Foydalanuvchi statistikasi"""
+    """Foydalanuvchi statistikasi. CEO uchun member_id filter qo'shildi."""
     user = await get_user_from_request(request)
     if not user:
         raise web.HTTPNotFound(text=json.dumps({"error": "Foydalanuvchi topilmadi"}))
 
     is_admin = False
     is_company = False
+    member_name = None
     async with get_session() as session:
         company_id_str = request.query.get("company_id")
+        member_id_str = request.query.get("member_id")   # CEO filter: specific member
         from sqlalchemy import or_
 
         stmt = select(Task.status, func.count(Task.id)).outerjoin(TaskAssignment, TaskAssignment.task_id == Task.id)
 
         if company_id_str == "all":
-            # Hammasi: shaxsiy + barcha kompaniyalar
             member_cos = await session.execute(
                 select(CompanyMember.company_id).where(CompanyMember.user_id == user.id)
             )
             company_ids = [c[0] for c in member_cos.all()]
-
             stmt = stmt.where(
-                or_(
-                    Task.company_id.is_(None),
-                    Task.company_id.in_(company_ids)
-                )
+                or_(Task.company_id.is_(None), Task.company_id.in_(company_ids))
             ).where(
-                or_(
-                    Task.creator_id == user.id,
-                    TaskAssignment.user_id == user.id,
-                )
+                or_(Task.creator_id == user.id, TaskAssignment.user_id == user.id)
             )
         elif company_id_str and company_id_str != "personal":
             is_company = True
             company_id = int(company_id_str)
             member_check = await session.execute(
                 select(CompanyMember).where(
-                    and_(
-                        CompanyMember.company_id == company_id,
-                        CompanyMember.user_id == user.id,
-                    )
+                    and_(CompanyMember.company_id == company_id, CompanyMember.user_id == user.id)
                 )
             )
             member = member_check.scalar_one_or_none()
@@ -764,26 +892,29 @@ async def api_get_stats(request):
                 )
             is_admin = member.role in (CompanyRole.OWNER, CompanyRole.ADMIN)
             stmt = stmt.where(Task.company_id == company_id)
+            # CEO member_id filter
+            if member_id_str and is_admin:
+                target_uid = int(member_id_str)
+                stmt = stmt.where(TaskAssignment.user_id == target_uid)
+                # member ismini yuklaymiz
+                usr_res = await session.execute(select(User).where(User.id == target_uid))
+                target_usr = usr_res.scalar_one_or_none()
+                if target_usr:
+                    member_name = target_usr.full_name
         elif company_id_str == "personal":
             stmt = stmt.where(Task.company_id.is_(None)).where(
-                or_(
-                    Task.creator_id == user.id,
-                    TaskAssignment.user_id == user.id,
-                )
+                or_(Task.creator_id == user.id, TaskAssignment.user_id == user.id)
             )
         else:
             stmt = stmt.where(
-                or_(
-                    Task.creator_id == user.id,
-                    TaskAssignment.user_id == user.id,
-                )
+                or_(Task.creator_id == user.id, TaskAssignment.user_id == user.id)
             )
-            
+
         result = await session.execute(stmt.group_by(Task.status))
         status_counts = {row[0].value: row[1] for row in result.all()}
-        
+
         employee_stats = []
-        if company_id_str and company_id_str not in ("personal", "all"):
+        if company_id_str and company_id_str not in ("personal", "all") and not member_id_str:
             cid = int(company_id_str)
             members_result = await session.execute(
                 select(CompanyMember, User)
@@ -792,12 +923,13 @@ async def api_get_stats(request):
             )
             members = members_result.all()
 
-            # TaskAssignment.status ishlatiladi — har ijrochining O'Z statusi
+            # Faqat is_responsible=True bo'lgan assignmentlar hisoblanadi
             emp_result = await session.execute(
                 select(TaskAssignment.user_id, TaskAssignment.status, func.count(TaskAssignment.id))
                 .join(Task, Task.id == TaskAssignment.task_id)
                 .where(Task.company_id == cid)
                 .where(Task.status.notin_([TaskStatus.CANCELLED]))
+                .where(TaskAssignment.is_responsible == True)
                 .group_by(TaskAssignment.user_id, TaskAssignment.status)
             )
             emp_stats_raw = emp_result.all()
@@ -805,29 +937,26 @@ async def api_get_stats(request):
             emp_map = {}
             for member, usr in members:
                 emp_map[usr.id] = {
-                    "id": usr.id,
-                    "name": usr.full_name,
-                    "role": member.role.value,
+                    "id": usr.id, "name": usr.full_name, "role": member.role.value,
                     "done": 0, "overdue": 0, "in_progress": 0, "new": 0, "review": 0, "total": 0
                 }
 
             for uid, status_val, count in emp_stats_raw:
                 if uid not in emp_map:
                     continue
-                # status_val string yoki enum bo'lishi mumkin
                 st = status_val.value if hasattr(status_val, 'value') else str(status_val)
-                if st == "done":         emp_map[uid]["done"] += count
-                elif st == "overdue":    emp_map[uid]["overdue"] += count
+                if st == "done":          emp_map[uid]["done"] += count
+                elif st == "overdue":     emp_map[uid]["overdue"] += count
                 elif st == "in_progress": emp_map[uid]["in_progress"] += count
-                elif st == "review":     emp_map[uid]["review"] += count
-                elif st == "new":        emp_map[uid]["new"] += count
+                elif st == "review":      emp_map[uid]["review"] += count
+                elif st == "new":         emp_map[uid]["new"] += count
                 emp_map[uid]["total"] += count
             employee_stats = list(emp_map.values())
-    
+
     total = sum(status_counts.values())
     done = status_counts.get("done", 0)
     completion_rate = round((done / total * 100) if total > 0 else 0)
-    
+
     return web.json_response({
         "total": total,
         "new": status_counts.get("new", 0),
@@ -840,6 +969,7 @@ async def api_get_stats(request):
         "employee_stats": employee_stats,
         "is_admin": is_admin,
         "is_company": is_company,
+        "member_name": member_name,   # agar CEO filter qo'llanilgan bo'lsa
     })
 
 
@@ -1117,7 +1247,7 @@ async def api_ai_chat(request):
             if assignment:
                 assignment.status = new_status.value
                 if new_status == TaskStatus.DONE:
-                    assignment.completed_at = datetime.utcnow()
+                    assignment.completed_at = datetime.now(_UTC)
                 # Umumiy task statusini tekshirish
                 all_asgn_res = await session.execute(
                     select(TaskAssignment).where(TaskAssignment.task_id == found_task.id)
@@ -1128,7 +1258,7 @@ async def api_ai_chat(request):
                 task_db = task_db_res.scalar_one()
                 if statuses and all(s == "done" for s in statuses):
                     task_db.status = TaskStatus.DONE
-                    task_db.completed_at = datetime.utcnow()
+                    task_db.completed_at = datetime.now(_UTC)
                 elif any(s == "in_progress" for s in statuses):
                     task_db.status = TaskStatus.IN_PROGRESS
             else:
@@ -1136,7 +1266,7 @@ async def api_ai_chat(request):
                 task_db = task_db_res.scalar_one()
                 task_db.status = new_status
                 if new_status == TaskStatus.DONE:
-                    task_db.completed_at = datetime.utcnow()
+                    task_db.completed_at = datetime.now(_UTC)
 
             session.add(TaskHistory(
                 task_id=found_task.id, user_id=user.id, action="my_status_changed",
@@ -1233,7 +1363,7 @@ async def api_get_workspaces(request):
     user = await get_user_from_request(request)
     if not user:
         raise web.HTTPNotFound(text=json.dumps({"error": "Foydalanuvchi topilmadi"}))
-        
+
     async with get_session() as session:
         result = await session.execute(
             select(Company)
@@ -1242,18 +1372,402 @@ async def api_get_workspaces(request):
             .order_by(Company.name)
         )
         companies = result.scalars().all()
-        
-    workspaces = [{"id": "personal", "name": "Shaxsiy"}]
-    for c in companies:
-        workspaces.append({"id": c.id, "name": c.name})
-        
+
+    workspaces = [{"id": "personal", "name": "Shaxsiy", "is_owner": False, "is_admin": False}]
+    async with get_session() as session2:
+        for c in companies:
+            # Count members
+            cnt_res = await session2.execute(
+                select(func.count()).select_from(CompanyMember).where(CompanyMember.company_id == c.id)
+            )
+            member_count = cnt_res.scalar() or 0
+            # Check current user role
+            role_res = await session2.execute(
+                select(CompanyMember.role).where(
+                    CompanyMember.company_id == c.id,
+                    CompanyMember.user_id == user.id,
+                )
+            )
+            user_role = role_res.scalar_one_or_none()
+            is_owner = c.owner_id == user.id
+            is_admin = is_owner or (user_role in (CompanyRole.OWNER, CompanyRole.ADMIN))
+            # Telegram group link if available
+            tg_group_id = getattr(c, 'telegram_group_id', None)
+            workspaces.append({
+                "id": c.id,
+                "name": c.name,
+                "is_owner": is_owner,
+                "is_admin": is_admin,
+                "member_count": member_count,
+                "telegram_group_id": tg_group_id,
+            })
+
     return web.json_response({"workspaces": workspaces})
+
+
+async def api_leave_company(request):
+    """Mini App'dan kompaniya/guruhdan chiqish"""
+    user = await get_user_from_request(request)
+    if not user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    try:
+        company_id = int(request.match_info["company_id"])
+    except (ValueError, KeyError):
+        return web.json_response({"error": "invalid company_id"}, status=400)
+
+    from database.models import GroupMember as GM, Group as GModel
+    async with get_session() as session:
+        # Check membership
+        member_res = await session.execute(
+            select(CompanyMember).where(
+                and_(
+                    CompanyMember.company_id == company_id,
+                    CompanyMember.user_id == user.id,
+                )
+            )
+        )
+        member = member_res.scalar_one_or_none()
+
+        if not member:
+            return web.json_response({"error": "Siz bu kompaniya a'zosi emassiz"}, status=404)
+
+        # Can't leave if you're the owner
+        company_res = await session.execute(
+            select(Company).where(Company.id == company_id)
+        )
+        company = company_res.scalar_one_or_none()
+        if company and company.owner_id == user.id:
+            return web.json_response(
+                {"error": "Kompaniya egasi kompaniyadan chiqa olmaydi"},
+                status=403,
+            )
+
+        # Company name for notification
+        company_name = company.name if company else "Jamoa"
+
+        # Collect remaining members for notification
+        all_members_res = await session.execute(
+            select(CompanyMember).where(
+                CompanyMember.company_id == company_id,
+                CompanyMember.user_id != user.id,
+            )
+        )
+        remaining_members = all_members_res.scalars().all()
+        remaining_ids = [m.user_id for m in remaining_members]
+
+        # Remove from company
+        await session.delete(member)
+
+        # Remove from associated groups
+        group_res = await session.execute(
+            select(GModel).where(GModel.company_id == company_id)
+        )
+        groups = group_res.scalars().all()
+        for g in groups:
+            gm_res = await session.execute(
+                select(GM).where(GM.group_id == g.id, GM.user_id == user.id)
+            )
+            gm = gm_res.scalar_one_or_none()
+            if gm:
+                await session.delete(gm)
+
+        await session.commit()
+
+    # Notify remaining members via bot
+    bot = request.app.get("bot")
+    if bot and remaining_ids:
+        notify_text = (
+            f"🚪 <b>{user.full_name}</b> "
+            f"<b>{company_name}</b> jamoasidan chiqdi."
+        )
+        for uid in remaining_ids:
+            try:
+                await bot.send_message(uid, notify_text, parse_mode="HTML")
+            except Exception:
+                pass
+
+    return web.json_response({"ok": True, "message": "Kompaniyadan chiqdingiz"})
+
+
+async def api_delete_company(request):
+    """DELETE /api/companies/{company_id} — faqat owner o'chira oladi"""
+    user = await get_user_from_request(request)
+    if not user:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        company_id = int(request.match_info["company_id"])
+    except (ValueError, KeyError):
+        return web.json_response({"error": "invalid company_id"}, status=400)
+
+    async with get_session() as session:
+        company_res = await session.execute(
+            select(Company).where(Company.id == company_id)
+        )
+        company = company_res.scalar_one_or_none()
+        if not company:
+            return web.json_response({"error": "Jamoa topilmadi"}, status=404)
+        if company.owner_id != user.id:
+            return web.json_response({"error": "Faqat jamoa egasi o'chira oladi"}, status=403)
+        company_name = company.name
+        ok = await CompanyService.delete_company(session, company_id, user.id)
+        if not ok:
+            return web.json_response({"error": "O'chirib bo'lmadi"}, status=500)
+        await session.commit()
+
+    return web.json_response({"ok": True, "deleted": company_name})
+
+
+async def api_get_invite_link(request):
+    """Bot invite havolasini qaytaradi"""
+    user = await get_user_from_request(request)
+    if not user:
+        raise web.HTTPNotFound(text=json.dumps({"error": "Foydalanuvchi topilmadi"}))
+
+    bot_username = settings.BOT_USERNAME.lstrip("@")
+    # start payload: invite_{user_id} — bot shu token bilan kimni taklif qilganini biladi
+    start_payload = f"invite_{user.id}"
+    link = f"https://t.me/{bot_username}?start={start_payload}"
+    return web.json_response({"link": link, "bot_username": bot_username})
+
+
+async def api_get_company_info(request):
+    """Kompaniya ma'lumotlari (foydalanuvchi roli bilan)"""
+    user = await get_user_from_request(request)
+    if not user:
+        raise web.HTTPUnauthorized(text=json.dumps({"error": "Unauthorized"}))
+
+    try:
+        company_id = int(request.match_info["company_id"])
+    except (ValueError, KeyError):
+        return web.json_response({"error": "invalid company_id"}, status=400)
+
+    async with get_session() as session:
+        company_res = await session.execute(
+            select(Company).where(Company.id == company_id)
+        )
+        company = company_res.scalar_one_or_none()
+        if not company:
+            return web.json_response({"error": "Topilmadi"}, status=404)
+
+        member_res = await session.execute(
+            select(CompanyMember).where(
+                CompanyMember.company_id == company_id,
+                CompanyMember.user_id == user.id,
+            )
+        )
+        my_member = member_res.scalar_one_or_none()
+        if not my_member:
+            return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+
+        is_owner = company.owner_id == user.id
+
+        # Get all members with user info
+        from database.models import User as UserModel
+        all_members_res = await session.execute(
+            select(CompanyMember, UserModel)
+            .join(UserModel, CompanyMember.user_id == UserModel.id)
+            .where(CompanyMember.company_id == company_id)
+        )
+        members = []
+        for cm, u in all_members_res.all():
+            role_val = cm.role.value if hasattr(cm.role, "value") else (cm.role or "member")
+            members.append({
+                "id": u.id,
+                "name": u.full_name,
+                "username": u.username or "",
+                "role": role_val,
+                "is_self": u.id == user.id,
+                "is_owner": u.id == company.owner_id,
+            })
+
+    return web.json_response({
+        "id": company.id,
+        "name": company.name,
+        "is_owner": is_owner,
+        "my_role": my_member.role.value if hasattr(my_member.role, "value") else str(my_member.role),
+        "members": members,
+    })
+
+
+async def api_remove_company_member(request):
+    """Kompaniyadan a'zoni chiqarish (faqat owner)"""
+    user = await get_user_from_request(request)
+    if not user:
+        raise web.HTTPUnauthorized(text=json.dumps({"error": "Unauthorized"}))
+
+    try:
+        company_id = int(request.match_info["company_id"])
+        target_user_id = int(request.match_info["user_id"])
+    except (ValueError, KeyError):
+        return web.json_response({"error": "invalid id"}, status=400)
+
+    from database.models import Group as GModel, GroupMember as GM
+
+    async with get_session() as session:
+        company_res = await session.execute(select(Company).where(Company.id == company_id))
+        company = company_res.scalar_one_or_none()
+        if not company:
+            return web.json_response({"error": "Topilmadi"}, status=404)
+        if company.owner_id != user.id:
+            return web.json_response({"error": "Faqat owner a'zoni chiqara oladi"}, status=403)
+        if target_user_id == user.id:
+            return web.json_response({"error": "O'zingizni chiqara olmaysiz"}, status=400)
+
+        member_res = await session.execute(
+            select(CompanyMember).where(
+                CompanyMember.company_id == company_id,
+                CompanyMember.user_id == target_user_id,
+            )
+        )
+        member = member_res.scalar_one_or_none()
+        if not member:
+            return web.json_response({"error": "A'zo topilmadi"}, status=404)
+
+        # Get target user info
+        from database.models import User as UserModel
+        target_res = await session.execute(select(UserModel).where(UserModel.id == target_user_id))
+        target_user = target_res.scalar_one_or_none()
+        target_name = target_user.full_name if target_user else "Foydalanuvchi"
+
+        await session.delete(member)
+
+        # Remove from groups
+        group_res = await session.execute(select(GModel).where(GModel.company_id == company_id))
+        for g in group_res.scalars().all():
+            gm_res = await session.execute(
+                select(GM).where(GM.group_id == g.id, GM.user_id == target_user_id)
+            )
+            gm = gm_res.scalar_one_or_none()
+            if gm:
+                await session.delete(gm)
+
+        await session.commit()
+
+    # Notify removed user and owner
+    bot = request.app.get("bot")
+    if bot:
+        try:
+            await bot.send_message(
+                target_user_id,
+                f"🚪 Siz <b>{company.name}</b> jamoasidan chiqarildingiz.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+    return web.json_response({"ok": True, "removed_name": target_name})
+
+
+async def api_update_member(request):
+    """PUT /api/companies/{company_id}/members/{user_id} — update member role/position"""
+    current_user = await get_user_from_request(request)
+    if not current_user:
+        raise web.HTTPUnauthorized(text=json.dumps({"error": "Unauthorized"}), content_type="application/json")
+
+    try:
+        company_id = int(request.match_info['company_id'])
+        target_user_id = int(request.match_info['user_id'])
+    except (ValueError, KeyError):
+        return web.json_response({"error": "invalid ids"}, status=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON xato"}, status=400)
+
+    async with get_session() as session:
+        # Check current user is admin or owner
+        admin_check = await session.execute(
+            select(CompanyMember).where(
+                CompanyMember.company_id == company_id,
+                CompanyMember.user_id == current_user.id,
+                CompanyMember.role.in_([CompanyRole.OWNER, CompanyRole.ADMIN])
+            )
+        )
+        if not admin_check.scalar_one_or_none():
+            return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+
+        # Get target member
+        member_res = await session.execute(
+            select(CompanyMember).where(
+                CompanyMember.company_id == company_id,
+                CompanyMember.user_id == target_user_id
+            )
+        )
+        member = member_res.scalar_one_or_none()
+        if not member:
+            return web.json_response({"error": "A'zo topilmadi"}, status=404)
+
+        # Update position/role
+        if 'position' in body:
+            member.position = body['position']
+        if 'role' in body and body['role'] in [r.value for r in CompanyRole]:
+            member.role = CompanyRole(body['role'])
+
+        await session.commit()
+        return web.json_response({"ok": True})
+
+
+async def api_reassign_tasks(request):
+    """Bir foydalanuvchi vazifalarini boshqasiga topshirish (owner only)"""
+    user = await get_user_from_request(request)
+    if not user:
+        raise web.HTTPUnauthorized(text=json.dumps({"error": "Unauthorized"}))
+
+    try:
+        company_id = int(request.match_info["company_id"])
+    except (ValueError, KeyError):
+        return web.json_response({"error": "invalid company_id"}, status=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "JSON xato"}, status=400)
+
+    from_user_id = body.get("from_user_id")
+    to_user_id = body.get("to_user_id")
+
+    if not from_user_id or not to_user_id:
+        return web.json_response({"error": "from_user_id va to_user_id kerak"}, status=400)
+
+    async with get_session() as session:
+        company_res = await session.execute(select(Company).where(Company.id == company_id))
+        company = company_res.scalar_one_or_none()
+        if not company or company.owner_id != user.id:
+            return web.json_response({"error": "Ruxsat yo'q"}, status=403)
+
+        # Reassign all active assignments
+        from database.models import TaskAssignment
+        asgn_res = await session.execute(
+            select(TaskAssignment).where(
+                TaskAssignment.user_id == from_user_id,
+                TaskAssignment.status != "done",
+            )
+        )
+        reassigned = 0
+        for asgn in asgn_res.scalars().all():
+            # Check if target already assigned to this task
+            existing = await session.execute(
+                select(TaskAssignment).where(
+                    TaskAssignment.task_id == asgn.task_id,
+                    TaskAssignment.user_id == to_user_id,
+                )
+            )
+            if not existing.scalar_one_or_none():
+                asgn.user_id = to_user_id
+                reassigned += 1
+
+        await session.commit()
+
+    return web.json_response({"ok": True, "reassigned": reassigned})
 
 
 # ===== Helpers =====
 
 def _task_to_dict(task: Task) -> dict:
     """Task modelini JSON formatga o'girish"""
+    responsible = next((a for a in (task.assignments or []) if a.is_responsible and a.user), None)
     d = {
         "id": task.id,
         "title": task.title,
@@ -1266,11 +1780,15 @@ def _task_to_dict(task: Task) -> dict:
         "creator_name": task.creator.full_name if task.creator else None,
         "creator_id": task.creator_id,
         "parent_id": getattr(task, "parent_id", None),
+        "subtasks_count": len(task.subtasks) if hasattr(task, 'subtasks') and task.subtasks else 0,
+        "responsible_id": responsible.user_id if responsible else None,
+        "responsible_name": responsible.user.full_name if responsible else None,
         "assignees": [
             {
                 "id": a.user.id if a.user else a.user_id,
                 "name": a.user.full_name if a.user else "Noma'lum",
                 "status": (a.status.value if hasattr(a.status, "value") else (a.status or "new")),
+                "is_responsible": bool(a.is_responsible),
                 "completed_at": a.completed_at.isoformat() if a.completed_at else None,
             }
             for a in (task.assignments or [])
@@ -1283,6 +1801,8 @@ def _task_to_dict(task: Task) -> dict:
                 "file_name": att.file_name, "file_url": att.file_url,
                 "file_size": att.file_size, "mime_type": att.mime_type,
                 "created_at": att.created_at.isoformat() if att.created_at else None,
+                "uploader_id": att.user_id,
+                "uploader_name": att.user.full_name if att.user else None,
             }
             for att in (task.attachments or [])
         ]
@@ -1348,8 +1868,16 @@ async def api_task_start(request):
     except (ValueError, KeyError):
         return web.json_response({"error": "invalid task_id"}, status=400)
 
+    task_ref = None
+    old_status = None
+    recipient_ids = set()
+
     async with get_session() as session:
-        task = await session.get(Task, task_id)
+        task_res = await session.execute(
+            select(Task).where(Task.id == task_id)
+            .options(selectinload(Task.assignments))
+        )
+        task = task_res.scalar_one_or_none()
         if not task:
             return web.json_response({"error": "not found"}, status=404)
         if not await _user_can_access_task(session, user, task):
@@ -1365,18 +1893,57 @@ async def api_task_start(request):
 
         if not asg:
             return web.json_response({"error": "not assigned"}, status=403)
+        if not asg.is_responsible:
+            return web.json_response({"error": "observer_only"}, status=403)
 
         old_status = asg.status
-        if asg.status in ("new", "pending"):
+        started = False
+        if asg.status in ("new", "pending", None):
             asg.status = "in_progress"
+            started = True
             hist = TaskHistory(
                 task_id=task_id, user_id=user.id, action="status_changed",
                 old_value={"status": old_status}, new_value={"status": "in_progress"}
             )
             session.add(hist)
-            await session.commit()
 
-        return web.json_response({"ok": True, "status": asg.status})
+        # Recipient IDlarni yig'amiz (commit oldidan)
+        recipient_ids.add(task.creator_id)
+        for a in task.assignments:
+            recipient_ids.add(a.user_id)
+        task_ref = task
+
+        await session.commit()
+
+    # Notifications
+    if started:
+        bot = request.app.get("bot")
+        if bot:
+            # Shaxsiy xabar — o'zidan boshqalarga
+            notify_ids = recipient_ids - {user.id}
+            if notify_ids:
+                try:
+                    async with get_session() as ns:
+                        await NotificationService.notify_my_status_changed(
+                            bot, ns, task_ref, "in_progress", user.full_name,
+                            recipient_ids=notify_ids,
+                        )
+                except Exception as e:
+                    logger.warning(f"task_start personal notification xatosi: {e}")
+
+            # Guruh chatiga
+            try:
+                async with get_session() as gs:
+                    grp_tg_id = await _get_task_group_tg_id(gs, task_ref)
+                    if grp_tg_id:
+                        await NotificationService.notify_group_status_changed(
+                            bot, grp_tg_id, task_ref,
+                            old_status or "new", "in_progress", user.full_name,
+                        )
+            except Exception as e:
+                logger.warning(f"task_start guruh notification xatosi: {e}")
+
+    return web.json_response({"ok": True, "status": "in_progress" if started else asg.status})
 
 
 async def api_task_complete(request):
@@ -1409,10 +1976,12 @@ async def api_task_complete(request):
 
         if not asg:
             return web.json_response({"error": "not assigned"}, status=403)
+        if not asg.is_responsible:
+            return web.json_response({"error": "observer_only"}, status=403)
 
         old_status = asg.status
         asg.status = "done"
-        asg.completed_at = datetime.utcnow()
+        asg.completed_at = datetime.now(_UTC)
 
         # History
         hist = TaskHistory(
@@ -1425,18 +1994,50 @@ async def api_task_complete(request):
         if comment:
             session.add(TaskComment(task_id=task_id, user_id=user.id, content=comment))
 
+        # Recipient IDlarni commit oldidan yig'amiz
+        all_asg_res = await session.execute(
+            select(TaskAssignment).where(TaskAssignment.task_id == task_id)
+        )
+        all_assignees = all_asg_res.scalars().all()
+        recipient_ids = {task.creator_id}
+        for a in all_assignees:
+            recipient_ids.add(a.user_id)
+
         await session.commit()
 
         # Check if all assignees done → task done
-        all_asg = await session.execute(select(TaskAssignment).where(TaskAssignment.task_id == task_id))
-        assignees = all_asg.scalars().all()
-        all_done = all(a.status == "done" for a in assignees)
+        all_done = all(a.status == "done" for a in all_assignees)
         if all_done:
             task.status = TaskStatus.DONE
-            task.completed_at = datetime.utcnow()
+            task.completed_at = datetime.now(_UTC)
             await session.commit()
 
-        return web.json_response({"ok": True, "status": asg.status, "all_done": all_done})
+    # Notifications
+    bot = request.app.get("bot")
+    if bot:
+        notify_ids = recipient_ids - {user.id}
+        if notify_ids:
+            try:
+                async with get_session() as ns:
+                    await NotificationService.notify_my_status_changed(
+                        bot, ns, task, "done", user.full_name,
+                        recipient_ids=notify_ids,
+                    )
+            except Exception as e:
+                logger.warning(f"task_complete personal notification xatosi: {e}")
+
+        try:
+            async with get_session() as gs:
+                grp_tg_id = await _get_task_group_tg_id(gs, task)
+                if grp_tg_id:
+                    label = "done" if all_done else "in_progress"
+                    await NotificationService.notify_group_status_changed(
+                        bot, grp_tg_id, task, old_status, label, user.full_name,
+                    )
+        except Exception as e:
+            logger.warning(f"task_complete guruh notification xatosi: {e}")
+
+    return web.json_response({"ok": True, "status": asg.status, "all_done": all_done})
 
 
 async def api_upload_attachment(request):
@@ -1447,28 +2048,41 @@ async def api_upload_attachment(request):
         raise web.HTTPNotFound(text=json.dumps({"error": "Foydalanuvchi topilmadi"}))
 
     reader = await request.multipart()
+    comment_text = None
     field = await reader.next()
+    # comment_text oldin kelishi mumkin
+    if field and field.name == "comment":
+        comment_text = (await field.read(decode=True)).decode("utf-8", errors="replace").strip()[:2000]
+        field = await reader.next()
     if not field or field.name != "file":
         raise web.HTTPBadRequest(text=json.dumps({"error": "Fayl yo'q"}))
 
     filename = field.filename or "file"
-    safe_name = f"{task_id}_{int(datetime.utcnow().timestamp())}_{filename.replace('/', '_')[:120]}"
+    safe_name = f"{task_id}_{int(datetime.now(_UTC).timestamp())}_{filename.replace('/', '_')[:120]}"
     file_path = ATTACH_DIR / safe_name
+    MAX_SIZE = 100 * 1024 * 1024  # 100 MB
     size = 0
     with open(file_path, "wb") as f:
         while True:
-            chunk = await field.read_chunk()
+            chunk = await field.read_chunk(size=65536)
             if not chunk:
                 break
             size += len(chunk)
-            if size > 20 * 1024 * 1024:
+            if size > MAX_SIZE:
                 f.close()
                 file_path.unlink(missing_ok=True)
-                raise web.HTTPBadRequest(text=json.dumps({"error": "Fayl 20 MB dan katta"}))
+                raise web.HTTPBadRequest(text=json.dumps({"error": "Fayl 100 MB dan katta bo'lmasin"}))
             f.write(chunk)
 
     mime = field.headers.get("Content-Type", "application/octet-stream")
-    ftype = "photo" if mime.startswith("image/") else ("video" if mime.startswith("video/") else "document")
+    if mime.startswith("image/"):
+        ftype = "photo"
+    elif mime.startswith("video/"):
+        ftype = "video"
+    elif mime.startswith("audio/"):
+        ftype = "voice"
+    else:
+        ftype = "document"
 
     async with get_session() as session:
         att = TaskAttachment(
@@ -1477,9 +2091,12 @@ async def api_upload_attachment(request):
             file_url=f"/uploads/{safe_name}", file_size=size, mime_type=mime,
         )
         session.add(att)
+        if comment_text:
+            session.add(TaskComment(task_id=task_id, user_id=user.id, content=comment_text))
         session.add(TaskHistory(
             task_id=task_id, user_id=user.id, action="attachment_added",
-            new_value={"file_name": filename, "file_type": ftype},
+            new_value={"file_name": filename, "file_type": ftype,
+                       "comment": comment_text or ""},
         ))
         await session.flush()
         att_id = att.id
@@ -1604,7 +2221,7 @@ async def api_get_avatar(request):
     if cached and (now - cached[2]) < _AVATAR_TTL:
         data, mime, _ts = cached
         return web.Response(body=data, content_type=mime, headers={
-            "Cache-Control": "public, max-age=21600",
+            "Cache-Control": "private, no-store",
         })
 
     try:
@@ -1622,7 +2239,7 @@ async def api_get_avatar(request):
             mime = "image/png"
         _AVATAR_CACHE[tg_id] = (data, mime, now)
         return web.Response(body=data, content_type=mime, headers={
-            "Cache-Control": "public, max-age=21600",
+            "Cache-Control": "private, no-store",
         })
     except web.HTTPException:
         raise
@@ -1693,7 +2310,7 @@ async def api_get_workflows(request):
                         "user": cu,
                         "user_id": c.user_id,
                         "content": c.content,
-                        "created_at": c.created_at.strftime("%d.%m.%Y %H:%M"),
+                        "created_at": c.created_at.astimezone(_TZ).strftime("%d.%m.%Y %H:%M"),
                     })
                 # Fayllar
                 ar = await session.execute(
@@ -1718,7 +2335,9 @@ async def api_get_workflows(request):
                     "assignee_id": s.assignee_user_id,
                     "assignee_name": uname.get(s.assignee_user_id, "?"),
                     "is_me": (s.assignee_user_id == user.id),
-                    "completed_at": s.completed_at.strftime("%d.%m.%Y %H:%M") if s.completed_at else None,
+                    "deadline": s.deadline.astimezone(_TZ).strftime("%d.%m.%Y %H:%M") if s.deadline else None,
+                    "started_at": s.started_at.astimezone(_TZ).strftime("%d.%m.%Y %H:%M") if s.started_at else None,
+                    "completed_at": s.completed_at.astimezone(_TZ).strftime("%d.%m.%Y %H:%M") if s.completed_at else None,
                     "note": s.note,
                     "comments": comments,
                     "attachments": atts,
@@ -1727,8 +2346,7 @@ async def api_get_workflows(request):
             # vaqt — joriy qadam qancha vaqt turibdi
             stuck_minutes = None
             if cur and cur.started_at:
-                from datetime import datetime as _dt
-                stuck_minutes = int((_dt.utcnow() - cur.started_at.replace(tzinfo=None)).total_seconds() // 60)
+                stuck_minutes = int((datetime.now(_UTC) - cur.started_at.astimezone(_UTC)).total_seconds() // 60)
 
             result.append({
                 "task_id": t.id,
@@ -1747,7 +2365,7 @@ async def api_get_workflows(request):
                 "current_is_me": (cur.assignee_user_id == user.id) if cur else False,
                 "stuck_minutes": stuck_minutes,
                 "steps": steps_payload,
-                "created_at": t.created_at.strftime("%d.%m.%Y %H:%M"),
+                "created_at": t.created_at.astimezone(_TZ).strftime("%d.%m.%Y %H:%M"),
             })
 
         return web.json_response({"workflows": result})
@@ -1783,7 +2401,7 @@ async def api_workflow_step_start(request):
 
         if cur.status == "pending":
             cur.status = "active"
-            cur.started_at = datetime.utcnow()
+            cur.started_at = datetime.now(_UTC)
             await session.commit()
 
             # History ga yozish
@@ -2038,12 +2656,23 @@ async def api_create_workflow(request):
             if not step_title or not assignee_id:
                 continue
 
+            # Per-step deadline
+            step_dl = None
+            step_dl_str = step_data.get("deadline")
+            if step_dl_str:
+                try:
+                    step_dl = datetime.fromisoformat(step_dl_str.replace("Z", "+00:00"))
+                    step_dl = step_dl.replace(tzinfo=None)
+                except (ValueError, TypeError):
+                    pass
+
             step = TaskStep(
                 task_id=task.id,
                 title=step_title,
                 order_index=idx,
                 assignee_user_id=assignee_id,
-                status="pending" if idx == 0 else "pending",
+                deadline=step_dl,
+                status="pending",
             )
             session.add(step)
 
@@ -2087,17 +2716,18 @@ async def api_get_task_chart(request):
         if not await _user_can_access_task(session, user, task):
             return web.json_response({"error": "forbidden"}, status=403)
 
-        now = datetime.utcnow()
+        now = datetime.now(_UTC)
 
         def _hrs(delta):
             return round(delta.total_seconds() / 3600.0, 2)
 
-        def _naive(dt):
+        def _aware(dt):
             if dt is None:
                 return None
-            return dt.replace(tzinfo=None) if dt.tzinfo else dt
+            return dt if dt.tzinfo else dt.replace(tzinfo=_UTC)
 
         per_user = {}  # user_id -> {name, hours, source: 'step'|'assignment'}
+        task_started_at: Optional[datetime] = None  # in_progress ga kirgan vaqt
 
         # --- Workflow qadamlari bo'yicha ---
         steps_res = await session.execute(
@@ -2108,8 +2738,8 @@ async def api_get_task_chart(request):
         steps = list(steps_res.scalars().all())
         step_chart = []
         for st in steps:
-            start = _naive(st.started_at)
-            end = _naive(st.completed_at)
+            start = _aware(st.started_at)
+            end = _aware(st.completed_at)
             hours = 0.0
             if start and end:
                 hours = _hrs(end - start)
@@ -2148,13 +2778,36 @@ async def api_get_task_chart(request):
 
         # --- Oddiy taskAssignment bo'yicha (agar step yo'q bo'lsa) ---
         if not steps:
+            # Task in_progress ga qachon o'tilganini history dan aniqlaymiz
+            # Kimning statusini kim o'zgartirganidan qat'iy nazar, eng birinchi
+            # in_progress vaqti barcha ijrochilar uchun ish boshlanish vaqti.
+            hist_res = await session.execute(
+                select(TaskHistory).where(
+                    TaskHistory.task_id == task_id,
+                    TaskHistory.action == "status_changed",
+                )
+                .order_by(TaskHistory.created_at.asc())
+            )
+            hist_entries = list(hist_res.scalars().all())
+            # Birinchi in_progress vaqti
+            task_done_at: Optional[datetime] = None
+            for h in hist_entries:
+                nv = h.new_value or {}
+                if nv.get("status") == "in_progress" and task_started_at is None:
+                    task_started_at = _aware(h.created_at)
+                if nv.get("status") in ("done", "cancelled") and task_done_at is None:
+                    task_done_at = _aware(h.created_at)
+
             asg_res = await session.execute(
                 select(TaskAssignment).where(TaskAssignment.task_id == task_id)
                 .options(selectinload(TaskAssignment.user))
             )
             for a in asg_res.scalars().all():
-                start = _naive(a.assigned_at)
-                end = _naive(a.completed_at) or now
+                # Ish boshlanish: task in_progress ga o'tilgan vaqt (aniqroq)
+                # Aks holda assignment qilingan vaqtdan
+                start = task_started_at or _aware(a.assigned_at)
+                # Ish tugash: task done/cancelled bo'lgan vaqt yoki hozir
+                end = task_done_at or now
                 hours = _hrs(end - start) if start else 0.0
                 uid = a.user_id
                 if uid not in per_user:
@@ -2214,8 +2867,8 @@ async def api_get_task_chart(request):
 
         # Umumiy statistika
         total_hours = round(sum(u["hours"] for u in users_list), 2)
-        created = _naive(task.created_at) or now
-        completed = _naive(task.completed_at)
+        created = _aware(task.created_at) or now
+        completed = _aware(task.completed_at)
         lifespan_hours = _hrs((completed or now) - created) if created else 0.0
 
         return web.json_response({
@@ -2224,6 +2877,7 @@ async def api_get_task_chart(request):
             "is_workflow": bool(steps),
             "total_hours": total_hours,
             "lifespan_hours": round(lifespan_hours, 2),
+            "task_started_at": task_started_at.isoformat() if task_started_at else None,
             "users": users_list,
             "steps": step_chart,
             "totals": {
@@ -2245,7 +2899,14 @@ def create_api_app(bot=None) -> web.Application:
 
     # API routes
     app.router.add_get("/api/workspaces", api_get_workspaces)
+    app.router.add_delete("/api/companies/{company_id}/leave", api_leave_company)
+    app.router.add_delete("/api/companies/{company_id}", api_delete_company)
+    app.router.add_get("/api/invite-link", api_get_invite_link)
     app.router.add_get("/api/companies/{company_id}/members", api_get_company_members)
+    app.router.add_get("/api/companies/{company_id}/info", api_get_company_info)
+    app.router.add_delete("/api/companies/{company_id}/members/{user_id}", api_remove_company_member)
+    app.router.add_put("/api/companies/{company_id}/members/{user_id}", api_update_member)
+    app.router.add_post("/api/companies/{company_id}/reassign", api_reassign_tasks)
     app.router.add_get("/api/i18n", api_get_i18n)
     app.router.add_post("/api/i18n/set-lang", api_set_language)
     app.router.add_get("/api/tasks", api_get_tasks)
@@ -2285,6 +2946,18 @@ def create_api_app(bot=None) -> web.Application:
             )
         
         app.router.add_get("/", serve_index)
-    
+
+        async def serve_preview_ios(request):
+            return web.FileResponse(
+                WEBAPP_DIR / "preview-ios.html",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
+
+        app.router.add_get("/preview-ios.html", serve_preview_ios)
+
     logger.info(f"API server tayyor (webapp: {WEBAPP_DIR})")
     return app

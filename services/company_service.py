@@ -148,6 +148,19 @@ class CompanyService:
         return True
 
     @staticmethod
+    async def delete_company(session: AsyncSession, company_id: int, user_id: int) -> bool:
+        """Kompaniyani to'liq o'chirish — faqat owner uchun"""
+        result = await session.execute(
+            select(Company).where(Company.id == company_id)
+        )
+        company = result.scalar_one_or_none()
+        if not company or company.owner_id != user_id:
+            return False
+        await session.delete(company)
+        await session.flush()
+        return True
+
+    @staticmethod
     async def generate_new_invite(session: AsyncSession, company_id: int) -> Optional[str]:
         """Yangi taklif kodini yaratish"""
         result = await session.execute(select(Company).where(Company.id == company_id))
