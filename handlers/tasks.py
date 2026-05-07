@@ -89,7 +89,11 @@ async def cmd_new_task(event, state: FSMContext, user: User) -> None:
         async with get_session() as session:
             group = await GroupService.get_group_by_telegram_id(session, message.chat.id)
             if group:
-                await state.update_data(group_id=group.id, group_telegram_id=message.chat.id)
+                await state.update_data(
+                    group_id=group.id,
+                    group_telegram_id=message.chat.id,
+                    company_id=group.company_id,  # guruh taskini kompaniyaga ham bog'laymiz
+                )
 
     text = (
         "🆕 <b>Yangi vazifa yaratish</b>\n\n"
@@ -520,10 +524,16 @@ async def process_workspace(callback: CallbackQuery, state: FSMContext, user: Us
         group_id = int(parts[2])
         async with get_session() as session:
             members = await GroupService.get_members(session, group_id)
+            grp_obj = await session.get(Group, group_id)
+            grp_company_id = grp_obj.company_id if grp_obj else None
         if not members:
             await callback.answer("Guruhda a'zolar yo'q", show_alert=True)
             return
-        await state.update_data(group_id=group_id, selected_assignees=[])
+        await state.update_data(
+            group_id=group_id,
+            company_id=grp_company_id,   # guruh taskini kompaniyaga ham bog'laymiz
+            selected_assignees=[],
+        )
         await state.set_state(NewTaskStates.waiting_multi_assignee)
         text = (
             f"👥 <b>Ijrochilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"

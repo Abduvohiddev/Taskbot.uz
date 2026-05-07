@@ -110,18 +110,26 @@ async def api_get_tasks(request):
         stmt = select(Task).outerjoin(TaskAssignment, TaskAssignment.task_id == Task.id)
 
         if company_id_str == "all":
-            # Hammasi: shaxsiy + barcha kompaniyalar
+            # Hammasi: shaxsiy + barcha kompaniyalar + shu kompaniyalarga bog'liq guruhlar
             member_cos = await session.execute(
                 select(CompanyMember.company_id).where(CompanyMember.user_id == user.id)
             )
             company_ids = [c[0] for c in member_cos.all()]
 
-            stmt = stmt.where(
-                or_(
-                    Task.company_id.is_(None),
-                    Task.company_id.in_(company_ids)
-                )
-            ).where(
+            # Shu kompaniyalarga bog'liq guruhlar (task.group_id bo'lgan, company_id yo'q tasklar)
+            grp_res = await session.execute(
+                select(Group.id).where(Group.company_id.in_(company_ids))
+            ) if company_ids else None
+            group_ids = [g[0] for g in grp_res.all()] if grp_res else []
+
+            visibility_cond = [
+                Task.company_id.is_(None),
+                Task.company_id.in_(company_ids),
+            ]
+            if group_ids:
+                visibility_cond.append(Task.group_id.in_(group_ids))
+
+            stmt = stmt.where(or_(*visibility_cond)).where(
                 or_(
                     Task.creator_id == user.id,
                     TaskAssignment.user_id == user.id,
@@ -143,9 +151,21 @@ async def api_get_tasks(request):
                     text=json.dumps({"error": "Bu kompaniya a'zosi emassiz"}),
                     content_type="application/json",
                 )
-            stmt = stmt.where(Task.company_id == company_id)
+            # Kompaniya tasklari + shu kompaniyaga bog'liq guruh tasklari
+            grp_res = await session.execute(
+                select(Group.id).where(Group.company_id == company_id)
+            )
+            group_ids = [g[0] for g in grp_res.all()]
+            co_cond = [Task.company_id == company_id]
+            if group_ids:
+                co_cond.append(Task.group_id.in_(group_ids))
+            stmt = stmt.where(or_(*co_cond))
         elif company_id_str == "personal":
-            stmt = stmt.where(Task.company_id.is_(None)).where(
+            # Shaxsiy: company_id ham, group_id ham yo'q tasklar
+            stmt = stmt.where(
+                Task.company_id.is_(None),
+                Task.group_id.is_(None),
+            ).where(
                 or_(
                     Task.creator_id == user.id,
                     TaskAssignment.user_id == user.id,
