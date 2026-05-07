@@ -1514,12 +1514,12 @@ async def _resolve_tg_chat_id(session, task) -> int | None:
             return tg_id
 
     if task.company_id:
+        # is_active filtrini qo'shmaymiz — bot vaqtincha olib tashlangan bo'lsa ham urinib ko'ramiz
         res = await session.execute(
             sa_select(Group).where(
                 Group.company_id == task.company_id,
                 Group.telegram_group_id.isnot(None),
-                Group.is_active == True,
-            ).limit(1)
+            ).order_by(Group.is_active.desc()).limit(1)
         )
         grp = res.scalar_one_or_none()
         tg_id = grp.telegram_group_id if grp else None

@@ -33,6 +33,10 @@ class GroupService:
         if group:
             if group.name != name:
                 group.name = name
+            # Bot qayta qo'shilganda aktiv qilamiz
+            if not group.is_active:
+                group.is_active = True
+                logger.info(f"Guruh qayta aktivlashtirildi: {group.id} - {group.name}")
             return group
         
         group = Group(
