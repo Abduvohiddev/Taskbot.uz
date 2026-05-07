@@ -511,7 +511,7 @@ async def on_new_member(message: Message) -> None:
             )
 
 
-@router.message(F.chat.type.in_({"group", "supergroup"}), F.text, ~Command())
+@router.message(F.chat.type.in_({"group", "supergroup"}), F.text, ~F.text.startswith("/"))
 async def on_group_message(message: Message) -> None:
     """Guruhda xabar yozgan har bir a'zoni avtomatik jamoaga qo'shish (buyruqlar bundan mustasno)"""
     if not message.from_user or message.from_user.is_bot:
