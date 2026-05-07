@@ -58,8 +58,10 @@ def company_detail_keyboard(company: Company, user_role: CompanyRole) -> InlineK
 async def cmd_companies(message: Message, user: User) -> None:
     """Mening jamoalarim"""
     async with get_session() as session:
+        # Company_id yo'q guruhlarni avval tuzatamiz
+        await CompanyService.repair_group_companies(session, user.id)
         companies = await CompanyService.get_user_companies(session, user.id)
-    
+
     if not companies:
         text = (
             "🏢 <b>Siz hali hech qanday jamoaga a'zo emassiz.</b>\n\n"
@@ -67,7 +69,7 @@ async def cmd_companies(message: Message, user: User) -> None:
         )
     else:
         text = "🏢 <b>Mening jamoalarim (Workspaces):</b>\nBoshqarish uchun jamoani tanlang:"
-        
+
     await message.answer(text, reply_markup=company_list_keyboard(companies))
 
 
@@ -75,8 +77,10 @@ async def cmd_companies(message: Message, user: User) -> None:
 async def cb_companies(callback: CallbackQuery, user: User) -> None:
     """Mening jamoalarim (callback)"""
     async with get_session() as session:
+        # Company_id yo'q guruhlarni avval tuzatamiz
+        await CompanyService.repair_group_companies(session, user.id)
         companies = await CompanyService.get_user_companies(session, user.id)
-    
+
     if not companies:
         text = (
             "🏢 <b>Siz hali hech qanday jamoaga a'zo emassiz.</b>\n\n"
@@ -84,7 +88,7 @@ async def cb_companies(callback: CallbackQuery, user: User) -> None:
         )
     else:
         text = "🏢 <b>Mening jamoalarim (Workspaces):</b>\nBoshqarish uchun jamoani tanlang:"
-        
+
     await callback.message.edit_text(text, reply_markup=company_list_keyboard(companies))
 
 
