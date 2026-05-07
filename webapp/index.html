@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TaskBot</title>
-    <link rel="stylesheet" href="/css/style.css?v=v79&t=1779200000">
+    <link rel="stylesheet" href="/css/style.css?v=v80&t=1779300000">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
@@ -230,7 +230,14 @@
             <!-- Create Tab -->
             <div class="tab-pane" id="tab-create">
                 <div class="create-form">
-                    <h2 class="form-title" data-i18n="app.create.title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Yangi vazifa</h2>
+                    <!-- Sub-task mode banner (hidden by default) -->
+                    <div id="subtask-parent-banner" class="subtask-parent-banner hidden">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9v1a2 2 0 01-2 2H6"/></svg>
+                        <span id="subtask-parent-label"></span>
+                        <button class="stp-banner-clear" onclick="_clearSubtaskMode()">✕</button>
+                    </div>
+
+                    <h2 class="form-title" id="create-form-title" data-i18n="app.create.title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Yangi vazifa</h2>
 
                     <!-- Task Type Selector -->
                     <div class="form-group">
@@ -668,6 +675,6 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=v74&t=1778700000"></script>
+    <script src="/js/app.js?v=v80&t=1779300000"></script>
 </body>
 </html>

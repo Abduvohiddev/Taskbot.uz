@@ -2656,3 +2656,75 @@ body::before {
 .ic-sm { width: 12px; height: 12px; }
 .ic-md { width: 16px; height: 16px; }
 .ic-lg { width: 18px; height: 18px; }
+
+/* ═══════════════════════════════════════════
+   SUBTASK TYPE PICKER (v80)
+   ═══════════════════════════════════════════ */
+.stp-overlay {
+    position: fixed; inset: 0; z-index: 2100;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(3px);
+    display: flex; align-items: flex-end;
+    animation: fadeIn .18s ease;
+}
+.stp-sheet {
+    width: 100%; background: var(--card-bg);
+    border-radius: 22px 22px 0 0;
+    padding: 10px 16px 36px;
+    animation: slideUp .22s ease;
+}
+.stp-handle {
+    width: 38px; height: 4px; background: var(--border);
+    border-radius: 2px; margin: 0 auto 16px;
+}
+.stp-title {
+    font-size: 16px; font-weight: 700; color: var(--text1);
+    text-align: center; margin-bottom: 4px;
+}
+.stp-parent-ref {
+    font-size: 12px; color: var(--text3); text-align: center;
+    margin-bottom: 18px; padding: 0 24px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.stp-option {
+    display: flex; align-items: center; gap: 14px;
+    width: 100%; background: var(--bg2);
+    border: 1.5px solid var(--border);
+    border-radius: 16px; padding: 15px 16px;
+    margin-bottom: 10px; cursor: pointer;
+    text-align: left; transition: background .15s, border-color .15s, transform .1s;
+}
+.stp-option:active { background: var(--bg3); transform: scale(.98); }
+.stp-opt-icon { font-size: 30px; flex-shrink: 0; line-height: 1; }
+.stp-opt-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.stp-opt-name { font-size: 15px; font-weight: 700; color: var(--text1); }
+.stp-opt-desc { font-size: 12px; color: var(--text3); }
+.stp-opt-arrow {
+    font-size: 22px; color: var(--text3); font-weight: 300; flex-shrink: 0;
+    opacity: .6;
+}
+.stp-cancel {
+    display: block; width: 100%; background: none; border: none;
+    padding: 12px; font-size: 15px; color: var(--text3);
+    cursor: pointer; margin-top: 2px;
+    border-radius: 12px; transition: background .15s;
+}
+.stp-cancel:active { background: var(--bg2); }
+
+/* Subtask parent banner on create form */
+.subtask-parent-banner {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(99,102,241,.1); border: 1.5px solid rgba(99,102,241,.4);
+    border-radius: 12px; padding: 9px 12px; margin-bottom: 14px;
+    font-size: 13px; color: var(--text1);
+}
+.subtask-parent-banner svg { color: #6366f1; flex-shrink: 0; }
+.subtask-parent-banner > span {
+    flex: 1; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 600;
+}
+.stp-banner-clear {
+    background: none; border: none; color: var(--text3);
+    font-size: 17px; cursor: pointer; padding: 0 2px;
+    flex-shrink: 0; line-height: 1;
+}

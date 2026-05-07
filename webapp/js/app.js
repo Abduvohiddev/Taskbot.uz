@@ -121,6 +121,9 @@ async function setAppLanguage(lang) {
 let currentFilter = 'active';
 let allTasks = [];
 let currentTaskId = null;
+// Sub-task mode state
+let _subtaskParentId    = null;
+let _subtaskParentTitle = null;
 let currentWorkspaceId = 'personal';
 let currentWorkspaceName = 'Shaxsiy';
 let companyMembers = [];
@@ -1416,7 +1419,13 @@ function initTabs() {
             // Header title ni yangilaymiz
             const tabTitles = { tasks: 'Vazifalar', calendar: 'Kalendar', create: 'Yangi vazifa', kanban: 'Kanban', stats: 'Statistika' };
             const hTitle = document.getElementById('header-title');
-            if (hTitle) hTitle.textContent = tabTitles[tabName] || 'TaskBot';
+            if (hTitle) {
+                if (tabName === 'create' && _subtaskParentId) {
+                    hTitle.textContent = 'Sub-task yaratish';
+                } else {
+                    hTitle.textContent = tabTitles[tabName] || 'TaskBot';
+                }
+            }
             // Tab o'zgarsa nav stack ni tozalaymiz
             _navStack.length = 0;
             document.getElementById('back-btn')?.classList.add('hidden');
@@ -1432,6 +1441,12 @@ function initTabs() {
             }
             if (tabName === 'calendar') {
                 renderCalendar();
+            }
+            // Clear subtask mode when user navigates away from create tab
+            if (tabName !== 'create' && _subtaskParentId) {
+                _subtaskParentId    = null;
+                _subtaskParentTitle = null;
+                _updateSubtaskBanner();
             }
 
             if (tg) tg.HapticFeedback?.impactOccurred('light');
@@ -2075,7 +2090,7 @@ async function openTask(taskId) {
                 `;
             }).join('');
             const addBtn = (!hasParent)
-                ? `<button class="subtask-add-btn" onclick="openSubtaskModal(${task.id})">➕ Sub-task qo'shish</button>`
+                ? `<button class="subtask-add-btn" onclick="openSubtaskTypePicker(${task.id})">➕ Sub-task qo'shish</button>`
                 : '';
             bodyHtml += `
                 <div class="subtask-section">
@@ -2739,6 +2754,9 @@ async function createTask() {
     btn.querySelector('.btn-text').classList.add('hidden');
     btn.querySelector('.btn-loading').classList.remove('hidden');
 
+    // Capture subtask parent before any async ops
+    const _stParentId = _subtaskParentId;
+
     try {
         if (currentTaskType === 'workflow') {
             // Create workflow
@@ -2759,18 +2777,28 @@ async function createTask() {
             if (currentWorkspaceId !== 'personal') {
                 body.company_id = currentWorkspaceId;
             }
+            if (_stParentId) body.parent_id = _stParentId;
 
             await apiRequest('/tasks/create-workflow', 'POST', body);
-            showToast('✅ Workflow yaratildi!');
-            // Vazifalar tabiga o'tib, ketma-ketlik sub-tabini ochish
-            document.querySelector('.bnav-btn[data-tab="tasks"]').click();
-            switchTasksSubtab('workflow');
-            await loadWorkflows();
+            showToast('✅ ' + (_stParentId ? 'Ketma-ketlik sub-task yaratildi!' : 'Workflow yaratildi!'));
+
+            if (_stParentId) {
+                // Return to parent task
+                _clearSubtaskMode();
+                await loadTasks();
+                document.querySelector('.bnav-btn[data-tab="tasks"]')?.click();
+                openTask(_stParentId);
+            } else {
+                document.querySelector('.bnav-btn[data-tab="tasks"]').click();
+                switchTasksSubtab('workflow');
+                await loadWorkflows();
+            }
         } else {
             // Create regular task
             const body = { title, priority };
             if (description) body.description = description;
             if (deadline) body.deadline = new Date(deadline).toISOString();
+            if (_stParentId) body.parent_id = _stParentId;
             if (currentWorkspaceId !== 'personal') {
                 body.company_id = currentWorkspaceId;
                 const allSelIds = [...selectedAssigneeIds, ...externalAssignees.map(e => e.id)];
@@ -2794,15 +2822,23 @@ async function createTask() {
                 allTasks.unshift(result.task);
             }
 
-            showToast('✅ Vazifa yaratildi!');
-            // Switch to tasks tab
-            document.querySelector('.bnav-btn[data-tab="tasks"]').click();
+            showToast('✅ ' + (_stParentId ? 'Sub-task yaratildi!' : 'Vazifa yaratildi!'));
 
-            // Refresh stats
-            const stats = await apiRequest(`/stats?company_id=${currentWorkspaceId}`);
-            updateQuickStats(stats);
-            updateStatsTab(stats);
-            renderTasks();
+            if (_stParentId) {
+                // Return to parent task after creating sub-task
+                _clearSubtaskMode();
+                await loadTasks();
+                document.querySelector('.bnav-btn[data-tab="tasks"]')?.click();
+                openTask(_stParentId);
+            } else {
+                // Switch to tasks tab
+                document.querySelector('.bnav-btn[data-tab="tasks"]').click();
+                // Refresh stats
+                const stats = await apiRequest(`/stats?company_id=${currentWorkspaceId}`);
+                updateQuickStats(stats);
+                updateStatsTab(stats);
+                renderTasks();
+            }
         }
 
         if (tg) tg.HapticFeedback?.notificationOccurred('success');
@@ -4470,6 +4506,96 @@ async function submitSubtask(parentTaskId) {
     } catch (e) {
         showToast('❌ ' + (e.message || e), true);
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SUBTASK TYPE PICKER  (v80)
+// ═══════════════════════════════════════════════════════════
+
+/** Show "Odiy task" vs "Ketma-ketlik" bottom sheet before creating sub-task */
+function openSubtaskTypePicker(parentTaskId) {
+    const task = allTasks.find(t => t.id === parentTaskId);
+    const title = task?.title || `#${parentTaskId}`;
+
+    document.getElementById('stp-overlay')?.remove();
+
+    const el = document.createElement('div');
+    el.id  = 'stp-overlay';
+    el.className = 'stp-overlay';
+    el.innerHTML = `
+        <div class="stp-sheet">
+            <div class="stp-handle"></div>
+            <div class="stp-title">📂 Sub-task turini tanlang</div>
+            <div class="stp-parent-ref">↳ ${escapeHtml(title.slice(0,55))}</div>
+
+            <button class="stp-option" onclick="_launchSubtaskCreate(${parentTaskId},'regular')">
+                <span class="stp-opt-icon">📋</span>
+                <span class="stp-opt-info">
+                    <span class="stp-opt-name">Oddiy task</span>
+                    <span class="stp-opt-desc">Oddiy sub-vazifa yaratish</span>
+                </span>
+                <span class="stp-opt-arrow">›</span>
+            </button>
+
+            <button class="stp-option" onclick="_launchSubtaskCreate(${parentTaskId},'workflow')">
+                <span class="stp-opt-icon">🔗</span>
+                <span class="stp-opt-info">
+                    <span class="stp-opt-name">Ketma-ketlik</span>
+                    <span class="stp-opt-desc">Qadamli workflow sub-vazifa</span>
+                </span>
+                <span class="stp-opt-arrow">›</span>
+            </button>
+
+            <button class="stp-cancel" onclick="document.getElementById('stp-overlay')?.remove()">Bekor qilish</button>
+        </div>
+    `;
+    document.body.appendChild(el);
+    el.addEventListener('click', e => { if (e.target === el) el.remove(); });
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+}
+
+/** Navigate to create tab with chosen type and parent context */
+function _launchSubtaskCreate(parentTaskId, type) {
+    document.getElementById('stp-overlay')?.remove();
+
+    _subtaskParentId    = parentTaskId;
+    const task = allTasks.find(t => t.id === parentTaskId);
+    _subtaskParentTitle = task?.title || `#${parentTaskId}`;
+
+    // Switch to create tab
+    document.querySelector('.bnav-btn[data-tab="create"]')?.click();
+
+    // Select task type
+    selectTaskType(type);
+
+    // Show parent banner
+    _updateSubtaskBanner();
+
+    if (tg) tg.HapticFeedback?.impactOccurred('medium');
+}
+
+/** Update the parent banner on create form */
+function _updateSubtaskBanner() {
+    const banner = document.getElementById('subtask-parent-banner');
+    const label  = document.getElementById('subtask-parent-label');
+    const titleEl = document.getElementById('create-form-title');
+    if (!banner) return;
+    if (_subtaskParentId) {
+        banner.classList.remove('hidden');
+        if (label) label.textContent = 'Sub-task: ' + (_subtaskParentTitle || `#${_subtaskParentId}`).slice(0,55);
+        if (titleEl) titleEl.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9v1a2 2 0 01-2 2H6"/></svg> Sub-task yaratish`;
+    } else {
+        banner.classList.add('hidden');
+        if (titleEl) titleEl.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Yangi vazifa`;
+    }
+}
+
+/** Clear sub-task mode (called by ✕ button on banner) */
+function _clearSubtaskMode() {
+    _subtaskParentId    = null;
+    _subtaskParentTitle = null;
+    _updateSubtaskBanner();
+    selectTaskType('regular');
 }
 
 // ── Navigation stack for back button ────────────────────────────────────────
