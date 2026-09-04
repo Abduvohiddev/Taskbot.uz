@@ -28,8 +28,15 @@ logger = logging.getLogger(__name__)
 async def cmd_start(message: Message, state: FSMContext, user: User, command: CommandObject) -> None:
     """Bot ishga tushirish"""
     await state.clear()
-    
+
     args = command.args
+
+    # QR / deep-link orqali to'g'ridan-to'g'ri murojaat oqimini ochish
+    if args in ("murojaat", "feedback") and message.chat.type == "private":
+        from handlers.feedback import feedback_start
+        await feedback_start(message, state, user)
+        return
+
     if args and args.startswith("c_"):
         invite_code = args[2:]
         async with get_session() as session:
@@ -84,26 +91,28 @@ async def cmd_start(message: Message, state: FSMContext, user: User, command: Co
 @router.message(Command("app"))
 @router.message(Command("miniapp"))
 @router.message(F.text.in_({"📱 TaskBot ilovasi", "📱 Приложение TaskBot", "📱 TaskBot App"}))
-async def cmd_open_app(message: Message) -> None:
-    """Mini App ni ochish"""
+async def cmd_open_app(message: Message, user: User) -> None:
+    """Mini App ni ochish — token bilan (Telegram Desktop da ham ishlaydi)"""
     if not settings.WEBAPP_URL:
-        await message.answer(
-            "⚠️ Mini App hozircha sozlanmagan.\n"
-            "Adminlar bilan bog'laning."
-        )
+        await message.answer("⚠️ Mini App hozircha sozlanmagan.")
         return
+
+    from api.auth import create_auth_token
+    token = create_auth_token(
+        telegram_id=message.from_user.id,
+        first_name=message.from_user.first_name or "",
+        last_name=message.from_user.last_name or "",
+        username=message.from_user.username or "",
+    )
+    webapp_url = f"{settings.WEBAPP_URL.rstrip('/')}/?v=67&token={token}"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(
-            text="🚀 TaskBot ilovasini ochish",
-            web_app=WebAppInfo(url=settings.WEBAPP_URL),
+            text="📱 Ilovani ochish",
+            web_app=WebAppInfo(url=webapp_url),
         )
     ]])
-    await message.answer(
-        "📱 <b>TaskBot Mini App</b>\n\n"
-        "Quyidagi tugma orqali ilovani oching va vazifalaringizni boshqaring.",
-        reply_markup=kb,
-    )
+    await message.answer("👇", reply_markup=kb)
 
 
 @router.message(Command("language"))
@@ -140,16 +149,29 @@ async def callback_language(callback: CallbackQuery, user: User) -> None:
     lang_names = {"uz": t("lang.uz", lang), "ru": t("lang.ru", lang), "en": t("lang.en", lang)}
     await callback.answer(f"✅ {lang_names.get(lang)}")
 
-    # Tilni o'zgartirgandan so'ng — yangi tilda menyu (inline + reply)
-    await callback.message.edit_text(
-        t("lang.changed", lang, lang=lang_names.get(lang, lang)),
-        reply_markup=main_menu_keyboard(lang=lang),
-    )
-    # Reply-keyboard ham yangi tilda yangilansin
-    await callback.message.answer(
-        "🔄",
-        reply_markup=main_reply_keyboard(lang=lang),
-    )
+    changed_text = t("lang.changed", lang, lang=lang_names.get(lang, lang))
+    is_private = callback.message.chat.type == "private"
+
+    if is_private:
+        # Shaxsiy chatda — full menyu (WebApp tugmasi bilan)
+        try:
+            await callback.message.edit_text(changed_text, reply_markup=main_menu_keyboard(lang=lang))
+        except Exception:
+            try:
+                await callback.message.answer(changed_text, reply_markup=main_menu_keyboard(lang=lang))
+            except Exception:
+                pass
+        # Reply-keyboard ham yangi tilda yangilansin
+        try:
+            await callback.message.answer("🔄", reply_markup=main_reply_keyboard(lang=lang))
+        except Exception:
+            pass
+    else:
+        # Guruh chatida — WebApp tugmasisiz oddiy matn
+        try:
+            await callback.message.edit_text(changed_text)
+        except Exception:
+            pass
 
 
 @router.message(Command("help"))
@@ -185,7 +207,7 @@ async def cmd_help(message: Message) -> None:
         "<b>📊 Rollar:</b>\n"
         "👑 Admin - barcha huquqlar\n"
         "🎯 Menejer - vazifa yaratish\n"
-        "👤 Ijrochi - vazifalarni bajarish"
+        "👤 Kuzatuvchi - vazifalarni bajarish"
     )
     await message.answer(help_text)
 
@@ -195,6 +217,17 @@ async def callback_main_menu(callback: CallbackQuery, user: User, state: FSMCont
     """Asosiy menyuga qaytish — foydalanuvchi tilida"""
     from i18n import t
     await state.clear()
+
+    # Guruh chatida WebApp tugmasi (BUTTON_TYPE_INVALID) ishlamaydi —
+    # xabarni o'chirib, private chatga yo'naltirish kerak
+    if callback.message.chat.type in ("group", "supergroup"):
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.answer("📱 Asosiy menyu uchun botga /start yuboring", show_alert=False)
+        return
+
     lang = user.language
     titles = {
         "uz": "🏠 <b>Asosiy menyu</b>\n\nKerakli bo'limni tanlang:",
@@ -214,19 +247,37 @@ async def callback_main_menu(callback: CallbackQuery, user: User, state: FSMCont
             await callback.message.delete()
         except Exception:
             pass
-        await callback.message.answer(text, reply_markup=kb)
+        try:
+            await callback.message.answer(text, reply_markup=kb)
+        except Exception:
+            pass
     await callback.answer()
 
 
 @router.callback_query(F.data == "cancel")
 async def callback_cancel(callback: CallbackQuery, state: FSMContext) -> None:
-    """Amalni bekor qilish"""
+    """Amalni bekor qilish — xatosiz, guruh va shaxsiy chatlarda ham ishlaydi"""
     await state.clear()
-    await callback.message.edit_text(
-        "❌ Amal bekor qilindi.",
-        reply_markup=main_menu_keyboard(),
-    )
-    await callback.answer()
+    # Xabarni o'chirishga harakat qilamiz
+    try:
+        await callback.message.delete()
+    except Exception:
+        # O'chira olmasak — inline klaviatursiz tahrirlash (WebApp xatosi yo'q)
+        try:
+            await callback.message.edit_text("❌ Bekor qilindi.")
+        except Exception:
+            pass
+    await callback.answer("❌ Bekor qilindi")
+    # Faqat shaxsiy chatda asosiy menyu yuboramiz
+    if callback.message.chat.type == "private":
+        try:
+            await callback.bot.send_message(
+                callback.message.chat.id,
+                "❌ Amal bekor qilindi.",
+                reply_markup=main_menu_keyboard(),
+            )
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data == "noop")

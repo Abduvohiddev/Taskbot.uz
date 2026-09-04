@@ -11,8 +11,15 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
 from database.db import get_session
-from database.models import User, TaskStatus, Priority, UserRole, TaskAttachment, Company, Group
+from database.models import (
+    User, Task, TaskStatus, Priority, UserRole,
+    TaskAttachment, TaskAssignment, TaskComment,
+    Company, Group,
+)
 from config import settings
 
 _TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
@@ -34,6 +41,11 @@ from utils.helpers import (
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+
+class ApprovalStates(StatesGroup):
+    """Vazifani bajarildi deb belgilashga ruxsat berish — comment kutilmoqda"""
+    waiting_comment = State()
 
 
 class NewTaskStates(StatesGroup):
@@ -433,7 +445,7 @@ async def _proceed_to_assignee(message: Message, state: FSMContext, user: User) 
             return
         await state.set_state(NewTaskStates.waiting_multi_assignee)
         text = (
-            f"👥 <b>Ijrochilarni belgilang</b>\n\n"
+            f"👥 <b>Kuzatuvchilarni belgilang</b>\n\n"
             f"<i>Kompaniyada {len(members)} xodim</i>"
         )
         try:
@@ -456,7 +468,7 @@ async def _proceed_to_assignee(message: Message, state: FSMContext, user: User) 
         await state.update_data(selected_assignees=[])
         await state.set_state(NewTaskStates.waiting_multi_assignee)
         text = (
-            f"👥 <b>Ijrochilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
+            f"👥 <b>Kuzatuvchilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
             f"<i>Guruhdagi {len(members)} a'zo</i>"
         )
         try:
@@ -466,8 +478,12 @@ async def _proceed_to_assignee(message: Message, state: FSMContext, user: User) 
         return
 
     # Shaxsiy chat: foydalanuvchining kompaniya/guruhlarini tekshirib, workspace picker yoki default
+    # MUHIM: companies — faqat standalone (guruhga bog'lanmagan), aks holda
+    # har bir Telegram guruh "Jamoa" sifatida ham, "Guruh" sifatida ham takrorlanadi.
     async with get_session() as session:
-        companies = await CompanyService.get_user_companies(session, user.id)
+        companies = await CompanyService.get_user_companies(
+            session, user.id, standalone_only=True
+        )
         groups = await GroupService.get_user_groups(session, user.id)
 
     if not companies and not groups:
@@ -513,7 +529,7 @@ async def process_workspace(callback: CallbackQuery, state: FSMContext, user: Us
         await state.update_data(company_id=company_id, selected_assignees=[])
         await state.set_state(NewTaskStates.waiting_multi_assignee)
         text = (
-            f"👥 <b>Ijrochilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
+            f"👥 <b>Kuzatuvchilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
             f"<i>Kompaniyada {len(members)} xodim</i>"
         )
         await callback.message.edit_text(text, reply_markup=multi_assignee_keyboard(members, []))
@@ -536,7 +552,7 @@ async def process_workspace(callback: CallbackQuery, state: FSMContext, user: Us
         )
         await state.set_state(NewTaskStates.waiting_multi_assignee)
         text = (
-            f"👥 <b>Ijrochilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
+            f"👥 <b>Kuzatuvchilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
             f"<i>Guruhdagi {len(members)} a'zo</i>"
         )
         await callback.message.edit_text(
@@ -566,7 +582,7 @@ async def _render_assignee_msg(callback_or_msg, state: FSMContext, *, answer=Fal
     new_kb = multi_assignee_keyboard(members, selected, external=external)
     ext_note = f" + {len(external)} tashqi" if external else ""
     text = (
-        f"👥 <b>Ijrochilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
+        f"👥 <b>Kuzatuvchilarni belgilang</b> (bir nechta tanlash mumkin)\n\n"
         f"<i>{context_label}{ext_note} — Tanlangan: {total}</i>"
     )
     msg = callback_or_msg if hasattr(callback_or_msg, 'edit_text') else callback_or_msg.message
@@ -615,7 +631,10 @@ async def afg_show_groups(callback: CallbackQuery, state: FSMContext, user: User
     data = await state.get_data()
     current_company_id = data.get("company_id")
     async with get_session() as session:
-        companies = await CompanyService.get_user_companies(session, user.id)
+        # Faqat standalone kompaniyalar — guruh-bog'liqlari "groups" da chiqadi
+        companies = await CompanyService.get_user_companies(
+            session, user.id, standalone_only=True
+        )
         groups    = await GroupService.get_user_groups(session, user.id)
 
     kb = group_picker_keyboard(companies, groups, exclude_company_id=current_company_id)
@@ -1081,7 +1100,7 @@ async def _show_tasks_for_workspace(
     from keyboards.inline import task_list_keyboard as tlk
     kb = tlk(tasks)
     # Oxirgi qatorga "Workspace tanlash" tugmasini qo'shamiz
-    kb.inline_keyboard.insert(0, [
+    kb.inline_keyboard.append([
         InlineKeyboardButton(text="🔙 Workspace tanlash", callback_data="menu:mytasks")
     ])
 
@@ -1210,7 +1229,8 @@ async def callback_task_view(callback: CallbackQuery, user: User) -> None:
         format_task_detailed(task),
         reply_markup=task_actions_keyboard(task, user_role,
                                            is_assignee=user_assignment is not None,
-                                           user_assignment=user_assignment),
+                                           user_assignment=user_assignment,
+                                           is_creator=(task.creator_id == user.id)),
     )
     await callback.answer()
 
@@ -1260,7 +1280,8 @@ async def callback_task_status(callback: CallbackQuery, user: User, bot: Bot) ->
                 format_task_detailed(updated_task),
                 reply_markup=task_actions_keyboard(updated_task, user_role,
                                                    is_assignee=user_assignment is not None,
-                                                   user_assignment=user_assignment),
+                                                   user_assignment=user_assignment,
+                                                   is_creator=(updated_task.creator_id == user.id)),
             )
 
     await callback.answer("✅ Status yangilandi!")
@@ -1285,6 +1306,46 @@ async def callback_my_assign_status(callback: CallbackQuery, user: User, bot: Bo
         if task.status in (TaskStatus.DONE, TaskStatus.CANCELLED):
             await callback.answer("ℹ️ Vazifa allaqachon yakunlangan yoki bekor qilingan", show_alert=True)
             return
+
+        # ── Yaratuvchi tasdig'i — masul yaratuvchi bo'lmasa, avval ruxsat so'raymiz
+        if new_assign_status == "done" and user.id != task.creator_id:
+            # Masul ekanligi tekshirilsin
+            asg_res = await session.execute(
+                select(TaskAssignment).where(
+                    TaskAssignment.task_id == task_id,
+                    TaskAssignment.user_id == user.id,
+                    TaskAssignment.is_responsible.is_(True),
+                )
+            )
+            if asg_res.scalar_one_or_none() is not None:
+                # "review" qilamiz va yaratuvchiga so'rov yuboramiz
+                await TaskService.update_assignment_status(session, user.id, task_id, "review")
+                await session.commit()
+
+                creator = await session.get(User, task.creator_id)
+                if creator and creator.telegram_id:
+                    appr_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"appr:ok:{task_id}:{user.id}"),
+                        InlineKeyboardButton(text="❌ Rad etish",  callback_data=f"appr:no:{task_id}:{user.id}"),
+                    ]])
+                    desc = f"\n📝 {task.description[:200]}" if task.description else ""
+                    msg = (
+                        f"⏳ <b>Vazifa tasdiqlash kutilmoqda</b>\n\n"
+                        f"📋 <b>{task.title}</b>{desc}\n\n"
+                        f"👤 <b>{user.full_name}</b> bu vazifani "
+                        f"<b>«Bajarildi»</b> deb belgilamoqchi.\n"
+                        f"Tasdiqlaysizmi?"
+                    )
+                    try:
+                        await bot.send_message(creator.telegram_id, msg, reply_markup=appr_kb)
+                    except Exception as e:
+                        logger.warning(f"Approval req xato: {e}")
+
+                await callback.answer(
+                    "⏳ Yaratuvchi tasdiqlashini kutmoqda. Sizga xabar keladi.",
+                    show_alert=True,
+                )
+                return
 
         # Shaxsiy statusni yangilaymiz (faqat masul ijrochi)
         assignment = await TaskService.update_assignment_status(
@@ -1382,7 +1443,8 @@ async def callback_my_assign_status(callback: CallbackQuery, user: User, bot: Bo
                 format_task_detailed(task),
                 reply_markup=task_actions_keyboard(task, user_role,
                                                    is_assignee=user_assignment is not None,
-                                                   user_assignment=user_assignment),
+                                                   user_assignment=user_assignment,
+                                                   is_creator=(task.creator_id == user.id)),
             )
         except Exception:
             pass
@@ -1421,6 +1483,8 @@ async def callback_task_delete_execute(callback: CallbackQuery, user: User) -> N
 
 # ===== Kechikkan va barcha vazifalar =====
 
+@router.message(Command("kechikganlar"))
+@router.message(F.text.in_({"⏰ Kechikganlar", "⏰ Просроченные", "⏰ Overdue"}))
 @router.callback_query(F.data == "menu:overdue")
 async def cmd_overdue(event, user: User) -> None:
     """Kechikkan vazifalar"""
@@ -1537,14 +1601,30 @@ async def _notify_group_task_created(bot: Bot, session, task, assignee_ids: list
         logger.info(f"Task {task.id} uchun guruh chat ID topilmadi — guruh xabari yuborilmadi")
         return
 
-    # Ijrochilar ismlarini olamiz
+    # Masul va kuzatuvchilarni ajratamiz
     from database.models import User as UserModel
-    names = []
-    for uid in assignee_ids:
-        u = await session.get(UserModel, uid)
-        if u:
-            mention = f"@{u.username}" if u.username else u.full_name
-            names.append(mention)
+
+    def _mention(u):
+        return f"@{u.username}" if u.username else u.full_name
+
+    resp_names = []   # masul (responsible) ijrochilar
+    obs_names = []    # kuzatuvchilar (observer)
+
+    if getattr(task, "assignments", None):
+        for a in task.assignments:
+            u = await session.get(UserModel, a.user_id)
+            if not u:
+                continue
+            if a.is_responsible:
+                resp_names.append(_mention(u))
+            else:
+                obs_names.append(_mention(u))
+    else:
+        # Fallback — assignments yuklanmagan bo'lsa, hammasini masul deb ko'rsatamiz
+        for uid in assignee_ids:
+            u = await session.get(UserModel, uid)
+            if u:
+                resp_names.append(_mention(u))
 
     priority_em = {"low": "🟢", "medium": "🟡", "high": "🟠", "urgent": "🔴"}.get(
         task.priority.value if hasattr(task.priority, "value") else str(task.priority), "📌"
@@ -1554,13 +1634,19 @@ async def _notify_group_task_created(bot: Bot, session, task, assignee_ids: list
     if task.deadline:
         deadline_txt = f"\n⏰ Deadline: <b>{task.deadline.astimezone(_TZ).strftime('%d.%m.%Y %H:%M')}</b>"
 
-    assignees_txt = ", ".join(names) if names else "—"
+    assignees_block = ""
+    if resp_names:
+        assignees_block += f"\n⭐ Masul: {', '.join(resp_names)}"
+    if obs_names:
+        assignees_block += f"\n👁 Kuzatuvchilar: {', '.join(obs_names)}"
+    if not assignees_block:
+        assignees_block = "\n👤 Kuzatuvchi(lar): —"
 
     text = (
         f"📋 <b>Yangi vazifa yaratildi!</b>\n\n"
         f"📌 <b>{task.title}</b>  <code>#{task.id}</code>\n"
-        f"{priority_em} Muhimlik: {task.priority.value if hasattr(task.priority, 'value') else task.priority}\n"
-        f"👤 Ijrochi(lar): {assignees_txt}"
+        f"{priority_em} Muhimlik: {PRIORITY_NAMES_UZ.get(task.priority, task.priority.value if hasattr(task.priority, 'value') else str(task.priority))}"
+        f"{assignees_block}"
         f"{deadline_txt}\n\n"
         f"🔹 Vazifani ko'rish: /task_{task.id}"
     )
@@ -1618,8 +1704,9 @@ async def _notify_group_status_changed(
 @router.message(Command("task"))
 async def cmd_task_by_id(message: Message, user: User) -> None:
     """/task_42 yoki /task 42 — vazifa tafsilotlari (guruhda ham ishlaydi)"""
-    # /task_42 yoki /task 42 formatini qo'llab-quvvatlash
-    text_part = (message.text or "").replace("/task_", "/task ").strip()
+    # /task_42 yoki /task 42 formatini qo'llab-quvvatlash; @botname suffiksini olib tashlaymiz
+    raw_text = (message.text or "").split("@")[0]  # /task_42@bot → /task_42
+    text_part = raw_text.replace("/task_", "/task ").strip()
     parts = text_part.split(maxsplit=1)
     if len(parts) < 2:
         await message.answer("ℹ️ Foydalanish: <code>/task 42</code>")
@@ -1636,6 +1723,16 @@ async def cmd_task_by_id(message: Message, user: User) -> None:
             await message.answer("❗ Vazifa topilmadi.")
             return
 
+        # Ruxsat tekshiruvi — begona odam ko'rmasin
+        from handlers.workflow import _user_can_view_task
+        if not await _user_can_view_task(session, task, user.id):
+            await message.answer(
+                "🚫 <b>Bu vazifa sizga tegishli emas.</b>\n\n"
+                "<i>Faqat vazifa yaratuvchisi, ijrochilari yoki "
+                "vazifa joylashgan jamoa/guruh a'zolari ko'ra oladi.</i>",
+            )
+            return
+
         user_assignment = await TaskService.get_user_assignment(session, user.id, task_id)
         user_role = await _resolve_user_role(session, task, user)
 
@@ -1643,7 +1740,8 @@ async def cmd_task_by_id(message: Message, user: User) -> None:
         format_task_detailed(task),
         reply_markup=task_actions_keyboard(task, user_role,
                                            is_assignee=user_assignment is not None,
-                                           user_assignment=user_assignment),
+                                           user_assignment=user_assignment,
+                                           is_creator=(task.creator_id == user.id)),
     )
 
 
@@ -1709,11 +1807,13 @@ async def cmd_overdue_group(message: Message, user: User) -> None:
         await cmd_overdue(message, user)
 
 
-@router.message(F.text.regexp(r"^/task_(\d+)$"))
+@router.message(F.text.regexp(r"^/task_(\d+)(?:@\w+)?$"))
 async def cmd_view_task_by_id(message: Message, user: User) -> None:
-    """/task_123 buyrug'i orqali vazifa ko'rish"""
+    """/task_123 yoki /task_123@botname buyrug'i orqali vazifa ko'rish (guruhda ham ishlaydi)"""
     try:
-        task_id = int(message.text.split("_")[1])
+        # @botname suffiksini olib tashlaymiz
+        raw = (message.text or "").split("_", 1)[1].split("@")[0]
+        task_id = int(raw)
     except (ValueError, IndexError):
         await message.answer("❗ Noto'g'ri format.")
         return
@@ -1723,27 +1823,27 @@ async def cmd_view_task_by_id(message: Message, user: User) -> None:
         if not task:
             await message.answer("❗ Vazifa topilmadi.")
             return
-        
+
+        # Yagona ruxsat tekshiruvi (workflow va task uchun bir xil)
+        from handlers.workflow import _user_can_view_task
+        if not await _user_can_view_task(session, task, user.id):
+            await message.answer(
+                "🚫 <b>Bu vazifa sizga tegishli emas.</b>\n\n"
+                "<i>Faqat vazifa yaratuvchisi, ijrochilari yoki "
+                "vazifa joylashgan jamoa/guruh a'zolari ko'ra oladi.</i>",
+            )
+            return
+
         user_assignment = await TaskService.get_user_assignment(session, user.id, task_id)
         is_assignee = user_assignment is not None
-
-        if not is_assignee and task.creator_id != user.id:
-            if task.group_id:
-                role = await TaskService.get_user_role_in_group(session, user.id, task.group_id)
-                if not role:
-                    await message.answer("🚫 Bu vazifani ko'rish uchun ruxsatingiz yo'q.")
-                    return
-            else:
-                await message.answer("🚫 Ruxsat yo'q.")
-                return
-
         user_role = await _resolve_user_role(session, task, user)
 
     await message.answer(
         format_task_detailed(task),
         reply_markup=task_actions_keyboard(task, user_role,
                                            is_assignee=is_assignee,
-                                           user_assignment=user_assignment),
+                                           user_assignment=user_assignment,
+                                           is_creator=(task.creator_id == user.id)),
     )
 
 
@@ -1846,7 +1946,7 @@ async def callback_subtask_type(callback: CallbackQuery, state: FSMContext, user
     text = (
         f"📋 <b>Odiy sub-task yaratish</b>\n"
         f"🔗 Ota-vazifa: #{task_id} — <i>{parent_title[:50]}</i>\n\n"
-        "1/5 qadam: Sub-task <b>nomini</b> kiriting:"
+        "1/6 qadam: Sub-task <b>nomini</b> kiriting:"
     )
     try:
         await callback.message.edit_text(text, reply_markup=cancel_keyboard())
@@ -1881,3 +1981,171 @@ async def callback_subtask_list(callback: CallbackQuery, user: User) -> None:
 
     await callback.message.answer("\n".join(lines))
     await callback.answer()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Yaratuvchi tasdig'i — mas'ul "Bajarildi" bossa, yaratuvchi tasdiqlaydi
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.callback_query(F.data.startswith("appr_wait:"))
+async def cb_approval_wait(callback: CallbackQuery, user: User):
+    """Mas'ul 'kutilmoqda' tugmasini bossa — tushuntirish."""
+    await callback.answer(
+        "⏳ Siz «Bajarildi» deb belgiladingiz. Endi vazifa yaratuvchisi tasdiqlashini kutmoqda.\n\n"
+        "Agar qayta ishlamoqchi bo'lsangiz — «Qaytarib olish» tugmasini bosing.",
+        show_alert=True,
+    )
+
+
+@router.callback_query(F.data.startswith("appr:"))
+async def cb_approval_action(callback: CallbackQuery, state: FSMContext, user: User):
+    """appr:ok|no:<task_id>:<actor_user_id>"""
+    try:
+        parts = callback.data.split(":")
+        action = parts[1]            # ok | no | cancel
+        if action == "cancel":
+            await state.clear()
+            try:
+                await callback.message.edit_text("ℹ️ Tasdiqlash bekor qilindi.")
+            except Exception:
+                pass
+            await callback.answer()
+            return
+        task_id = int(parts[2])
+        actor_id = int(parts[3])
+    except Exception:
+        await callback.answer("Xato", show_alert=True)
+        return
+
+    async with get_session() as session:
+        task = await session.get(Task, task_id)
+        if not task or task.creator_id != user.id:
+            await callback.answer("Faqat yaratuvchi tasdiqlaydi.", show_alert=True)
+            return
+
+    await state.clear()
+    await state.set_state(ApprovalStates.waiting_comment)
+    await state.update_data(
+        appr_task_id=task_id,
+        appr_actor_id=actor_id,
+        appr_action=action,
+    )
+    label = "tasdiqlash" if action == "ok" else "rad etish"
+    prompt = (
+        f"💬 <b>{label.capitalize()} sababini yozing</b>\n\n"
+        f"Izoh matnini yuboring (1000 belgi gacha)."
+    )
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"appr:cancel:0:0"),
+    ]])
+    try:
+        await callback.message.edit_text(prompt, reply_markup=cancel_kb)
+    except Exception:
+        await callback.message.answer(prompt, reply_markup=cancel_kb)
+    await callback.answer()
+
+
+@router.message(ApprovalStates.waiting_comment)
+async def msg_approval_comment(message: Message, state: FSMContext, user: User, bot: Bot):
+    text = (message.text or "").strip()
+    if not text:
+        await message.answer("❗ Izoh matnini yuboring yoki bekor qiling.")
+        return
+    if len(text) > 1000:
+        await message.answer("❗ Izoh juda uzun (max 1000).")
+        return
+
+    data = await state.get_data()
+    task_id = data.get("appr_task_id")
+    actor_id = data.get("appr_actor_id")
+    action = data.get("appr_action")
+    if not all([task_id, actor_id, action]):
+        await state.clear()
+        await message.answer("❌ Xato — vazifa aniqlanmadi.")
+        return
+
+    from datetime import datetime as _dt, timezone as _tz
+    _utc = _tz.utc
+
+    async with get_session() as session:
+        task = await session.get(Task, task_id)
+        if not task:
+            await state.clear()
+            await message.answer("❌ Vazifa topilmadi.")
+            return
+
+        asg_res = await session.execute(
+            select(TaskAssignment).where(
+                TaskAssignment.task_id == task_id,
+                TaskAssignment.user_id == actor_id,
+            )
+        )
+        asg = asg_res.scalar_one_or_none()
+        if not asg:
+            await state.clear()
+            await message.answer("❌ Tayinlanma topilmadi.")
+            return
+
+        prefix = "✅ Tasdiqlandi" if action == "ok" else "❌ Rad etildi"
+        session.add(TaskComment(
+            task_id=task_id, user_id=user.id,
+            content=f"{prefix}: {text}",
+        ))
+
+        if action == "ok":
+            asg.status = "done"
+            asg.completed_at = _dt.now(_utc)
+            if asg.started_at:
+                asg.duration_seconds = int(
+                    (asg.completed_at - asg.started_at).total_seconds()
+                )
+            # Vazifa umumiy statusini yangilash
+            t_res = await session.execute(
+                select(Task).where(Task.id == task_id)
+                .options(selectinload(Task.assignments))
+            )
+            t = t_res.scalar_one()
+            from api.server import _compute_task_status as _comp
+            new_st = _comp(t.assignments or [], t.status)
+            if new_st != t.status:
+                t.status = new_st
+                if new_st == TaskStatus.DONE:
+                    t.completed_at = _dt.now(_utc)
+        else:
+            # Rad etildi — mas'ul qayta ishlasin
+            asg.status = "in_progress"
+            asg.completed_at = None
+
+        await session.commit()
+        task_title = task.title
+
+    await state.clear()
+    await message.answer(
+        f"✅ <b>{prefix}</b>\n\n"
+        f"📋 Vazifa: <b>{task_title}</b>\n"
+        f"💬 Izoh: <i>{text}</i>"
+    )
+
+    # Mas'ulga xabar
+    async with get_session() as ns:
+        actor = await ns.get(User, actor_id)
+        if actor and actor.telegram_id:
+            try:
+                if action == "ok":
+                    msg = (
+                        f"✅ <b>Vazifangiz tasdiqlandi!</b>\n\n"
+                        f"📋 <b>{task_title}</b>\n"
+                        f"👤 Yaratuvchi: <b>{user.full_name}</b>\n"
+                        f"💬 Izoh: <i>{text}</i>"
+                    )
+                else:
+                    msg = (
+                        f"❌ <b>Vazifangiz rad etildi</b>\n\n"
+                        f"📋 <b>{task_title}</b>\n"
+                        f"👤 Yaratuvchi: <b>{user.full_name}</b>\n"
+                        f"💬 Sabab: <i>{text}</i>\n\n"
+                        f"<i>Vazifa qayta «Jarayonda» holatiga qaytdi.</i>"
+                    )
+                await bot.send_message(actor.telegram_id, msg)
+            except Exception as e:
+                logger.warning(f"Approval notify xato: {e}")

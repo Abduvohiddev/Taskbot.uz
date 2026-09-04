@@ -2,16 +2,26 @@
 Common handler - sozlamalar, izohlar, umumiy handlerlar
 """
 import logging
+import io
+from pathlib import Path
 
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select
 
+from datetime import datetime
 from database.db import get_session
-from database.models import User, TaskComment, TaskStatus
+from database.models import User, TaskComment, TaskStatus, TaskAttachment, TaskHistory
+
+ATTACH_DIR = Path(__file__).parent.parent / "uploads"
+ATTACH_DIR.mkdir(exist_ok=True)
+from config import settings
+from zoneinfo import ZoneInfo
+
+_TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
 from keyboards.inline import (
     settings_keyboard, back_to_menu_keyboard, cancel_keyboard,
     main_menu_keyboard, language_keyboard, task_list_keyboard,
@@ -36,13 +46,15 @@ def _build_settings_text(user: User) -> str:
     """Tilga mos sozlamalar matnini quradi."""
     lang = user.language
     notif_status = t("settings.notif.on", lang) if user.notifications_enabled else t("settings.notif.off", lang)
+    ai_status = "🤖 AI Yordamchi: " + ("✅ Yoqilgan" if getattr(user, "ai_enabled", False) else "⚪️ O'chiq")
     return (
         f"{t('settings.title', lang)}\n\n"
         f"{t('settings.field.name', lang, name=user.full_name)}\n"
         f"{t('settings.field.id', lang, id=user.telegram_id)}\n"
         f"{t('settings.field.lang', lang, lang=user.language.upper())}\n"
         f"{t('settings.field.tz', lang, tz=user.timezone)}\n"
-        f"{t('settings.field.notif', lang, status=notif_status)}\n\n"
+        f"{t('settings.field.notif', lang, status=notif_status)}\n"
+        f"{ai_status}\n\n"
         f"{t('settings.welcome', lang)}"
     )
 
@@ -86,18 +98,7 @@ async def kb_stats(event, user: User):
         await cmd_stats(event, user)
 
 
-@router.message(F.text.in_({
-    "⏰ Kechikganlar", "⏰ Просроченные", "⏰ Overdue",
-}))
-@router.callback_query(F.data == "menu:overdue")
-async def kb_overdue(event, user: User):
-    """Kechikgan vazifalar"""
-    from handlers.tasks import cmd_overdue
-    if isinstance(event, CallbackQuery):
-        await event.answer()
-        await cmd_overdue(event.message, user)
-    else:
-        await cmd_overdue(event, user)
+# overdue: handlers/tasks.py da to'liq qayta ishlangan (Command + text + callback)
 
 
 @router.message(F.text.in_({
@@ -126,6 +127,39 @@ async def kb_groups(event, user: User):
         await cmd_groups(event.message, user)
     else:
         await cmd_groups(event, user)
+
+
+# ===== Taklif havolasi =====
+
+@router.message(Command("invite"))
+@router.callback_query(F.data == "menu:invite")
+async def cmd_invite(event, user: User) -> None:
+    """Taklif havolasini ko'rsatish"""
+    bot_username = settings.BOT_USERNAME.lstrip("@")
+    link = f"https://t.me/{bot_username}?start=invite_{user.id}"
+
+    text = (
+        f"📨 <b>Taklif havolasi</b>\n\n"
+        f"Quyidagi havolani do'stingizga yuboring — ular botga o'tib, "
+        f"sizning jamoangizga qo'shilishi mumkin:\n\n"
+        f"<code>{link}</code>\n\n"
+        f"<i>💡 Maslahat: havolani bosib ushlab nusxalang yoki pastdagi tugma orqali ulashing.</i>"
+    )
+
+    share_url = f"https://t.me/share/url?url={link}&text=Vazifalar boti"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 Ulashish", url=share_url)],
+        [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="menu:main")],
+    ])
+
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+        try:
+            await event.message.edit_text(text, reply_markup=kb)
+        except Exception:
+            await event.message.answer(text, reply_markup=kb)
+    else:
+        await event.answer(text, reply_markup=kb)
 
 
 # ===== Sozlamalar =====
@@ -175,6 +209,38 @@ async def callback_toggle_notif(callback: CallbackQuery, user: User) -> None:
     )
 
 
+@router.callback_query(F.data == "settings:toggle_ai")
+async def callback_toggle_ai(callback: CallbackQuery, user: User) -> None:
+    """AI Yordamchini yoqish/o'chirish (foydalanuvchi o'zi)."""
+    async with get_session() as session:
+        result = await session.execute(select(User).where(User.id == user.id))
+        db_user = result.scalar_one()
+        db_user.ai_enabled = not bool(getattr(db_user, "ai_enabled", False))
+        user.ai_enabled = db_user.ai_enabled
+
+    if user.ai_enabled:
+        await callback.answer("🤖 AI Yordamchi yoqildi!")
+        await callback.message.answer(
+            "🤖 <b>AI Yordamchi yoqildi!</b>\n\n"
+            "Endi menga shu yerda yozing yoki ovozli xabar yuboring:\n"
+            "• «Bugun nimadan boshlay?»\n"
+            "• «Hamma vazifalarimni ko'rsat»\n"
+            "• «Eng muhim ishni ertaga 10:00 da eslat»\n\n"
+            "Men sizga maslahat beraman va eslatib turaman 💪"
+        )
+    else:
+        await callback.answer("🤖 AI Yordamchi o'chirildi")
+
+    # Sozlamalar menyusiga qaytamiz (yangilangan holat bilan)
+    try:
+        await callback.message.edit_text(
+            _build_settings_text(user),
+            reply_markup=settings_keyboard(user),
+        )
+    except Exception:
+        pass
+
+
 @router.callback_query(F.data == "settings:language")
 async def callback_settings_language(callback: CallbackQuery, user: User) -> None:
     """Til o'zgartirish menyusi"""
@@ -203,7 +269,6 @@ async def callback_settings_export(callback: CallbackQuery, user: User) -> None:
       • Umumiy   — foydalanuvchi ma'lumotlari va statistikasi
     """
     from io import BytesIO
-    from datetime import datetime
     from aiogram.types import BufferedInputFile
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -272,8 +337,8 @@ async def callback_settings_export(callback: CallbackQuery, user: User) -> None:
             task.description or "",
             task.status.value,
             task.priority.value,
-            task.deadline.strftime("%Y-%m-%d %H:%M") if task.deadline else "",
-            task.created_at.strftime("%Y-%m-%d %H:%M"),
+            task.deadline.astimezone(_TZ).strftime("%Y-%m-%d %H:%M") if task.deadline else "",
+            task.created_at.astimezone(_TZ).strftime("%Y-%m-%d %H:%M"),
         ])
 
     # Body row stillari
@@ -325,7 +390,7 @@ async def callback_settings_export(callback: CallbackQuery, user: User) -> None:
         (t("settings.export.summary.done", lang), done_count),
         (t("settings.export.summary.active", lang), active_count),
         (t("settings.export.summary.overdue", lang), overdue_count),
-        (t("settings.export.summary.exported_at", lang), datetime.now().strftime("%Y-%m-%d %H:%M")),
+        (t("settings.export.summary.exported_at", lang), datetime.now(_TZ).strftime("%Y-%m-%d %H:%M")),
     ]
     for row in summary_rows:
         ws2.append(row)
@@ -373,7 +438,7 @@ async def callback_task_comments(callback: CallbackQuery, user: User) -> None:
     
     if task.comments:
         for comment in task.comments[-10:]:
-            date = comment.created_at.strftime("%d.%m %H:%M")
+            date = comment.created_at.astimezone(_TZ).strftime("%d.%m %H:%M")
             author = comment.user.full_name if comment.user else "Noma'lum"
             text += f"👤 <b>{author}</b> <i>({date})</i>\n{comment.content}\n\n"
     else:
@@ -391,45 +456,216 @@ async def callback_task_comments(callback: CallbackQuery, user: User) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("task_media:"))
+async def callback_task_media(callback: CallbackQuery, bot: Bot) -> None:
+    """Vazifaga yuklangan barcha mediyalarni ko'rsatish"""
+    task_id = int(callback.data.split(":")[1])
+
+    async with get_session() as session:
+        att_res = await session.execute(
+            select(TaskAttachment)
+            .where(TaskAttachment.task_id == task_id)
+            .order_by(TaskAttachment.created_at)
+        )
+        attachments = att_res.scalars().all()
+
+    if not attachments:
+        await callback.answer("🖼 Mediyalar yo'q", show_alert=True)
+        return
+
+    await callback.answer()
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    back_kb = InlineKeyboardBuilder()
+    back_kb.button(text="🔙 Orqaga", callback_data=f"task_view:{task_id}")
+
+    # Sarlavha xabari
+    await callback.message.answer(
+        f"🖼 <b>Vazifa mediyalari</b> — {len(attachments)} ta fayl\n"
+        f"<i>Har birini bosib ko'rish/eshitish/yuklab olish mumkin</i>",
+    )
+
+    # Har bir mediyani alohida yuborish
+    for att in attachments:
+        date_str = att.created_at.astimezone(_TZ).strftime("%d.%m.%Y %H:%M") if att.created_at else ""
+        caption = f"📎 <b>{att.file_name or att.file_type}</b>"
+        if date_str:
+            caption += f"\n🕐 {date_str}"
+
+        try:
+            if att.file_id:
+                ftype = att.file_type
+                if ftype == "photo":
+                    await callback.message.answer_photo(att.file_id, caption=caption)
+                elif ftype == "video":
+                    await callback.message.answer_video(att.file_id, caption=caption)
+                elif ftype == "video_note":
+                    await callback.message.answer_video_note(att.file_id)
+                elif ftype == "voice":
+                    await callback.message.answer_voice(att.file_id, caption=caption)
+                elif ftype == "audio":
+                    await callback.message.answer_audio(att.file_id, caption=caption)
+                else:
+                    await callback.message.answer_document(att.file_id, caption=caption)
+            elif att.file_url:
+                full_url = f"https://webapp.taskbot.uz{att['file_url']}" if isinstance(att, dict) else f"https://webapp.taskbot.uz{att.file_url}"
+                await callback.message.answer(
+                    f"{caption}\n🔗 <a href='{full_url}'>Yuklab olish</a>"
+                )
+        except Exception as e:
+            logger.warning(f"Mediya yuborish xatosi (att_id={att.id}): {e}")
+            await callback.message.answer(f"⚠️ {att.file_name or 'Fayl'} yuborishda xatolik")
+
+    # Oxirida orqaga tugmasi
+    await callback.message.answer("⬆️ Barcha mediyalar yuborildi", reply_markup=back_kb.as_markup())
+
+
 @router.callback_query(F.data.startswith("task_comment_add:"))
 async def callback_task_comment_add(callback: CallbackQuery, state: FSMContext) -> None:
-    """Izoh qo'shish - matn so'rash"""
+    """Izoh qo'shish - matn yoki media so'rash"""
     task_id = int(callback.data.split(":")[1])
     await state.set_state(CommentStates.waiting_comment)
-    await state.update_data(task_id=task_id)
-    
+    await state.set_data({"task_id": task_id})
+
     await callback.message.edit_text(
-        "💬 <b>Izoh yozing:</b>\n\n"
+        "💬 <b>Izoh yozing yoki media yuboring:</b>\n\n"
+        "📝 Matn — oddiy izoh\n"
+        "🖼 Rasm + izoh — rasm bilan\n"
+        "🎬 Video + izoh — video bilan\n"
+        "⭕ Dumaloq video — video xabar\n"
+        "🎤 Ovozli xabar — audio bilan\n"
+        "📎 Fayl + izoh — fayl bilan\n\n"
         "<i>Maksimum 1000 belgi</i>",
         reply_markup=cancel_keyboard(),
     )
     await callback.answer()
 
 
+async def _save_media_attachment(bot: Bot, task_id: int, user_id: int,
+                                  session, file_id: str, ftype: str,
+                                  fname: str, mime: str, comment_text: str | None) -> str | None:
+    """Faylni yuklab TaskAttachment yaratadi. url qaytaradi."""
+    try:
+        tg_file = await bot.get_file(file_id)
+        safe_name = f"{task_id}_{int(datetime.now().timestamp())}_{fname.replace('/', '_')[:100]}"
+        file_path = ATTACH_DIR / safe_name
+        await bot.download_file(tg_file.file_path, destination=file_path)
+        file_size = file_path.stat().st_size
+
+        att = TaskAttachment(
+            task_id=task_id, user_id=user_id,
+            file_type=ftype, file_name=fname,
+            file_url=f"/uploads/{safe_name}",
+            file_id=file_id,
+            file_size=file_size, mime_type=mime,
+        )
+        session.add(att)
+        session.add(TaskHistory(
+            task_id=task_id, user_id=user_id, action="attachment_added",
+            new_value={"file_name": fname, "file_type": ftype, "comment": comment_text or ""},
+        ))
+        await session.flush()
+        return f"/uploads/{safe_name}"
+    except Exception as e:
+        logger.warning(f"Fayl yuklash xatosi: {e}")
+        return None
+
+
 @router.message(CommentStates.waiting_comment)
 async def process_comment(message: Message, state: FSMContext, user: User, bot: Bot) -> None:
-    """Izohni qabul qilish va saqlash"""
-    if not message.text:
-        await message.answer("❗ Iltimos, matn yuboring.")
-        return
-    
-    if len(message.text) > 1000:
-        await message.answer("❗ Izoh juda uzun. Maksimum 1000 belgi.")
-        return
-    
+    """Izohni qabul qilish — matn, rasm, video, dumaloq video, ovoz yoki fayl bilan"""
     data = await state.get_data()
     task_id = data.get("task_id")
-    
+
     if not task_id:
         await state.clear()
         await message.answer("❗ Xatolik. Qaytadan urining.", reply_markup=main_menu_keyboard())
         return
-    
-    async with get_session() as session:
-        comment = await TaskService.add_comment(
-            session, task_id, user.id, message.text
+
+    comment_text = None
+    file_info = None  # (file_id, ftype, fname, mime)
+    media_label = "Fayl"
+
+    if message.text:
+        if len(message.text) > 1000:
+            await message.answer("❗ Izoh juda uzun. Maksimum 1000 belgi.")
+            return
+        comment_text = message.text
+
+    elif message.photo:
+        photo = message.photo[-1]
+        file_info = (photo.file_id, "photo", f"photo_{photo.file_unique_id}.jpg", "image/jpeg")
+        comment_text = (message.caption or "").strip()[:1000] or None
+        media_label = "🖼 Rasm"
+
+    elif message.video:
+        v = message.video
+        fname = v.file_name or f"video_{v.file_unique_id}.mp4"
+        file_info = (v.file_id, "video", fname, v.mime_type or "video/mp4")
+        comment_text = (message.caption or "").strip()[:1000] or None
+        media_label = "🎬 Video"
+
+    elif message.video_note:
+        # Dumaloq video
+        vn = message.video_note
+        fname = f"videonote_{vn.file_unique_id}.mp4"
+        file_info = (vn.file_id, "video_note", fname, "video/mp4")
+        comment_text = None
+        media_label = "⭕ Dumaloq video"
+
+    elif message.voice:
+        v = message.voice
+        dur = v.duration or 0
+        fname = f"voice_{v.file_unique_id}.ogg"
+        file_info = (v.file_id, "voice", fname, v.mime_type or "audio/ogg")
+        comment_text = (message.caption or "").strip()[:1000] or None
+        media_label = f"🎤 Ovozli xabar ({dur}s)"
+
+    elif message.audio:
+        a = message.audio
+        fname = a.file_name or f"audio_{a.file_unique_id}.mp3"
+        file_info = (a.file_id, "voice", fname, a.mime_type or "audio/mpeg")
+        comment_text = (message.caption or "").strip()[:1000] or None
+        media_label = "🎵 Audio"
+
+    elif message.document:
+        d = message.document
+        fname = d.file_name or f"file_{d.file_unique_id}"
+        mime = d.mime_type or "application/octet-stream"
+        if mime.startswith("image/"):
+            ftype = "photo"
+        elif mime.startswith("video/"):
+            ftype = "video"
+        elif mime.startswith("audio/"):
+            ftype = "voice"
+        else:
+            ftype = "document"
+        file_info = (d.file_id, ftype, fname, mime)
+        comment_text = (message.caption or "").strip()[:1000] or None
+        media_label = f"📎 {fname}"
+
+    else:
+        await message.answer(
+            "❗ Quyidagilardan birini yuboring:\n"
+            "📝 Matn · 🖼 Rasm · 🎬 Video · ⭕ Dumaloq video · 🎤 Ovoz · 📎 Fayl"
         )
-        
+        return
+
+    if not comment_text and not file_info:
+        await message.answer("❗ Iltimos, matn yoki media yuboring.")
+        return
+
+    async with get_session() as session:
+        if file_info:
+            fid, ftype, fname, mime = file_info
+            await _save_media_attachment(
+                bot, task_id, user.id, session,
+                fid, ftype, fname, mime, comment_text
+            )
+
+        comment_content = comment_text or f"📎 {media_label}"
+        await TaskService.add_comment(session, task_id, user.id, comment_content)
+
         task = await TaskService.get_task(session, task_id)
         if task:
             try:
@@ -437,15 +673,20 @@ async def process_comment(message: Message, state: FSMContext, user: User, bot: 
                 for a in task.assignments:
                     recipient_ids.add(a.user_id)
                 await NotificationService.notify_new_comment(
-                    bot, session, task, user.full_name, message.text,
+                    bot, session, task, user.full_name, comment_content,
                     recipient_ids=recipient_ids,
                 )
             except Exception as e:
                 logger.warning(f"Izoh notification xatosi: {e}")
-    
+
     await state.clear()
+    emoji = "🖼" if file_info and file_info[1] == "photo" else \
+            "🎬" if file_info and file_info[1] == "video" else \
+            "⭕" if file_info and file_info[1] == "video_note" else \
+            "🎤" if file_info and file_info[1] == "voice" else \
+            "📎" if file_info else "💬"
     await message.answer(
-        "✅ Izoh qo'shildi!",
+        f"✅ {emoji} {'Media va izoh' if file_info else 'Izoh'} qo'shildi!",
         reply_markup=back_to_menu_keyboard(),
     )
 
@@ -475,20 +716,41 @@ async def callback_task_history(callback: CallbackQuery) -> None:
         return
     
     text = f"📝 <b>Vazifa tarixi</b> (oxirgi 20 ta)\n\n"
-    
+
     action_names = {
         "created": "📝 Yaratildi",
         "status_changed": "🔄 Status o'zgardi",
+        "assignment_status_changed": "🔄 Shaxsiy status o'zgardi",
+        "my_status_changed": "🔄 Shaxsiy status o'zgardi",
         "assigned": "👤 Biriktirildi",
         "comment_added": "💬 Izoh qo'shildi",
+        "attachment_added": "📎 Fayl qo'shildi",
+        "title_changed": "✏️ Nomi o'zgartirildi",
         "deadline_changed": "⏰ Deadline o'zgardi",
     }
-    
+
+    status_labels = {
+        "new": "🆕 Yangi",
+        "in_progress": "⚙️ Jarayonda",
+        "review": "🔍 Ko'rib chiqilmoqda",
+        "done": "✅ Bajarildi",
+        "overdue": "⏰ Kechikdi",
+        "cancelled": "🚫 Bekor qilindi",
+        "pending": "⏳ Kutilmoqda",
+        "blocked": "⛔ To'xtatilgan",
+    }
+
     for h in history:
-        date = h.created_at.strftime("%d.%m.%Y %H:%M")
+        date = h.created_at.astimezone(_TZ).strftime("%d.%m.%Y %H:%M")
         action = action_names.get(h.action, h.action)
         author = h.user.full_name if h.user else "Tizim"
-        text += f"{action}\n<i>{date} - {author}</i>\n\n"
+        # Yangi status qiymatini ko'rsatamiz (masalan: → ⚙️ Jarayonda)
+        detail = ""
+        nv = h.new_value if isinstance(h.new_value, dict) else {}
+        st = nv.get("status") or nv.get("assignment_status")
+        if st:
+            detail = f" → <b>{status_labels.get(st, st)}</b>"
+        text += f"{action}{detail}\n<i>{date} - {author}</i>\n\n"
     
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     builder = InlineKeyboardBuilder()
@@ -673,8 +935,7 @@ async def process_edit_deadline_skip(message: Message, state: FSMContext, user: 
 async def process_edit_deadline(message: Message, state: FSMContext, user: User) -> None:
     """Yangi deadline saqlash"""
     from utils.helpers import parse_datetime
-    from datetime import datetime
-    
+
     if not message.text:
         await message.answer("❗ Iltimos, sana kiriting.")
         return
@@ -688,8 +949,8 @@ async def process_edit_deadline(message: Message, state: FSMContext, user: User)
             "• <code>25.04.2026</code>"
         )
         return
-    
-    if deadline < datetime.now():
+
+    if deadline < datetime.now(_TZ):
         await message.answer("❗ Deadline o'tib ketgan sana bo'lmasligi kerak.")
         return
     
@@ -719,8 +980,8 @@ async def callback_edit_priority(callback: CallbackQuery) -> None:
     builder = InlineKeyboardBuilder()
     builder.button(text="🟢 Past", callback_data=f"set_priority:{task_id}:low")
     builder.button(text="🟡 O'rta", callback_data=f"set_priority:{task_id}:medium")
-    builder.button(text="🟠 Yuqori", callback_data=f"set_priority:{task_id}:high")
-    builder.button(text="🔴 Juda muhim", callback_data=f"set_priority:{task_id}:urgent")
+    builder.button(text="🟠 Muhum", callback_data=f"set_priority:{task_id}:high")
+    builder.button(text="🔴 Juda muhum", callback_data=f"set_priority:{task_id}:urgent")
     builder.button(text="🔙 Orqaga", callback_data=f"task_edit:{task_id}")
     builder.adjust(2, 2, 1)
     
@@ -745,7 +1006,7 @@ async def callback_set_priority(callback: CallbackQuery, user: User) -> None:
         if task:
             task.priority = Priority(new_priority)
     
-    priority_names = {"low": "🟢 Past", "medium": "🟡 O'rta", "high": "🟠 Yuqori", "urgent": "🔴 Juda muhim"}
+    priority_names = {"low": "🟢 Past", "medium": "🟡 O'rta", "high": "🟠 Muhum", "urgent": "🔴 Juda muhum"}
     await callback.message.edit_text(
         f"✅ Muhimlik o'zgartirildi: <b>{priority_names.get(new_priority, new_priority)}</b>",
         reply_markup=back_to_menu_keyboard(),
@@ -789,6 +1050,21 @@ async def callback_filter_tasks(callback: CallbackQuery, user: User) -> None:
 
 # ===== Umumiy buyruqlar =====
 
+@router.callback_query(F.data == "cancel")
+async def cb_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    """Inline 'Bekor qilish' tugmasi — xatosiz bekor qiladi"""
+    await state.clear()
+    try:
+        await callback.message.delete()
+    except Exception:
+        # O'chira olmasak — xabarni yangilaymiz
+        try:
+            await callback.message.edit_text("❌ Bekor qilindi.")
+        except Exception:
+            pass
+    await callback.answer("❌ Bekor qilindi")
+
+
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
     """Joriy amalni bekor qilish"""
@@ -796,24 +1072,38 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
     if current_state is None:
         await message.answer("ℹ️ Bekor qilinadigan amal yo'q.")
         return
-    
+
     await state.clear()
-    await message.answer(
-        "❌ Amal bekor qilindi.",
-        reply_markup=main_menu_keyboard(),
-    )
+    # Guruh chatida WebApp tugmali klaviatura ishlamaydi (BUTTON_TYPE_INVALID)
+    if message.chat.type in ("group", "supergroup"):
+        await message.answer("❌ Amal bekor qilindi.")
+    else:
+        await message.answer("❌ Amal bekor qilindi.", reply_markup=main_menu_keyboard())
 
 
 @router.message(F.text & ~F.text.startswith("/"))
-async def fallback_text(message: Message, state: FSMContext) -> None:
-    """Noma'lum matnlarga javob"""
+async def fallback_text(message: Message, state: FSMContext, user: User = None) -> None:
+    """Noma'lum matnlarga javob.
+
+    Agar foydalanuvchiga AI yoqilgan bo'lsa — matnni AI maslahatchiga yo'naltiramiz.
+    Aks holda oddiy 'tushunmadim' javobi.
+    """
     current_state = await state.get_state()
     if current_state is not None:
         return
-    
+
     if message.chat.type in ("group", "supergroup"):
         return
-    
+
+    # 🤖 AI yoqilgan bo'lsa — maslahatchiga yo'naltiramiz
+    if user is not None and getattr(user, "ai_enabled", False):
+        try:
+            from handlers.ai_handler import _process_ai_response
+            await _process_ai_response(message, user, message.text)
+            return
+        except Exception as e:
+            logger.error(f"AI fallback xatosi: {e}")
+
     await message.answer(
         "🤔 Buyruqni tushunmadim.\n\n"
         "Yordam uchun /help yoki asosiy menyu uchun /start yuboring.",

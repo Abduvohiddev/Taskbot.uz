@@ -7,10 +7,13 @@ import os
 import tempfile
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from groq import AsyncGroq
 
 from config import settings
+
+_TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +114,50 @@ MUHIM QOIDALAR:
 """
 
 
+# AI MASLAHATCHI — faqat yo'l-yo'riq beradi, o'zi vazifa qilmaydi, lekin eslatma qo'ya oladi
+CONSULT_SYSTEM_PROMPT = """Siz "TaskBot Yordamchi" — foydalanuvchining shaxsiy AI maslahatchisisiz.
+Foydalanuvchi o'zbek, rus yoki aralash tilda yozishi mumkin — SIZ DOIM TABIIY, JONLI O'ZBEK TILIDA javob berasiz.
+
+SIZNING XARAKTERINGIZ:
+- Iliq, do'stona, motivatsion. Foydalanuvchini ruhlantirasiz, qo'llab-quvvatlaysiz.
+- Siz uning BARCHA vazifalaridan xabardorsiz (pastda ro'yxat beriladi).
+- Maslahat berasiz: nimadan boshlash, qanday tartibda qilish, qaysi biri shoshilinch.
+
+MUHIM CHEGARA — SIZ O'ZINGIZ ISH QILMAYSIZ:
+- Vazifa YARATMAYSIZ, O'CHIRMAYSIZ, STATUSINI O'ZGARTIRMAYSIZ.
+- Agar foydalanuvchi "buni bajarib qo'y", "vazifa yarat", "statusini o'zgartir" desa —
+  muloyimlik bilan tushuntiring: siz faqat yo'l-yo'riq ko'rsatasiz, ishni o'zi qilishi kerak.
+  Masalan: "Men o'zim vazifa bajara olmayman, lekin sizga qanday qilishni aytib beraman 😊"
+
+FAQAT JSON qaytaring (boshqa hech narsa yozmang):
+
+1. MASLAHAT / SUHBAT / MOTIVATSIYA:
+{"action":"reply","text":"o'zbekcha jonli javob"}
+
+2. ESLATMA QO'YISH — foydalanuvchi "buni palon vaqtda eslat", "ertaga 15:00 da eslat" desa:
+{"action":"set_reminder","task_ref":"vazifa nomi yoki ID yoki null","remind_at":"YYYY-MM-DD HH:MM","text":"nimani eslatish kerakligi qisqacha"}
+
+ESLATMA QOIDALARI:
+- remind_at da SANA va VAQT IKKALASI ham bo'lsin (HH:MM majburiy)
+- "hozir", "hoziroq", "darrov", "shu zahoti", "hozir eslat" → remind_at = HOZIRGI VAQT (kontekstdagi vaqt). Vaqt SO'RAMANG — darrov eslatma qiling!
+- "5 daqiqadan keyin", "1 soatdan so'ng" → hozirgi vaqtga qo'shib hisoblang
+- Faqat vaqt aytilsa (masalan "soat 15:00 da eslat") — bugungi yoki keyingi mos sanani qo'ying
+- "ertaga 9:00" → ertangi sana 09:00
+- Agar vaqt umuman aytilmasa VA "hozir" ham demasa — reply bilan "Soat nechada eslatay?" deb so'rang
+- task_ref ni ro'yxatdagi mos vazifa nomidan toping; topilmasa null qoldiring
+
+3. VAZIFALARNI KO'RSATISH — foydalanuvchi "vazifalarimni ko'rsat", "hamma vazifalarimni hozir eslat",
+   "nima ishlarim bor" desa — reply ichida vazifalar ro'yxatini CHIROYLI yozib bering.
+   HAR BIR VAZIFANI ID RAQAMI BILAN ko'rsating (kontekstdagi "ID:..." dan oling):
+{"action":"reply","text":"📋 Sizning vazifalaringiz:\\n\\n• <b>#123 Nomi</b> — holati, muhimlik, deadline\\n• <b>#6 Boshqa nomi</b> — ...\\n..."}
+   ID MAJBURIY — har bir vazifa oldida #ID yozing. Shoshilinch/kechikkanlarini tepaga qo'ying.
+
+USLUB:
+- Qisqa, aniq, samimiy. Emoji ishlatishingiz mumkin (kam-kam).
+- Hech qachon yolg'on ma'lumot bermang — faqat berilgan vazifalar asosida gapiring.
+"""
+
+
 class AIService:
 
     @staticmethod
@@ -144,7 +191,7 @@ class AIService:
         if not client:
             return {"action": "reply", "text": "AI xizmati sozlanmagan."}
 
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        now = datetime.now(_TZ).strftime("%Y-%m-%d %H:%M")
         system_full = SYSTEM_PROMPT + f"\n\nHozirgi vaqt: {now}\nFoydalanuvchi: {user_name}"
 
         messages = [{"role": "system", "content": system_full}]
@@ -189,7 +236,7 @@ class AIService:
         if not client:
             return {"action": "reply", "text": "AI xizmati sozlanmagan."}
 
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        now = datetime.now(_TZ).strftime("%Y-%m-%d %H:%M")
 
         # Vazifalar ro'yxatini kontekst sifatida qo'shamiz
         STATUS_UZ = {
@@ -256,4 +303,83 @@ class AIService:
             return {"action": "reply", "text": content}
         except Exception as e:
             logger.error(f"AI (context) xatosi: {e}")
+            return {"action": "reply", "text": "Xatolik yuz berdi. Qaytadan urining."}
+
+    @staticmethod
+    async def consult_message(
+        text: str,
+        user_name: str,
+        tasks_ctx: list,
+        stats_ctx: dict,
+        history: list,
+    ) -> dict:
+        """AI MASLAHATCHI — faqat yo'l-yo'riq + eslatma. Vazifa qilmaydi."""
+        client = AIService.get_client()
+        if not client:
+            return {"action": "reply", "text": "AI xizmati sozlanmagan."}
+
+        now = datetime.now(_TZ).strftime("%Y-%m-%d %H:%M (%A)")
+
+        STATUS_UZ = {
+            "new": "Yangi", "in_progress": "Jarayonda", "done": "Bajarildi",
+            "overdue": "Kechikdi", "review": "Ko'rilmoqda", "cancelled": "Bekor",
+        }
+        PRIORITY_UZ = {"low": "Past", "medium": "O'rta", "high": "Yuqori", "urgent": "Muhim"}
+
+        task_lines = []
+        for t in tasks_ctx[:60]:
+            st = STATUS_UZ.get(t.get("status", ""), t.get("status", ""))
+            pr = PRIORITY_UZ.get(t.get("priority", ""), t.get("priority", ""))
+            role = ""
+            if t.get("is_responsible") is True:
+                role = " | ⭐mas'ul"
+            elif t.get("is_responsible") is False:
+                role = " | 👁kuzatuvchi"
+            dl = ""
+            if t.get("deadline"):
+                dl = " | deadline:" + str(t["deadline"])[:16]
+            task_lines.append(f"ID:{t['id']} | {t['title']} | {st} | {pr}{dl}{role}")
+
+        stats_line = (
+            f"Jami: {stats_ctx.get('total', 0)}, Bajarildi: {stats_ctx.get('done', 0)}, "
+            f"Jarayonda: {stats_ctx.get('in_progress', 0)}, Yangi: {stats_ctx.get('new', 0)}, "
+            f"Kechikdi: {stats_ctx.get('overdue', 0)}"
+        )
+
+        context_block = (
+            f"Hozirgi vaqt: {now}\n"
+            f"Foydalanuvchi: {user_name}\n"
+            f"Statistika: {stats_line}\n\n"
+            f"Vazifalar ({len(task_lines)} ta):\n"
+            + ("\n".join(task_lines) if task_lines else "Hozircha vazifa yo'q")
+        )
+
+        system_content = CONSULT_SYSTEM_PROMPT + "\n\n---\n" + context_block
+
+        messages = [{"role": "system", "content": system_content}]
+        for h in history[-8:]:
+            role = h.get("role", "user")
+            if role in ("user", "assistant"):
+                messages.append({"role": role, "content": h["content"]})
+        messages.append({"role": "user", "content": text})
+
+        try:
+            response = await client.chat.completions.create(
+                model="llama-3.1-8b-instant",   # tezkor model — past latency
+                messages=messages,
+                temperature=0.5,
+                max_tokens=600,
+            )
+            content = response.choices[0].message.content.strip()
+            if content.startswith("{"):
+                return json.loads(content)
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start >= 0 and end > start:
+                return json.loads(content[start:end])
+            return {"action": "reply", "text": content}
+        except json.JSONDecodeError:
+            return {"action": "reply", "text": content}
+        except Exception as e:
+            logger.error(f"AI (consult) xatosi: {e}")
             return {"action": "reply", "text": "Xatolik yuz berdi. Qaytadan urining."}

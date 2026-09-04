@@ -432,17 +432,28 @@ async def cmd_join_company(message: Message) -> None:
         if not db_user:
             return
 
-        # GroupMember
+        # Allaqachon a'zo ekanligini tekshiramiz
         existing_gm = await session.execute(
             select(GroupMember).where(
                 GroupMember.group_id == group.id,
                 GroupMember.user_id == db_user.id,
             )
         )
-        if not existing_gm.scalar_one_or_none():
-            await GroupService.add_member(session, group.id, db_user.id, UserRole.EXECUTOR)
+        already_member = existing_gm.scalar_one_or_none() is not None
 
-        # CompanyMember
+        if already_member:
+            await session.commit()
+            await message.answer(
+                f"ℹ️ <b>{message.from_user.full_name}</b>, siz allaqachon "
+                f"<b>{group.name}</b> jamoasining a'zosisiz.",
+                parse_mode="HTML",
+            )
+            return
+
+        # GroupMember qo'shamiz
+        await GroupService.add_member(session, group.id, db_user.id, UserRole.EXECUTOR)
+
+        # CompanyMember qo'shamiz
         if group.company_id:
             await _sync_member_to_company(session, group.company_id, db_user.id, CompanyRole.MEMBER)
 

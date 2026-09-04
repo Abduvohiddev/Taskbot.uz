@@ -51,6 +51,7 @@ services:
         condition: service_healthy
     volumes:
       - ./logs:/app/logs
+      - ./hr_uploads:/app/hr_uploads
     ports:
       - "8080:8080"
     networks:

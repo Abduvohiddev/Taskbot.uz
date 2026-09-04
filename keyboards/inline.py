@@ -42,11 +42,12 @@ def main_menu_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
     builder.button(text=t("menu.overdue", lang), callback_data="menu:overdue")
     builder.button(text=t("menu.companies", lang), callback_data="menu:companies")
     builder.button(text=t("menu.groups", lang), callback_data="menu:groups")
-    builder.button(text="📨 Taklif havolasi", callback_data="menu:invite")
+    builder.button(text=t("menu.feedback", lang), callback_data="menu:feedback")
+    builder.button(text="🔗 Do'stni taklif qilish", callback_data="menu:invite")
     builder.button(text=t("menu.settings", lang), callback_data="menu:settings")
 
-    # WebApp + 2x2 + 2 + 1 + 1
-    builder.adjust(1, 2, 2, 2, 1, 1)
+    # WebApp + 2x2 + 2 + 1 + 1 + 1
+    builder.adjust(1, 2, 2, 2, 1, 1, 1)
     return builder.as_markup()
 
 
@@ -205,18 +206,19 @@ def task_actions_keyboard(
     user_role: UserRole,
     is_assignee: bool = False,
     user_assignment=None,   # TaskAssignment | None
+    is_creator: bool = False,
 ) -> InlineKeyboardMarkup:
-    """Vazifa amallari - rolga qarab tugmalar.
+    """Vazifa amallari — rollarga qat'iy bo'lingan:
 
-    Statusni o'zgartirish huquqi FAQAT masul (is_responsible=True) ijrochilarda.
-    Har bir masul ijrochi faqat O'Z shaxsiy statusini o'zgartiradi:
-      new → in_progress  (▶️ Ishga kirishish)
-      in_progress → done (✅ Bajarildi)
-    Barcha masul ijrochilar 'done' belgilasa — vazifa avtomatik yakunlanadi.
+      • MAS'UL (is_responsible=True) → statusni o'zgartiradi
+        (Ishga kirishish / Bajarildi / Qayta ochish)
+      • YARATUVCHI (creator) → vazifani tahrirlaydi yoki O'CHIRADI;
+        statusni o'zgartira olmaydi (faqat mas'ul qiladi)
+      • KUZATUVCHI → statusni o'zgartira olmaydi, hech qaysi amal tugmasi yo'q
     """
     builder = InlineKeyboardBuilder()
 
-    # --- Shaxsiy status tugmalari (faqat masul ijrochilar uchun) ---
+    # --- Status tugmalari: faqat MAS'UL ijrochilar uchun ---
     if user_assignment and user_assignment.is_responsible:
         assign_status = user_assignment.status or "new"
         if task.status not in (TaskStatus.DONE, TaskStatus.CANCELLED):
@@ -230,24 +232,32 @@ def task_actions_keyboard(
                     text="✅ Bajarildi deb belgilash",
                     callback_data=f"my_assign_status:{task.id}:done",
                 )
+            elif assign_status == "review":
+                # Yaratuvchi tasdig'i kutilmoqda
+                builder.button(
+                    text="⏳ Yaratuvchi tasdig'i kutilmoqda",
+                    callback_data=f"appr_wait:{task.id}",
+                )
+                builder.button(
+                    text="↩️ Qaytarib olish (qayta ishlash)",
+                    callback_data=f"my_assign_status:{task.id}:in_progress",
+                )
             elif assign_status == "done":
                 builder.button(
                     text="↩️ Qayta ochish",
                     callback_data=f"my_assign_status:{task.id}:in_progress",
                 )
 
-    # Admin/Manager: vazifani majburiy yakunlash yoki bekor qilish
-    if user_role in (UserRole.ADMIN, UserRole.MANAGER):
-        if task.status not in (TaskStatus.DONE, TaskStatus.CANCELLED):
-            builder.button(
-                text="⛔ Bekor qilish",
-                callback_data=f"task_status:{task.id}:cancelled",
-            )
-        if task.status == TaskStatus.DONE:
-            builder.button(
-                text="🔄 Qayta ochish",
-                callback_data=f"task_status:{task.id}:in_progress",
-            )
+    # --- YARATUVCHI uchun: review holatida tasdiqlash/rad etish ---
+    if is_creator and task.status == TaskStatus.REVIEW:
+        resp_id = None
+        for a in (getattr(task, "assignments", None) or []):
+            if a.is_responsible and (a.status or "") == "review":
+                resp_id = a.user_id
+                break
+        if resp_id:
+            builder.button(text="✅ Tasdiqlash (yopish)", callback_data=f"appr:ok:{task.id}:{resp_id}")
+            builder.button(text="❌ Rad etish (qaytarish)", callback_data=f"appr:no:{task.id}:{resp_id}")
 
     builder.button(text="💬 Izohlar", callback_data=f"task_comments:{task.id}")
     builder.button(text="📝 Tarix", callback_data=f"task_history:{task.id}")
@@ -260,16 +270,17 @@ def task_actions_keyboard(
             callback_data=f"task_media:{task.id}",
         )
 
-    # Sub-task tugmalari
+    # Sub-task ro'yxati — hammaga ko'rinadi
     if task.subtasks:
         builder.button(
             text=f"📂 Sub-tasklar ({len(task.subtasks)})",
             callback_data=f"subtask_list:{task.id}",
         )
-    if user_role in (UserRole.ADMIN, UserRole.MANAGER) and not task.parent_id:
-        builder.button(text="📂➕ Sub-task qo'shish", callback_data=f"subtask_add:{task.id}")
 
-    if user_role in (UserRole.ADMIN, UserRole.MANAGER):
+    # YARATUVCHI uchun: sub-task qo'shish, tahrirlash, o'chirish
+    if is_creator:
+        if not task.parent_id:
+            builder.button(text="📂➕ Sub-task qo'shish", callback_data=f"subtask_add:{task.id}")
         builder.button(text="✏️ Tahrirlash", callback_data=f"task_edit:{task.id}")
         builder.button(text="🗑 O'chirish", callback_data=f"task_delete:{task.id}")
 
@@ -367,6 +378,11 @@ def settings_keyboard(user: User) -> InlineKeyboardMarkup:
 
     notif_key = "settings.btn.notif_on" if user.notifications_enabled else "settings.btn.notif_off"
     builder.button(text=t(notif_key, lang), callback_data="settings:toggle_notif")
+
+    # 🤖 AI Yordamchi — har bir foydalanuvchi o'zi yoqib/o'chiradi
+    ai_on = getattr(user, "ai_enabled", False)
+    ai_btn = "🤖 AI Yordamchi: ✅ Yoqilgan" if ai_on else "🤖 AI Yordamchi: ⚪️ O'chiq"
+    builder.button(text=ai_btn, callback_data="settings:toggle_ai")
 
     lang_emoji = {"uz": "🇺🇿", "ru": "🇷🇺", "en": "🇬🇧"}.get(lang, "🌐")
     builder.button(

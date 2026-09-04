@@ -5,6 +5,55 @@
 const tg = window.Telegram?.WebApp;
 const API_BASE = '/api';
 
+const IC = {
+    new:        `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
+    progress:   `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
+    review:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    done:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>`,
+    overdue:    `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+    cancelled:  `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
+    fire:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 01-7 7 6.998 6.998 0 01-6-3.49M14.5 18.5a2.5 2.5 0 01-5 0"/></svg>`,
+    clock:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+    play:       `<svg class="ic" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+    check:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>`,
+    xmark:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    send:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+    attach:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>`,
+    star:       `<svg class="ic" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+    eye:        `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    refresh:    `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>`,
+    low:        `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>`,
+    medium:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+    high:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>`,
+    urgent:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    plus:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+    step:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>`,
+    file:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+    pause:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`,
+    circle:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>`,
+    copy:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`,
+    share:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`,
+    user:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+    calendar:   `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
+    comment:    `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>`,
+    building:   `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>`,
+    team:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>`,
+    bolt:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+    pin:        `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
+    edit:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+    folder:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>`,
+    chart:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+    trend:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>`,
+    clipboard:  `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
+    flag:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`,
+    puzzle:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.24 12.24a6 6 0 00-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>`,
+    donut:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg>`,
+    upload:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>`,
+    image:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`,
+    shield:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+    crown:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20h20M5 20l2-8 5 4 5-4 2 8"/><circle cx="5" cy="10" r="1" fill="currentColor"/><circle cx="12" cy="6" r="1" fill="currentColor"/><circle cx="19" cy="10" r="1" fill="currentColor"/></svg>`,
+};
+
 /**
  * URL dagi ?token= parametrini bir marta o'qib saqlaymiz.
  * Telegram Desktop da initData bo'lmaganda fallback sifatida ishlatiladi.
@@ -112,10 +161,73 @@ async function setAppLanguage(lang) {
         const data = await res.json();
         I18N.lang = data.lang;
         I18N.dict = data.translations || {};
+
+        // 1) data-i18n atributli statik elementlar
         applyI18n();
-        if (typeof showToast === 'function') showToast(tr('common.success'));
+
+        // 2) Til tugmalarini yangilash
+        document.querySelectorAll('.lang-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.lang === I18N.lang);
+        });
+
+        // 3) Barcha dinamik kontentni qayta render qilamiz
+        await reRenderAllUI();
+
+        if (typeof showToast === 'function') showToast(tr('common.success') || '✓');
     } catch (e) {
         console.warn('set lang failed:', e);
+        if (typeof showToast === 'function') showToast('❌ ' + e.message);
+    }
+}
+
+/** Til o'zgargandan keyin butun UI ni qayta render qilish.
+ * Bu funksiya statistikalar, vazifa kartochkalari, modal kontentni
+ * va boshqa dinamik joylarni yangi tilda yangilaydi.
+ */
+async function reRenderAllUI() {
+    try {
+        // Header sarlavhasi (faol tab nomi)
+        const titleMap = {
+            tasks:    tr('app.tab.tasks')    || 'Vazifalar',
+            calendar: tr('app.tab.calendar') || 'Kalendar',
+            create:   tr('app.tab.create')   || 'Yangi vazifa',
+            stats:    tr('app.tab.stats')    || 'Statistika',
+            hujjatlar: tr('app.tab.docs')    || 'Hujjatlarim',
+        };
+        const activeTab = document.querySelector('.tab-pane.active')?.id?.replace('tab-', '');
+        const hTitle = document.getElementById('header-title');
+        if (hTitle && titleMap[activeTab]) hTitle.textContent = titleMap[activeTab];
+
+        // Vazifalar ro'yxati va statistika — yangi til bilan API'dan tortib olamiz
+        // (status badge va boshqa matnlar i18n bilan)
+        if (typeof renderTasks === 'function') renderTasks();
+
+        // Kartochka stats raqamlari uchun yangi labellar
+        if (allTasks && typeof updateQuickStats === 'function') {
+            try {
+                const stats = await apiRequest(`/stats?company_id=${currentWorkspaceId}`);
+                updateQuickStats(stats);
+                if (typeof updateStatsTab === 'function') updateStatsTab(stats);
+            } catch {}
+        }
+
+        // Calendar
+        if (typeof renderCalendar === 'function') renderCalendar();
+
+        // Statistika sahifasi (faol bo'lmasa ham labellarni yangilash uchun)
+        if (typeof renderStatsCharts === 'function') {
+            try { renderStatsCharts(_statsLastData); } catch {}
+        }
+
+        // Hujjatlar (employee) sahifasi ochiq bo'lsa
+        if (typeof empRender === 'function' && window._empAssignments) {
+            try { empRender(window._empAssignments); } catch {}
+        }
+
+        // Ochiq modal bo'lsa — yopib qayta ochish kerak emas, lekin matnlar yangilanmasligi mumkin
+        // Foydalanuvchi modalni yopib qaytadan ochsa hammasi yangi tilda chiqadi
+    } catch (e) {
+        console.warn('reRenderAllUI failed:', e);
     }
 }
 let currentFilter = 'active';
@@ -124,8 +236,8 @@ let currentTaskId = null;
 // Sub-task mode state
 let _subtaskParentId    = null;
 let _subtaskParentTitle = null;
-let currentWorkspaceId = 'personal';
-let currentWorkspaceName = 'Shaxsiy';
+let currentWorkspaceId = 'all';
+let currentWorkspaceName = 'Hammasi';
 let companyMembers = [];
 let selectedAssigneeIds = [];
 let externalAssignees = [];      // [{id,name,role,group_id,group_name}] — boshqa guruhdan
@@ -141,23 +253,173 @@ let overdueChart = null;
 let calendarDate = new Date();   // currently viewed month
 let selectedCalDate = null;      // 'YYYY-MM-DD' string
 
+// ===== Theme =====
+const APP_MOON_SVG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>`;
+const APP_SUN_SVG  = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`;
+
+function appApplyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const btn = document.getElementById('app-theme-btn');
+    if (btn) {
+        btn.innerHTML = theme === 'light' ? APP_MOON_SVG : APP_SUN_SVG;
+        btn.title = theme === 'light' ? "Qorong'i rejim" : "Yorug' rejim";
+    }
+    if (tg) {
+        const bgColor = theme === 'light' ? '#f4f4f9' : '#0A0A14';
+        try { tg.setHeaderColor(bgColor); } catch(e) {}
+        try { tg.setBackgroundColor(bgColor); } catch(e) {}
+    }
+}
+
+function appToggleTheme() {
+    const current = localStorage.getItem('app_theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('app_theme', next);
+    appApplyTheme(next);
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+}
+
+// ============================================================
+//  SILENT REFRESH + AUTO POLLING + MANUAL BUTTON
+// ============================================================
+let _refreshing = false;
+let _autoRefreshInterval = null;
+const AUTO_REFRESH_MS = 10000;   // 10 soniya
+
+// Vazifalar ro'yxati uchun "barmoq izi" — o'zgarish borligini aniqlash uchun
+function _tasksFingerprint(tasks) {
+    return (tasks || [])
+        .map(t => `${t.id}:${t.status}:${t.priority}:${t.completed_at||''}:${t.updated_at||t.created_at||''}:${(t.assignees||[]).map(a=>a.id+'/'+a.status+'/'+(a.is_responsible?'1':'0')).join(',')}:${(t.comments_count||0)}:${(t.attachments_count||0)}`)
+        .join('|');
+}
+let _lastTasksFingerprint = '';
+let _lastStatsFingerprint = '';
+
+async function silentRefresh(opts = {}) {
+    if (_refreshing) return;
+    _refreshing = true;
+    const { showToastOnNew = false, showSpinner = false, force = false } = opts;
+    const btn = document.getElementById('app-refresh-btn');
+    if (showSpinner && btn) btn.classList.add('refreshing');
+    try {
+        const [tasksData, statsData] = await Promise.all([
+            apiRequest(`/tasks?company_id=${currentWorkspaceId}`),
+            apiRequest(`/stats?company_id=${currentWorkspaceId}`),
+        ]);
+        const prevIds = new Set(allTasks.map(t => t.id));
+        const newTasks = tasksData.tasks || [];
+        const added = newTasks.filter(t => !prevIds.has(t.id)).length;
+
+        // Diff tekshiruvi — agar hech narsa o'zgarmagan bo'lsa, render qilmaymiz
+        const newFp = _tasksFingerprint(newTasks);
+        const newStatsFp = JSON.stringify(statsData || {});
+        const tasksChanged = force || newFp !== _lastTasksFingerprint;
+        const statsChanged = force || newStatsFp !== _lastStatsFingerprint;
+
+        allTasks = newTasks;
+
+        if (statsChanged) {
+            _lastStatsFingerprint = newStatsFp;
+            try { updateQuickStats(statsData); } catch(e){}
+            try { updateStatsTab(statsData); } catch(e){}
+        }
+
+        if (tasksChanged) {
+            _lastTasksFingerprint = newFp;
+            try { renderTasks(); } catch(e){}
+            try { renderCalendar?.(); } catch(e){}
+        }
+
+        if (showToastOnNew && added > 0) {
+            showToast(`📥 ${added} ta yangi vazifa`);
+            if (tg) tg.HapticFeedback?.notificationOccurred('success');
+        }
+    } catch (e) {
+        console.warn('silentRefresh:', e?.message || e);
+    } finally {
+        _refreshing = false;
+        if (showSpinner && btn) setTimeout(() => btn.classList.remove('refreshing'), 400);
+    }
+}
+
+async function manualRefresh() {
+    FX.refresh();
+    await silentRefresh({ showSpinner: true });
+    showToast('✓ Yangilandi');
+}
+
+function startAutoRefresh() {
+    stopAutoRefresh();
+    _autoRefreshInterval = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+            silentRefresh({ showToastOnNew: true });   // animatsiyasiz
+        }
+    }, AUTO_REFRESH_MS);
+}
+
+function stopAutoRefresh() {
+    if (_autoRefreshInterval) {
+        clearInterval(_autoRefreshInterval);
+        _autoRefreshInterval = null;
+    }
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        silentRefresh({ showToastOnNew: true });  // tab'ga qaytganda — animatsiyasiz
+    }
+});
+
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', () => {
+    // Apply saved theme first
+    const savedTheme = localStorage.getItem('app_theme') || 'dark';
+    appApplyTheme(savedTheme);
+
     if (tg) {
         tg.ready();
         tg.expand();
+        try {
+            // Bot API 8.0+ — to'liq ekran
+            if (typeof tg.requestFullscreen === 'function') {
+                tg.requestFullscreen();
+            }
+            // Bot API 7.7+ — vertical swipe'ni o'chirish (modal yopilib ketmasligi uchun)
+            if (typeof tg.disableVerticalSwipes === 'function') {
+                tg.disableVerticalSwipes();
+            }
+        } catch (e) { /* eski Telegram versiyasi — sukut */ }
+
+        // Safe area — yuqori Telegram tugmalar bilan to'qnashmasin (notch, statusbar, ⋯ tugma)
+        const _applySafeArea = () => {
+            try {
+                const cs = tg.contentSafeAreaInset || tg.safeAreaInset || {};
+                const top = Math.max(0, Number(cs.top || 0));
+                document.documentElement.style.setProperty('--tg-safe-t', top + 'px');
+            } catch(_) {}
+        };
+        _applySafeArea();
+        try {
+            if (typeof tg.onEvent === 'function') {
+                tg.onEvent('contentSafeAreaChanged', _applySafeArea);
+                tg.onEvent('safeAreaChanged',         _applySafeArea);
+                tg.onEvent('viewportChanged',         _applySafeArea);
+                tg.onEvent('fullscreenChanged',       _applySafeArea);
+            }
+        } catch(_) {}
+
         tg.enableClosingConfirmation();
-        
-        // Force dark theme — override any Telegram light theme vars
-        document.body.style.setProperty('--tg-theme-bg-color',          '#0A0A14');
-        document.body.style.setProperty('--tg-theme-secondary-bg-color','#11111E');
-        document.body.style.setProperty('--tg-theme-text-color',         '#EEEEF8');
-        document.body.style.setProperty('--tg-theme-hint-color',         '#9090B0');
-        document.body.style.setProperty('--tg-theme-link-color',         '#6366F1');
-        document.body.style.setProperty('--tg-theme-button-color',       '#6366F1');
-        document.body.style.setProperty('--tg-theme-button-text-color',  '#FFFFFF');
-        try { tg.setHeaderColor('#0A0A14'); } catch(e) {}
-        try { tg.setBackgroundColor('#0A0A14'); } catch(e) {}
+
+        if (savedTheme === 'dark') {
+            // Force dark theme — override any Telegram light theme vars
+            document.body.style.setProperty('--tg-theme-bg-color',          '#0A0A14');
+            document.body.style.setProperty('--tg-theme-secondary-bg-color','#11111E');
+            document.body.style.setProperty('--tg-theme-text-color',         '#EEEEF8');
+            document.body.style.setProperty('--tg-theme-hint-color',         '#9090B0');
+            document.body.style.setProperty('--tg-theme-link-color',         '#6366F1');
+            document.body.style.setProperty('--tg-theme-button-color',       '#6366F1');
+            document.body.style.setProperty('--tg-theme-button-text-color',  '#FFFFFF');
+        }
     }
 
     // Tarjimalarni eng birinchi yuklaymiz — UI darhol o'z tilida ko'rinsin
@@ -217,27 +479,69 @@ async function apiRequest(endpoint, method = 'GET', body = null) {
     }
 }
 
+// ===== Loading progress helpers =====
+function _ldSetPercent(p, status) {
+    p = Math.max(0, Math.min(100, Math.round(p)));
+    const fill = document.getElementById('ld-bar-fill');
+    const pct  = document.getElementById('ld-percent');
+    const st   = document.getElementById('ld-status');
+    if (fill) fill.style.width = p + '%';
+    if (pct)  pct.textContent  = p + '%';
+    if (st && status) st.textContent = status;
+}
+function _ldStep(key, state) {
+    // state: 'active' | 'done'
+    const el = document.querySelector(`.ld-step[data-step="${key}"]`);
+    if (!el) return;
+    el.classList.remove('active', 'done');
+    el.classList.add(state);
+}
+
 // ===== Load App =====
+// Har bosqichni kamida shu vaqt ko'rsatish (sun'iy pauza, jami ~2s) —
+// API tez ishlasa ham foydalanuvchi premium animatsiyani ko'radi.
+const _LD_MIN_MS = 500;
+const _sleep = ms => new Promise(r => setTimeout(r, ms));
+async function _withMin(stepKey, work) {
+    const t0 = Date.now();
+    _ldStep(stepKey, 'active');
+    const result = await work();
+    const elapsed = Date.now() - t0;
+    if (elapsed < _LD_MIN_MS) await _sleep(_LD_MIN_MS - elapsed);
+    _ldStep(stepKey, 'done');
+    return result;
+}
+
 async function loadApp() {
     try {
         const urlParams = new URLSearchParams(window.location.search);
-        
-        const [wsData, tasksData, statsData] = await Promise.all([
-            apiRequest('/workspaces'),
-            apiRequest(`/tasks?company_id=${currentWorkspaceId}`),
-            apiRequest(`/stats?company_id=${currentWorkspaceId}`),
-        ]);
 
-        // Populate Workspaces
-        const wsSelect = document.getElementById('workspace-select');
-        if (wsSelect && wsData.workspaces) {
-            wsSelect.innerHTML = '<option value="all">🌍 Hammasi</option>' +
-                wsData.workspaces.map(w =>
-                    `<option value="${w.id}">${w.id === 'personal' ? '👤 ' : '🏢 '}${w.name}</option>`
-                ).join('');
-            wsSelect.value = currentWorkspaceId;
-            const opt = wsSelect.options[wsSelect.selectedIndex];
-            currentWorkspaceName = opt ? opt.text : 'Shaxsiy';
+        // 1) Auth
+        _ldSetPercent(8, "Avtorizatsiya tekshirilmoqda…");
+        await _withMin('auth', async () => { /* token / initData allaqachon o'qilgan */ });
+
+        // 2) Workspace
+        _ldSetPercent(28, "Workspace yuklanmoqda…");
+        const wsData = await _withMin('ws', () => apiRequest('/workspaces'));
+
+        // 3) Tasks
+        _ldSetPercent(55, "Vazifalar yuklanmoqda…");
+        const tasksData = await _withMin('tasks', () =>
+            apiRequest(`/tasks?company_id=${currentWorkspaceId}`)
+        );
+
+        // 4) Stats
+        _ldSetPercent(82, "Statistika yuklanmoqda…");
+        const statsData = await _withMin('stats', () =>
+            apiRequest(`/stats?company_id=${currentWorkspaceId}`)
+        );
+
+        _ldSetPercent(94, "Interfeysni tayyorlash…");
+
+        // Populate custom workspace picker
+        if (wsData.workspaces) {
+            window._allWorkspaces = wsData.workspaces;  // create-form uchun
+            _populateWsPicker(wsData.workspaces, currentWorkspaceId);
         }
         updateCreateWorkspaceUI();
 
@@ -271,22 +575,30 @@ async function loadApp() {
         updateStatsTab(statsData);
         renderTasks();
         startCountdownTicker(); // Live countdown ticker
+        startAutoRefresh();     // Har 10s da silent fetch
+        checkAiStatus();        // AI yordamchi yoqilganmi — nav itemni ko'rsatish
 
-        // Hide loading
+        // Yakunlash
+        _ldSetPercent(100, "Tayyor!");
         const loading = document.getElementById('loading-screen');
-        loading.classList.add('fade-out');
+        // qisqa pauza — 100% to'liq ko'rinishi uchun
         setTimeout(() => {
-            loading.classList.add('hidden');
-            document.getElementById('app').classList.remove('hidden');
-        }, 400);
+            loading.classList.add('fade-out');
+            setTimeout(() => {
+                loading.classList.add('hidden');
+                document.getElementById('app').classList.remove('hidden');
+            }, 500);
+        }, 280);
     } catch (err) {
         console.error('Load error:', err);
-        document.querySelector('.loading-text').textContent = '❗ Yuklashda xatolik';
+        const loading = document.getElementById('loading-screen');
+        loading.classList.add('error');
+        _ldSetPercent(100, "❗ Yuklashda xatolik. Qaytadan urinib ko'ring.");
         // Still show app after delay
         setTimeout(() => {
             document.getElementById('loading-screen').classList.add('hidden');
             document.getElementById('app').classList.remove('hidden');
-        }, 1500);
+        }, 2000);
     }
 }
 
@@ -312,14 +624,131 @@ async function leaveWorkspace(companyId) {
     }
 }
 
-// ===== Workspace Switcher =====
-async function changeWorkspace() {
-    const wsSelect = document.getElementById('workspace-select');
-    if (!wsSelect) return;
+// ================================================================
+// CUSTOM WORKSPACE PICKER
+// ================================================================
 
-    currentWorkspaceId = wsSelect.value;
-    const opt = wsSelect.options[wsSelect.selectedIndex];
-    currentWorkspaceName = opt ? opt.text : 'Shaxsiy';
+// Helper: derive a consistent gradient color from workspace name
+function _wsGradient(name) {
+    const palettes = [
+        ['#6366F1','#8B5CF6'], ['#06B6D4','#6366F1'], ['#10B981','#06B6D4'],
+        ['#F59E0B','#EF4444'], ['#EC4899','#8B5CF6'], ['#F97316','#F59E0B'],
+        ['#14B8A6','#6366F1'], ['#8B5CF6','#EC4899'],
+    ];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) & 0xffff;
+    const [c1, c2] = palettes[hash % palettes.length];
+    return `linear-gradient(135deg,${c1},${c2})`;
+}
+
+function _populateWsPicker(workspaces, activeId) {
+    const dd = document.getElementById('ws-picker-dropdown');
+    if (!dd) return;
+
+    // Build items list: "Hammasi" first, then API workspaces
+    const items = [{ id: 'all', name: 'Hammasi', isAll: true }]
+        .concat(workspaces.map(w => ({ id: w.id, name: w.name, isAll: false })));
+
+    // Build HTML (keep the arrow div, append options)
+    const optionsHtml = items.map(w => {
+        const isActive = String(w.id) === String(activeId);
+        const initial = w.name.charAt(0).toUpperCase();
+        const avatarCls = w.isAll ? 'ws-opt-av ws-opt-all' : 'ws-opt-av';
+        const avatarStyle = w.isAll ? '' : ` style="background:${_wsGradient(w.name)}"`;
+        const avatarContent = w.isAll ? '🌍' : initial;
+        // Use data attributes — avoids quote-in-onclick issues
+        const safeName = w.name.replace(/"/g, '&quot;');
+        return `<div class="ws-option${isActive ? ' ws-opt-active' : ''}"
+                     data-ws-id="${w.id}" data-ws-name="${safeName}"
+                     onclick="selectWorkspace(this.dataset.wsId, this.dataset.wsName)">
+            <div class="${avatarCls}"${avatarStyle}>${avatarContent}</div>
+            <span class="ws-opt-name">${w.name}</span>
+            <span class="ws-opt-check">✓</span>
+        </div>`;
+    }).join('');
+
+    dd.innerHTML = '<div class="ws-picker-arrow"></div>' + optionsHtml;
+
+    // Update button label
+    const active = items.find(w => String(w.id) === String(activeId)) || items[0];
+    _updateWsPickerBtn(active.name, active.isAll);
+    currentWorkspaceName = active.name;
+}
+
+function _updateWsPickerBtn(name, isAll) {
+    const dotEl  = document.getElementById('ws-picker-dot');
+    const lblEl  = document.getElementById('ws-picker-label');
+    if (!dotEl || !lblEl) return;
+    if (isAll || name === 'Hammasi') {
+        dotEl.textContent = '🌍';
+        dotEl.style.background = 'linear-gradient(135deg,#06B6D4,#6366F1)';
+        dotEl.style.fontSize = '13px';
+    } else {
+        dotEl.textContent = name.charAt(0).toUpperCase();
+        dotEl.style.background = _wsGradient(name);
+        dotEl.style.fontSize = '10px';
+    }
+    lblEl.textContent = name;
+}
+
+function toggleWsPicker() {
+    const picker = document.getElementById('ws-picker');
+    const dd     = document.getElementById('ws-picker-dropdown');
+    if (!picker || !dd) return;
+    if (picker.classList.contains('open')) {
+        closeWsPicker();
+    } else {
+        dd.classList.remove('hidden');
+        dd.classList.remove('ws-drop-close');
+        // Force reflow so animation triggers fresh
+        void dd.offsetWidth;
+        picker.classList.add('open');
+        dd.classList.add('ws-drop-open');
+        if (tg) tg.HapticFeedback?.impactOccurred('light');
+    }
+}
+
+function closeWsPicker() {
+    const picker = document.getElementById('ws-picker');
+    const dd     = document.getElementById('ws-picker-dropdown');
+    if (!picker || !dd) return;
+    picker.classList.remove('open');
+    dd.classList.remove('ws-drop-open');
+    dd.classList.add('ws-drop-close');
+    setTimeout(() => {
+        dd.classList.add('hidden');
+        dd.classList.remove('ws-drop-close');
+    }, 180);
+}
+
+function selectWorkspace(id, name) {
+    // Update active state in list
+    document.querySelectorAll('.ws-option').forEach(o =>
+        o.classList.toggle('ws-opt-active', String(o.dataset.wsId) === String(id))
+    );
+    // Update button
+    _updateWsPickerBtn(name, id === 'all');
+    closeWsPicker();
+    if (tg) tg.HapticFeedback?.selectionChanged();
+    // Trigger data reload
+    currentWorkspaceId = id;
+    currentWorkspaceName = name;
+    changeWorkspace(id, name);
+}
+
+// Close picker when clicking outside
+document.addEventListener('click', function(e) {
+    const picker = document.getElementById('ws-picker');
+    if (picker && !picker.contains(e.target)) closeWsPicker();
+});
+
+// ===== Workspace Switcher =====
+async function changeWorkspace(id, name) {
+    // Accept direct args (from custom picker) or fall back to legacy
+    if (id !== undefined) {
+        currentWorkspaceId = id;
+        currentWorkspaceName = name || 'Hammasi';
+    }
 
     if (tg) tg.HapticFeedback?.selectionChanged();
 
@@ -332,6 +761,11 @@ async function changeWorkspace() {
     }
 
     updateCreateWorkspaceUI();
+
+    // Workspace almashganda — eski kartalarni darrov tozalaymiz (stale ko'rinmasin)
+    allTasks = [];
+    const _tl = document.getElementById('task-list');
+    if (_tl) _tl.innerHTML = '';
 
     try {
         // Pass company_id parameter (supports 'all' for all workspaces)
@@ -348,10 +782,17 @@ async function changeWorkspace() {
         updateStatsTab(statsData);
         renderTasks();
 
+        // Kanban tabi ochiq bo'lsa yangilaymiz
+        const kanbanTab = document.getElementById('tab-kanban');
+        if (kanbanTab && kanbanTab.classList.contains('active')) {
+            renderKanbanMemberBar();
+            renderKanban();
+        }
+
         // Reset calendar when switching workspaces
         selectedCalDate = null;
         const calTab = document.getElementById('tab-calendar');
-        if (calTab && !calTab.classList.contains('hidden')) {
+        if (calTab && calTab.classList.contains('active')) {
             renderCalendar();
         }
     } catch(e) {
@@ -359,20 +800,126 @@ async function changeWorkspace() {
     }
 }
 
+// "Hammasi" da yaratayotganda — vaqtinchalik tanlangan workspace
+let _createWsOverride = null;       // {id, name}
+function _effectiveCreateWs() {
+    if (currentWorkspaceId !== 'all') {
+        return { id: currentWorkspaceId, name: currentWorkspaceName };
+    }
+    return _createWsOverride;  // null bo'lishi mumkin — tanlanmagan
+}
+
+function renderCreateWorkspacePicker() {
+    const label = document.getElementById('create-workspace-label');
+    if (!label) return;
+    const all = window._allWorkspaces || [];
+    const selected = _createWsOverride;
+
+    if (selected) {
+        label.classList.remove('ws-needs-pick');
+        label.innerHTML = `${escapeHtml(selected.name)}
+            <span style="margin-left:8px;color:var(--text3);font-size:11px">▼ o'zgartirish</span>`;
+    } else {
+        label.classList.add('ws-needs-pick');
+        label.innerHTML = `⚠️ Workspace tanlang... <span style="color:var(--text3)">▼</span>`;
+    }
+
+    label.style.cursor = 'pointer';
+    label.onclick = () => _openCreateWsPicker(all);
+}
+
+function _openCreateWsPicker(workspaces) {
+    document.getElementById('cwp-overlay')?.remove();
+    const items = (workspaces || []).filter(w => w.id !== 'all').map(w => `
+        <button class="cwp-item${_createWsOverride?.id === w.id ? ' selected' : ''}"
+                onclick="_pickCreateWs('${w.id}','${(w.name||'').replace(/'/g,"\\'")}')">
+            <span>${escapeHtml(w.name)}</span>
+            ${_createWsOverride?.id === w.id ? '<span style="color:#22c55e">✓</span>' : ''}
+        </button>
+    `).join('');
+    const el = document.createElement('div');
+    el.id = 'cwp-overlay';
+    el.className = 'cwp-overlay';
+    el.innerHTML = `
+        <div class="cwp-sheet">
+            <div class="cwp-handle"></div>
+            <div class="cwp-title">📁 Ishchi makon tanlang</div>
+            <div class="cwp-sub">Vazifa qaerda yaratiladi?</div>
+            <div class="cwp-list">${items || '<div style="color:var(--text3);padding:20px;text-align:center">Workspace yo\'q</div>'}</div>
+            <button class="cwp-cancel" onclick="document.getElementById('cwp-overlay')?.remove()">Bekor qilish</button>
+        </div>
+    `;
+    document.body.appendChild(el);
+    el.addEventListener('click', e => { if (e.target === el) el.remove(); });
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+}
+
+async function _pickCreateWs(wsId, wsName) {
+    document.getElementById('cwp-overlay')?.remove();
+    _createWsOverride = { id: wsId, name: wsName };
+    if (tg) tg.HapticFeedback?.selectionChanged();
+    await updateCreateWorkspaceUI();
+}
+
 async function updateCreateWorkspaceUI() {
     const label = document.getElementById('create-workspace-label');
-    if (label) label.textContent = currentWorkspaceName;
-
     const group = document.getElementById('assignees-group');
     const list = document.getElementById('assignees-list');
     const hint = document.getElementById('assignees-hint');
+    const submitBtn = document.getElementById('btn-create-task');
 
     selectedAssigneeIds = [];
     externalAssignees = [];
     selectedResponsibleIds = [];
     companyMembers = [];
 
-    if (currentWorkspaceId === 'personal' || currentWorkspaceId === 'all') {
+    // "Hammasi" — dropdown picker chiqadi
+    if (currentWorkspaceId === 'all') {
+        renderCreateWorkspacePicker();
+        // Override tanlanmaganda — submit disabled
+        if (!_createWsOverride) {
+            if (group) group.classList.add('hidden');
+            if (list) list.innerHTML = '';
+            renderResponsibleSection();
+            if (submitBtn) submitBtn.disabled = true;
+            return;
+        }
+        if (submitBtn) submitBtn.disabled = false;
+        // Override personal yoki kompaniya bo'lishi mumkin — pastdagi mantiq bilan davom
+        const eff = _effectiveCreateWs();
+        if (eff.id === 'personal') {
+            if (group) group.classList.add('hidden');
+            renderResponsibleSection();
+            return;
+        }
+        try {
+            const data = await apiRequest(`/companies/${eff.id}/members`);
+            companyMembers = data.members || [];
+            const self = companyMembers.find(m => m.is_self);
+            if (self) selectedAssigneeIds.push(self.id);
+            renderAssignees();
+            if (group) group.classList.remove('hidden');
+            renderResponsibleSection();
+            if (hint) hint.textContent = `${companyMembers.length} xodim - Tanlangan: ${selectedAssigneeIds.length}`;
+        } catch (e) {
+            if (group) group.classList.add('hidden');
+            if (list) list.innerHTML = '';
+            console.error('Members load error:', e);
+        }
+        return;
+    }
+
+    // Standart oqim — workspace switcher orqali tanlangan
+    _createWsOverride = null;
+    if (label) {
+        label.textContent = currentWorkspaceName;
+        label.classList.remove('ws-needs-pick');
+        label.onclick = null;
+        label.style.cursor = '';
+    }
+    if (submitBtn) submitBtn.disabled = false;
+
+    if (currentWorkspaceId === 'personal') {
         group.classList.add('hidden');
         if (list) list.innerHTML = '';
         renderResponsibleSection();
@@ -382,7 +929,6 @@ async function updateCreateWorkspaceUI() {
     try {
         const data = await apiRequest(`/companies/${currentWorkspaceId}/members`);
         companyMembers = data.members || [];
-        // O'z-o'zini default tanlash
         const self = companyMembers.find(m => m.is_self);
         if (self) selectedAssigneeIds.push(self.id);
         renderAssignees();
@@ -406,7 +952,7 @@ function renderAssignees() {
     const mainHtml = companyMembers.map(m => {
         const selected = selectedAssigneeIds.includes(m.id);
         const initial = (m.name || '?').charAt(0).toUpperCase();
-        const roleBadge = m.role === 'owner' ? '👑' : (m.role === 'admin' ? '🛡' : '👤');
+        const roleBadge = m.role === 'owner' ? IC.crown : (m.role === 'admin' ? IC.shield : IC.user);
         return `
             <div class="assignee-chip ${selected ? 'selected' : ''}" onclick="toggleAssignee(${m.id})">
                 <span class="assignee-avatar">${escapeHtml(initial)}</span>
@@ -417,11 +963,11 @@ function renderAssignees() {
 
     // Tashqi guruhdan qo'shilganlar
     const extHtml = externalAssignees.length ? `
-        <div class="assignee-ext-header">➕ Boshqa guruhdan qo'shilganlar</div>
+        <div class="assignee-ext-header">${IC.plus} Boshqa guruhdan qo'shilganlar</div>
         ${externalAssignees.map(m => `
             <div class="assignee-chip selected ext-member">
                 <span class="assignee-avatar">${escapeHtml((m.name||'?')[0].toUpperCase())}</span>
-                <span class="assignee-name">👤 ${escapeHtml(m.name)} <span class="ext-group-tag">${escapeHtml(m.group_name)}</span></span>
+                <span class="assignee-name">${IC.user} ${escapeHtml(m.name)} <span class="ext-group-tag">${escapeHtml(m.group_name)}</span></span>
                 <span class="assignee-check remove-ext" onclick="event.stopPropagation();removeExternalAssignee(${m.id})">✕</span>
             </div>`).join('')}
     ` : '';
@@ -429,7 +975,7 @@ function renderAssignees() {
     // "Boshqa guruhdan qo'shish" tugmasi
     const addBtn = `
         <button class="assignee-add-group-btn" onclick="openGroupPickerSheet()">
-            ➕ Boshqa guruhdan qo'shish
+            ${IC.plus} Boshqa guruhdan qo'shish
         </button>`;
 
     list.innerHTML = mainHtml + extHtml + addBtn;
@@ -476,7 +1022,7 @@ function renderResponsibleSection() {
     const respDisplay = document.getElementById('resp-display');
     if (respDisplay) respDisplay.innerHTML =
         respChips
-        + `<button class="resp-pick-btn" onclick="openResponsibleSheet()">➕ Mas'ul qo'shish</button>`;
+        + `<button class="resp-pick-btn" onclick="openResponsibleSheet()">${IC.plus} Mas'ul qo'shish</button>`;
 }
 
 function getAllSelectedAssignees() {
@@ -555,7 +1101,7 @@ async function openGroupPickerSheet() {
         // Build with data attributes (no inline onclick = no escape issues)
         list.innerHTML = others.map(w => `
             <div class="gp-group-row" data-gid="${w.id}">
-                <span class="gp-group-icon">🏢</span>
+                <span class="gp-group-icon">${IC.building}</span>
                 <span class="gp-group-name">${escapeHtml(w.name)}</span>
                 <span class="gp-arrow">›</span>
             </div>`).join('') +
@@ -583,7 +1129,7 @@ async function openGroupMemberSheet(groupId, groupName) {
     const sheet = document.getElementById('group-member-sheet');
     const title = document.getElementById('gm-sheet-title');
     const list = document.getElementById('gm-sheet-list');
-    if (title) title.textContent = '🏢 ' + groupName;
+    if (title) title.innerHTML = IC.building + ' ' + groupName;
     sheet.classList.remove('hidden');
     document.getElementById('group-picker-sheet').classList.add('hidden');
     list.innerHTML = '<div class="gp-loading">⏳ A\'zolar yuklanmoqda...</div>';
@@ -683,6 +1229,24 @@ function shareInviteLink() {
 
 // ===== Custom Deadline Picker =====
 const _MONTH_UZ = ['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentyabr','Oktyabr','Noyabr','Dekabr'];
+
+// Til bo'yicha oy va kun nomlari
+function _monthName(idx) {
+    const m = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][idx];
+    const t = tr('app.month.' + m);
+    return (t && t !== 'app.month.' + m) ? t : _MONTH_UZ[idx];
+}
+function _dayShort(idx) {
+    // idx: 0=Mon ... 6=Sun
+    const d = ['mon','tue','wed','thu','fri','sat','sun'][idx];
+    return tr('app.day.' + d) || ['Du','Se','Ch','Pa','Ju','Sh','Ya'][idx];
+}
+function _dayLong(idx) {
+    // idx: 0=Mon ... 6=Sun
+    const d = ['mon','tue','wed','thu','fri','sat','sun'][idx];
+    const t = tr('app.day_full.' + d);
+    return (t && t !== 'app.day_full.' + d) ? t : ['Dushanba','Seshanba','Chorshanba','Payshanba','Juma','Shanba','Yakshanba'][idx];
+}
 let _dlState = { y: 0, m: 0, d: 0, hour: 14, minute: 0, viewY: 0, viewM: 0 };
 
 function _dlInit() {
@@ -771,7 +1335,7 @@ function _dlUpdatePreview() {
     const el = document.getElementById('dl-sel-text');
     if (!el || !_dlState.y) return;
     const pad = n => String(n).padStart(2,'0');
-    const mn = ['Yanvar','Fevral','Mart','Aprel','May','Iyun','Iyul','Avgust','Sentyabr','Oktyabr','Noyabr','Dekabr'];
+    const mn = Array.from({length:12}, (_,i) => _monthName(i));
     el.textContent = `${_dlState.d} ${mn[_dlState.m]} ${_dlState.y}, soat ${pad(_dlState.hour)}:${pad(_dlState.minute)}`;
 }
 
@@ -863,7 +1427,14 @@ function updateQuickStats(stats) {
     animateNumber('stat-overdue', stats.overdue || 0);
     
     const statsEl = document.getElementById('user-stats');
-    if (statsEl) statsEl.textContent = `${stats.total || 0} vazifa - ${stats.completion_rate || 0}% bajarildi`;
+    if (statsEl) {
+        const total = stats.total || 0;
+        const rate = stats.completion_rate || 0;
+        const lbl = (tr('app.stats.summary') !== 'app.stats.summary')
+            ? tr('app.stats.summary').replace('{total}', total).replace('{rate}', rate)
+            : `${total} ${tr('app.stats.tasks_word') || 'vazifa'} — ${rate}% ${tr('app.stats.done_word') || 'bajarildi'}`;
+        statsEl.textContent = lbl;
+    }
 }
 
 function animateNumber(id, target) {
@@ -892,11 +1463,18 @@ function updateStatsTab(stats) {
     const titleEl = document.getElementById('stats-tab-title');
     if (titleEl) {
         if (stats.member_name) {
-            titleEl.textContent = `📊 ${stats.member_name}`;
+            titleEl.innerHTML = `${IC.chart} ${stats.member_name}`;
         } else {
-            titleEl.textContent = '📊 Statistikangiz';
+            titleEl.innerHTML = IC.chart + ' Statistikangiz';
         }
     }
+
+    // Joriy oy nomi
+    const _monthNames = Array.from({length:12}, (_,i) => _monthName(i));
+    const _now = new Date();
+    const _monthLabel = `${_monthNames[_now.getMonth()]} ${_now.getFullYear()}`;
+    const periodEl = document.querySelector('.stats-period');
+    if (periodEl) periodEl.textContent = _monthLabel;
 
     const _se = id => document.getElementById(id);
     if (_se('stats-total'))       _se('stats-total').textContent       = stats.total || 0;
@@ -919,12 +1497,21 @@ function updateStatsTab(stats) {
     renderTrendChart(stats);
     renderOverdueChart(stats);
     renderMembersChart(stats);
+
+    // Tezlik reytingi — faqat kompaniya workspace uchun
+    const _isCompanyWs = currentWorkspaceId && currentWorkspaceId !== 'personal' && currentWorkspaceId !== 'all';
+    if (_isCompanyWs) {
+        loadSpeedRating(currentWorkspaceId);
+    } else {
+        const existingRating = document.getElementById('speed-rating-section');
+        if (existingRating) existingRating.remove();
+    }
 }
 
 const _ROLE_META = {
-    owner:  { icon: '👑', label: 'Owner',  cls: 'smf-role-owner'  },
-    admin:  { icon: '⭐', label: 'Admin',  cls: 'smf-role-admin'  },
-    member: { icon: '👤', label: 'Member', cls: 'smf-role-member' },
+    owner:  { icon: IC.crown,  label: 'Owner',  cls: 'smf-role-owner'  },
+    admin:  { icon: IC.star,   label: 'Admin',  cls: 'smf-role-admin'  },
+    member: { icon: IC.user,   label: 'Member', cls: 'smf-role-member' },
 };
 
 function _renderStatsMemberFilter(stats) {
@@ -1097,7 +1684,7 @@ function renderMembersChart(stats) {
 
     // Har bir a'zo uchun ism + rol belgisi
     const labels = stats.employee_stats.map(e => {
-        const roleMark = e.role === 'owner' ? ' 👑' : e.role === 'admin' ? ' ⭐' : '';
+        const roleMark = e.role === 'owner' ? ' ★' : e.role === 'admin' ? ' ◆' : '';
         return (e.name || '').split(' ')[0] + roleMark;
     });
 
@@ -1122,7 +1709,7 @@ function renderMembersChart(stats) {
             labels,
             datasets: [
                 {
-                    label: '🔴 Boshlanmagan',
+                    label: 'Boshlanmagan',
                     data: newTasks,
                     backgroundColor: 'rgba(239,68,68,0.82)',
                     borderColor: '#EF4444',
@@ -1132,7 +1719,7 @@ function renderMembersChart(stats) {
                     stack: 'tasks',
                 },
                 {
-                    label: '🟡 Jarayonda',
+                    label: 'Jarayonda',
                     data: inProgress,
                     backgroundColor: 'rgba(234,179,8,0.85)',
                     borderColor: '#EAB308',
@@ -1142,7 +1729,7 @@ function renderMembersChart(stats) {
                     stack: 'tasks',
                 },
                 {
-                    label: '🟢 Bajarildi',
+                    label: 'Bajarildi',
                     data: done,
                     backgroundColor: 'rgba(34,197,94,0.85)',
                     borderColor: '#22C55E',
@@ -1152,7 +1739,7 @@ function renderMembersChart(stats) {
                     stack: 'tasks',
                 },
                 {
-                    label: '🟠 Kechikdi',
+                    label: 'Kechikdi',
                     data: overdue,
                     backgroundColor: 'rgba(249,115,22,0.9)',
                     borderColor: '#F97316',
@@ -1207,8 +1794,8 @@ function renderMembersChart(stats) {
                             const idx = items[0]?.dataIndex;
                             const emp = stats.employee_stats[idx];
                             if (!emp) return '';
-                            const roleTxt = emp.role === 'owner' ? '👑 Owner' :
-                                            emp.role === 'admin' ? '⭐ Admin' : '👤 Member';
+                            const roleTxt = emp.role === 'owner' ? 'Owner' :
+                                            emp.role === 'admin' ? 'Admin' : 'Member';
                             return `${emp.name}  ${roleTxt}`;
                         },
                         footer: (items) => {
@@ -1287,12 +1874,19 @@ function renderTrendChart(stats) {
     const canvas = document.getElementById('trend-chart');
     if (!section || !canvas || typeof Chart === 'undefined') return;
 
-    // Build 7-day trend data
+    // Joriy oy dinamikasi (1-sanadan bugungi kungacha)
     const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    const daysInMonthSoFar = today.getDate();
+    const _monthNamesT = Array.from({length:12}, (_,i) => _monthName(i));
+    const _mLabelT = `${_monthNamesT[month]} ${year}`;
+    const titleEl = section.querySelector('.chart-title');
+    if (titleEl) titleEl.textContent = `📈 ${tr('app.stats.completion_trend')||'Bajarilish trendi'} (${_mLabelT})`;
+
     const data = [];
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
+    for (let dayNum = 1; dayNum <= daysInMonthSoFar; dayNum++) {
+        const d = new Date(year, month, dayNum);
         const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
         let done = 0;
@@ -1305,7 +1899,7 @@ function renderTrendChart(stats) {
         });
 
         data.push({
-            date: d.toLocaleDateString('uz-UZ', { month: 'short', day: 'numeric' }),
+            date: String(dayNum).padStart(2,'0') + '.' + String(month+1).padStart(2,'0'),
             done: done
         });
     }
@@ -1317,7 +1911,7 @@ function renderTrendChart(stats) {
         data: {
             labels: data.map(d => d.date),
             datasets: [{
-                label: 'Bajarilgan',
+                label: (tr('app.stats.done')||'Bajarilgan'),
                 data: data.map(d => d.done),
                 borderColor: '#4CAF50',
                 backgroundColor: 'rgba(76, 175, 80, 0.1)',
@@ -1348,23 +1942,38 @@ function renderOverdueChart(stats) {
     const canvas = document.getElementById('overdue-chart');
     if (!section || !canvas || typeof Chart === 'undefined') return;
 
-    // Build 7-day overdue trend
+    // Joriy oy kechikkan vazifalar dinamikasi
     const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    const daysInMonthSoFarO = today.getDate();
+
     const data = [];
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
+    for (let dayNum = 1; dayNum <= daysInMonthSoFarO; dayNum++) {
+        const d = new Date(year, month, dayNum);
+        // Set to end of that day
+        const dEnd = new Date(year, month, dayNum, 23, 59, 59);
 
         let overdue = 0;
         allTasks.forEach(t => {
-            if (t.deadline) {
-                const dl = new Date(t.deadline);
-                if (dl <= d && t.status !== 'done' && t.status !== 'cancelled') overdue++;
+            if (!t.deadline) return;
+            const dl = new Date(t.deadline);
+            if (dl > dEnd) return;  // deadline hali kelmagan
+            if (t.status === 'cancelled') return;
+            // O'sha kunda vazifa bajarilmagan bo'lsa — kechikkan
+            // (bajarilgan, lekin deadline'dan keyin yopilgan — kechikib bajarilgan)
+            if (t.status !== 'done') {
+                overdue++;
+                return;
+            }
+            // status === 'done': kechikib bajarilgan bo'lsa, completed_at vaqtigacha kechikkan edi
+            if (t.completed_at && new Date(t.completed_at) > dl) {
+                overdue++;
             }
         });
 
         data.push({
-            date: d.toLocaleDateString('uz-UZ', { month: 'short', day: 'numeric' }),
+            date: String(dayNum).padStart(2,'0') + '.' + String(month+1).padStart(2,'0'),
             overdue: overdue
         });
     }
@@ -1400,6 +2009,86 @@ function renderOverdueChart(stats) {
             },
         },
     });
+}
+
+// ===== Tezlik Reytingi =====
+let _speedRatingChart = null;
+
+async function loadSpeedRating(companyId) {
+    // Mavjud bo'lsa qayta ishlatamiz
+    let section = document.getElementById('speed-rating-section');
+    const statsContainer = document.querySelector('#tab-stats .stats-container');
+    if (!section && statsContainer) {
+        section = document.createElement('div');
+        section.id = 'speed-rating-section';
+        section.className = 'chart-section';
+        statsContainer.appendChild(section);
+    }
+    if (!section) return;
+
+    section.innerHTML = `
+        <h3 class="chart-title">${IC.bolt} Tezlik Reytingi</h3>
+        <div class="sr-loading">Yuklanmoqda...</div>
+    `;
+
+    try {
+        const data = await apiRequest(`/companies/${companyId}/speed_rating`);
+        const members = data.members || [];
+
+        if (members.length === 0) {
+            section.innerHTML = `
+                <h3 class="chart-title">${IC.bolt} Tezlik Reytingi</h3>
+                <div class="sr-empty">Hali bajarilgan vazifalar yo'q</div>
+            `;
+            return;
+        }
+
+        // Karta formati
+        let cardsHtml = '';
+        members.forEach(m => {
+            const medal = m.medal || '';
+            const rank = m.rank;
+            const rankClass = rank === 1 ? 'sr-rank-1' : rank === 2 ? 'sr-rank-2' : rank === 3 ? 'sr-rank-3' : '';
+            const timedHtml = m.timed_tasks > 0
+                ? `<span class="sr-avg">${m.avg_label}</span><span class="sr-avg-lab"> / vazifa</span>`
+                : `<span class="sr-no-time">vaqt kuzatuvi yo'q</span>`;
+            const onTimeHtml = m.on_time_rate !== null
+                ? `<span class="sr-ontime ${m.on_time_rate >= 80 ? 'sr-ontime-good' : m.on_time_rate >= 50 ? 'sr-ontime-ok' : 'sr-ontime-bad'}">${m.on_time_rate}% vaqtida</span>`
+                : '';
+            const scoreBar = m.score > 0
+                ? `<div class="sr-score-bar"><div class="sr-score-fill" style="width:${Math.min(100, m.score)}%"></div></div>`
+                : '';
+            cardsHtml += `
+                <div class="sr-card ${rankClass}">
+                    <div class="sr-card-left">
+                        <span class="sr-medal">${medal || rank}</span>
+                        <div class="sr-info">
+                            <div class="sr-name">${escapeHtml(m.name)}</div>
+                            <div class="sr-stats">
+                                <span class="sr-done">${m.tasks_done} task</span>
+                                ${timedHtml}
+                                ${onTimeHtml}
+                            </div>
+                            ${scoreBar}
+                        </div>
+                    </div>
+                    <div class="sr-score-badge ${rankClass}">${m.score}</div>
+                </div>
+            `;
+        });
+
+        section.innerHTML = `
+            <h3 class="chart-title">${IC.bolt} Tezlik Reytingi</h3>
+            <p class="sr-desc">Vazifalarni qanchalik tez va o'z vaqtida bajarilishi asosida</p>
+            <div class="sr-cards">${cardsHtml}</div>
+        `;
+
+    } catch (e) {
+        section.innerHTML = `
+            <h3 class="chart-title">${IC.bolt} Tezlik Reytingi</h3>
+            <div class="sr-empty">Yuklab bo'lmadi</div>
+        `;
+    }
 }
 
 // ===== Tabs =====
@@ -1524,7 +2213,7 @@ function renderWorkflows() {
         const curStep  = w.steps.find(s => s.status === 'active');
         const curLine  = curStep
             ? `<div class="wf-cur-step">${IC.play} ${escapeHtml(curStep.title)} — <b>${escapeHtml(curStep.assignee_name)}</b>${curStep.deadline ? ' '+IC.clock+curStep.deadline : ''}</div>`
-            : (isDone ? '' : '<div class="wf-cur-step" style="color:var(--text3)">Kutilmoqda...</div>');
+            : (isDone ? '' : '<div class="wf-cur-step" style="color:var(--text3)">'+(tr('app.waiting')||'Kutilmoqda')+'...</div>');
 
         return `
         <div class="wf-card wf-card-compact" onclick="openWorkflowDetail(${w.task_id})">
@@ -1539,7 +2228,7 @@ function renderWorkflows() {
                 </div>
             </div>
             ${curLine}
-            <div class="wf-card-footer">📅 ${w.created_at} &nbsp;•&nbsp; 🪜 ${w.total_steps} qadam</div>
+            <div class="wf-card-footer">${IC.calendar} ${w.created_at} &nbsp;•&nbsp; ${IC.step} ${w.total_steps} qadam</div>
         </div>`;
     }).join('');
 }
@@ -1558,7 +2247,7 @@ function openWorkflowDetail(taskId) {
     const progressBar = `
         <div style="margin:4px 0 12px">
             <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:4px">
-                <span>🪜 Qadamlar: ${w.done_steps}/${w.total_steps}</span>
+                <span>${IC.step} Qadamlar: ${w.done_steps}/${w.total_steps}</span>
                 <span>${pct}%</span>
             </div>
             <div style="height:6px;border-radius:3px;background:var(--border);overflow:hidden">
@@ -1571,18 +2260,22 @@ function openWorkflowDetail(taskId) {
     let bodyHtml = `
         <div class="modal-section">
             <div class="modal-detail">
-                <div class="modal-detail-label">📍 Holat</div>
+                <div class="modal-detail-label">${IC.pin} Holat</div>
                 <div class="modal-detail-value">${statusTxt}</div>
             </div>
             <div class="modal-detail">
-                <div class="modal-detail-label">📅 Yaratildi</div>
+                <div class="modal-detail-label">${IC.calendar} Yaratildi</div>
                 <div class="modal-detail-value">${w.created_at}</div>
             </div>
         </div>
         ${w.description ? `<div class="modal-detail"><div class="modal-detail-label">Tavsif</div><div class="modal-detail-value">${escapeHtml(w.description)}</div></div>` : ''}
         ${progressBar}
-        <div class="modal-detail-label" style="margin-bottom:8px">🪜 QADAMLAR</div>
+        <div class="modal-detail-label" style="margin-bottom:8px">${IC.step} QADAMLAR</div>
     `;
+
+    // ---- User flags (workflow ichida ishtirok etayotgan odam comment va fayl yuklay oladi) ----
+    const isCreator = (w.creator_id === window._myUserId);
+    const isOtherStepOwner = w.steps.some(st => st.is_me);
 
     // ---- Steps ----
     w.steps.forEach(s => {
@@ -1593,31 +2286,73 @@ function openWorkflowDetail(taskId) {
             : 'background:var(--glass);border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:10px;opacity:' + (s.status==='done'?'0.75':'1');
 
         let meta = [];
-        if (s.started_at)   meta.push(`▶ ${s.started_at}`);
-        if (s.completed_at) meta.push(`✅ ${s.completed_at}`);
-        if (s.deadline)     meta.push(`⏰ ${s.deadline}`);
+        if (s.started_at)   meta.push(`${IC.play} ${s.started_at}`);
+        if (s.completed_at) meta.push(`${IC.done} ${s.completed_at}`);
+        if (s.deadline)     meta.push(`${IC.clock} ${s.deadline}`);
+        // Nisbiy muddat — navbati kelmagan qadamlarda taxminiy sana bilan
+        if (s.duration_days && s.status === 'pending' && !s.deadline) {
+            meta.push(s.projected_deadline
+                ? `⏳ ${s.duration_days} kun · ≈ ${s.projected_deadline} (taxminiy)`
+                : `⏳ ${s.duration_days} kun (navbat kelganda)`);
+        }
         const metaHtml = meta.length ? `<div style="font-size:11px;color:var(--text3);margin-top:5px;display:flex;gap:10px;flex-wrap:wrap">${meta.map(m=>`<span>${m}</span>`).join('')}</div>` : '';
 
+        // Faqat qadam eslatmasi (note) — izohlar pastda commsHtml da ko'rsatiladi (takror bo'lmasin)
         let noteHtml = '';
-        if (s.comments && s.comments.length) {
-            noteHtml = s.comments.map(c =>
-                `<div style="font-size:12px;background:var(--glass2);padding:6px 10px;border-radius:8px;margin-top:5px;color:var(--text2)">
-                    <b style="color:var(--text)">${escapeHtml(c.user)}</b> <span style="float:right;font-size:10px;color:var(--text3)">${c.created_at}</span><br>${escapeHtml(c.content)}
-                </div>`
-            ).join('');
-        } else if (s.note) {
-            noteHtml = `<div style="font-size:12px;background:var(--glass2);padding:6px 10px;border-radius:8px;margin-top:5px;color:var(--text2)">💬 ${escapeHtml(s.note)}</div>`;
+        if (s.note) {
+            noteHtml = `<div style="font-size:12px;background:var(--glass2);padding:6px 10px;border-radius:8px;margin-top:5px;color:var(--text2)">${IC.comment} ${escapeHtml(s.note)}</div>`;
         }
 
         let attsHtml = '';
         if (s.attachments && s.attachments.length) {
-            attsHtml = `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${s.attachments.map(a=>`<span style="font-size:11px;background:var(--glass2);padding:3px 8px;border-radius:8px;color:var(--text2)">${typeEm[a.file_type]||'📎'} ${escapeHtml(a.file_name||a.file_type)}</span>`).join('')}</div>`;
+            attsHtml = `<div class="wfs-atts">${s.attachments.map(a => {
+                const em = typeEm[a.file_type] || IC.attach;
+                const fname = escapeHtml(a.file_name || a.file_type || 'fayl');
+                const uploader = escapeHtml(a.user_name || '');
+                if (a.file_url) {
+                    if (a.file_type === 'photo') {
+                        return `<a href="${a.file_url}" target="_blank" class="wfs-att-img"><img src="${a.file_url}" alt=""><span>${uploader}</span></a>`;
+                    }
+                    if (a.file_type === 'video') {
+                        return `<video class="wfs-att-video" src="${a.file_url}" controls preload="metadata"></video>`;
+                    }
+                    if (a.file_type === 'voice' || a.file_type === 'audio') {
+                        return `<div class="wfs-att-audio"><audio src="${a.file_url}" controls preload="none"></audio><div class="wfs-att-by">${em} ${uploader}</div></div>`;
+                    }
+                    return `<a href="${a.file_url}" target="_blank" class="wfs-att-file">${em} <span>${fname}</span><small>${uploader}</small></a>`;
+                }
+                return `<span class="wfs-att-file" title="bot orqali">${em} ${fname}<small>${uploader}</small></span>`;
+            }).join('')}</div>`;
         }
+
+        // Izohlar — konteyner har doim mavjud (id bilan) — optimistik qo'shish uchun
+        const _cName = (c) => (typeof c.user === 'string' ? c.user : (c.user && c.user.name)) || c.user_name || '?';
+        const commsInner = (s.comments && s.comments.length)
+            ? s.comments.map(c =>
+                `<div class="wfs-comment"><b>${escapeHtml(_cName(c))}</b> <span>${escapeHtml(c.created_at || '')}</span><div>${escapeHtml(c.content)}</div></div>`
+              ).join('')
+            : '';
+        const commsHtml = `<div class="wfs-comments" id="wfs-comments-${s.id}"${commsInner ? '' : ' style="display:none"'}>${commsInner}</div>`;
 
         const meBtnHtml = s.is_me && (s.status === 'active' || s.status === 'pending') && !isDone
             ? `<button class="modal-action-btn btn-primary" style="margin-top:8px" onclick="handleStepAction(${w.task_id},'${s.status}');closeWfDetailModal()">
-                ${s.status==='pending'?'▶️ Boshlash':'✅ Tugatish'}
+                ${s.status==='pending'?IC.play+' Boshlash':IC.done+' Tugatish'}
                </button>` : '';
+
+        // Comment + Upload form — agar qatnashuvchi bo'lsa
+        // (mas'ul yoki yaratuvchi yoki boshqa qadam egasi)
+        const canInteract = s.is_me || isCreator || isOtherStepOwner;
+        const interactHtml = canInteract ? `
+            <div class="wfs-form">
+                <textarea class="wfs-cm-input" id="wfs-cm-${s.id}" rows="2" placeholder="${tr('app.wf.comment_ph') || "Izoh yozing..."}"></textarea>
+                <div class="wfs-form-row">
+                    <label class="wfs-upload-btn">
+                        ${IC.attach}
+                        <input type="file" style="display:none" onchange="wfStepUpload(${s.id}, this, ${w.task_id})">
+                    </label>
+                    <button class="wfs-cm-send" onclick="wfStepComment(${s.id}, ${w.task_id})">${IC.send || '📨'}</button>
+                </div>
+            </div>` : '';
 
         bodyHtml += `
             <div style="${cardStyle}">
@@ -1626,13 +2361,31 @@ function openWorkflowDetail(taskId) {
                     <div style="flex:1;min-width:0">
                         <div style="font-size:14px;font-weight:700;color:var(--text)">${s.order}. ${escapeHtml(s.title)}</div>
                         <div style="font-size:12px;color:var(--text2);margin-top:2px">
-                            👤 ${escapeHtml(s.assignee_name)}${s.is_me ? ' <b style="color:var(--accent)">(siz)</b>' : ''}
+                            ${IC.user} ${escapeHtml(s.assignee_name)}${s.is_me ? ' <b style="color:var(--accent)">(siz)</b>' : ''}
                         </div>
-                        ${metaHtml}${noteHtml}${attsHtml}${meBtnHtml}
+                        ${metaHtml}${noteHtml}${attsHtml}${commsHtml}${meBtnHtml}${interactHtml}
                     </div>
                 </div>
             </div>`;
     });
+
+    // Mind map uchun — workflow ma'lumotini saqlaymiz (step izoh/fayl bilan)
+    window._currentTaskFull = {
+        id: w.task_id,
+        title: w.title,
+        status: w.status,
+        priority: w.priority || 'medium',
+        deadline: w.deadline || null,
+        completed_at: w.completed_at || null,
+        creator_name: w.creator_name || null,
+        has_workflow: true,
+        history: [],
+        attachments: [],
+        assignees: w.assignees || [],
+        subtasks: [],
+        wfSteps: w.steps || [],   // to'liq step ma'lumoti (izoh matni + fayl URL)
+    };
+    currentTaskId = w.task_id;
 
     // Use the existing task modal — just fill it
     document.getElementById('modal-title').textContent = `#${w.task_id} ${w.title}`;
@@ -1646,6 +2399,81 @@ function closeWfDetailModal() {
     closeModal();
 }
 
+// Workflow qadami uchun izoh yuborish
+async function wfStepComment(stepId, taskId) {
+    const ta = document.getElementById('wfs-cm-' + stepId);
+    if (!ta) return;
+    const content = (ta.value || '').trim();
+    if (content.length < 1) return;
+
+    // Darhol tozalab, izohni ko'rsatamiz (optimistik) — modal qayta yuklanmaydi
+    ta.value = '';
+    ta.style.height = 'auto';
+    const name = window._currentUserName || 'Siz';
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const dstr = `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+    const cont = document.getElementById('wfs-comments-' + stepId);
+    let node = null;
+    if (cont) {
+        cont.style.display = '';
+        node = document.createElement('div');
+        node.className = 'wfs-comment';
+        node.style.opacity = '0.55';
+        node.innerHTML = `<b>${escapeHtml(name)}</b> <span>${dstr}</span><div>${escapeHtml(content)}</div>`;
+        cont.appendChild(node);
+        node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    if (tg) tg.HapticFeedback?.notificationOccurred('success');
+    if (typeof FX !== 'undefined' && FX.play) FX.play('send');
+
+    // Mind map cache'ini ham yangilaymiz
+    try {
+        const wf = window._currentTaskFull;
+        if (wf && Array.isArray(wf.wfSteps)) {
+            const st = wf.wfSteps.find(x => x.id === stepId);
+            if (st) { (st.comments = st.comments || []).push({ user_name: name, content, created_at: dstr }); }
+        }
+    } catch {}
+
+    try {
+        await apiRequest(`/workflows/steps/${stepId}/comment`, 'POST', { content });
+        if (node) node.style.opacity = '1';   // tasdiqlandi
+    } catch (e) {
+        if (node) { node.style.opacity = '1'; node.style.borderLeft = '2px solid #ef4444'; node.title = 'Yuborilmadi'; }
+        if (typeof showToast === 'function') showToast('❌ ' + (e.message || e));
+    }
+}
+
+// Workflow qadami uchun fayl yuklash
+async function wfStepUpload(stepId, inputEl, taskId) {
+    const file = inputEl.files && inputEl.files[0];
+    if (!file) return;
+    if (file.size > 100 * 1024 * 1024) {
+        if (typeof showToast === 'function') showToast('❌ Fayl 100 MB dan katta');
+        return;
+    }
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const headers = {};
+        applyAuthHeaders(headers);
+        if (typeof showToast === 'function') showToast('⏳ Yuklanmoqda...');
+        const res = await fetch(API_BASE + `/workflows/steps/${stepId}/upload`, {
+            method: 'POST', headers, body: fd,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Yuklash xatosi');
+        if (typeof showToast === 'function') showToast('✅ Fayl yuklandi');
+        if (tg) tg.HapticFeedback?.notificationOccurred('success');
+        inputEl.value = '';
+        openWorkflowDetail(taskId); // qayta yuklab modal yangilanadi
+    } catch (e) {
+        if (typeof showToast === 'function') showToast('❌ ' + (e.message || e));
+    }
+}
+
 // Modal — qadam tugatish formasi (izoh + status)
 function openStepCompleteModal(taskId) {
     // Mavjud bo'lsa yopamiz
@@ -1656,17 +2484,17 @@ function openStepCompleteModal(taskId) {
     modal.innerHTML = `
         <div class="wf-modal">
             <div class="wf-modal-head">
-                <h3>🪜 Qadamni tugatish</h3>
+                <h3>${IC.step} Qadamni tugatish</h3>
                 <button class="wf-modal-close" onclick="closeStepCompleteModal()">×</button>
             </div>
             <div class="wf-modal-body">
-                <label class="wf-lbl">💬 Nimani bajardingiz? (ixtiyoriy)</label>
+                <label class="wf-lbl">${IC.comment} Nimani bajardingiz? (ixtiyoriy)</label>
                 <textarea id="wf-comment-input" class="wf-textarea" rows="3"
                           placeholder="Qisqacha yozing..."></textarea>
             </div>
             <div class="wf-modal-foot">
                 <button class="wf-btn-secondary" onclick="closeStepCompleteModal()">Bekor</button>
-                <button class="wf-btn-primary" onclick="submitStepComplete(${taskId})">✅ Saqlash</button>
+                <button class="wf-btn-primary" onclick="submitStepComplete(${taskId})">${IC.done} Saqlash</button>
             </div>
         </div>
     `;
@@ -1724,12 +2552,14 @@ document.addEventListener('click', (ev) => {
 
 // ===== Filters =====
 function initFilters() {
-    document.querySelectorAll('.chip').forEach(chip => {
+    // Faqat oddiy vazifalar filterlari — wf filterlari alohida initTabs da
+    document.querySelectorAll('.filter-chips .chip').forEach(chip => {
         chip.addEventListener('click', () => {
-            document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.filter-chips .chip').forEach(c => c.classList.remove('active'));
             chip.classList.add('active');
-            currentFilter = chip.dataset.filter;
+            currentFilter = chip.dataset.filter || 'active';
             renderTasks();
+            FX.select();
         });
     });
 }
@@ -1747,37 +2577,6 @@ function getStatusLabel(status) {
     }
     return translated;
 }
-// SVG icon helpers
-const IC = {
-    new:        `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
-    progress:   `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`,
-    review:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
-    done:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>`,
-    overdue:    `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
-    cancelled:  `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
-    fire:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 01-7 7 6.998 6.998 0 01-6-3.49M14.5 18.5a2.5 2.5 0 01-5 0"/></svg>`,
-    clock:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
-    play:       `<svg class="ic" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
-    check:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>`,
-    xmark:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
-    send:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
-    attach:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>`,
-    star:       `<svg class="ic" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
-    eye:        `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
-    refresh:    `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>`,
-    low:        `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>`,
-    medium:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
-    high:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>`,
-    urgent:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
-    plus:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
-    step:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>`,
-    file:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`,
-    pause:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>`,
-    circle:     `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>`,
-    copy:       `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`,
-    share:      `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`,
-};
-
 // Kept for backward compat (used in a few places as object map)
 const TC_STATUS = new Proxy({}, { get: (_, s) => getStatusLabel(s) });
 
@@ -1796,7 +2595,7 @@ function getPriorityLabel(priority) {
     const key = 'app.priority.' + priority;
     const translated = tr(key);
     if (translated === key) {
-        const FB = { low:'🟢 Past', medium:'🟡 O\'rta', high:'🟠 Muhum', urgent:'🔴 Juda muhum' };
+        const FB = { low:'Past', medium:"O'rta", high:'Muhum', urgent:'Juda muhum' };
         return FB[priority] || priority;
     }
     return translated;
@@ -1805,6 +2604,10 @@ function getPriorityLabel(priority) {
 function renderTasks() {
     const list = document.getElementById('task-list');
     const empty = document.getElementById('empty-tasks');
+
+    // Eski "innerHTML='' + hidden" pattern flicker yaratardi.
+    // Endi: yangi HTML tayyor bo'lganidan keyin, bir martada almashtiramiz.
+    empty.classList.add('hidden');
 
     // Build subtask map from ALL tasks
     const subtaskMap = {};
@@ -1816,28 +2619,60 @@ function renderTasks() {
     });
 
     // Root tasks only
+    const myId = window._myUserId;
     let filtered = allTasks.filter(t => !t.parent_id);
     if (currentFilter === 'active') {
         filtered = filtered.filter(t => !['done', 'cancelled'].includes(t.status));
     } else if (currentFilter === 'done') {
-        filtered = filtered.filter(t => t.status === 'done');
+        filtered = filtered.filter(t => {
+            // 1) Umumiy task statusi done
+            if (t.status === 'done') return true;
+            // 2) Joriy foydalanuvchining shaxsiy statusi done bo'lsa ham ko'rsat
+            if (myId && t.assignees) {
+                const myAsgn = t.assignees.find(a => String(a.id) === String(myId));
+                if (myAsgn && myAsgn.status === 'done') return true;
+            }
+            return false;
+        });
     } else if (currentFilter === 'overdue') {
-        filtered = filtered.filter(t => t.status === 'overdue');
+        // Status=overdue YOKI kechikib bajarilgan (status=done & completed_at > deadline)
+        filtered = filtered.filter(t => {
+            if (t.status === 'overdue') return true;
+            if (t.status === 'done' && t.deadline && t.completed_at) {
+                return new Date(t.completed_at) > new Date(t.deadline);
+            }
+            return false;
+        });
+    } else if (currentFilter === 'mine') {
+        // Faqat men mas'ul bo'lgan vazifalar
+        filtered = filtered.filter(t => {
+            if (!myId || !t.assignees) return false;
+            return t.assignees.some(a =>
+                String(a.id) === String(myId) && a.is_responsible
+            );
+        });
     }
 
     // Also include sub-tasks the current user is assigned to
-    const myId = window._myUserId;
     if (myId) {
         const mySubtasks = allTasks.filter(t =>
             t.parent_id &&
-            t.assignees && t.assignees.some(a => a.id === myId) &&
+            t.assignees && t.assignees.some(a => String(a.id) === String(myId)) &&
             !filtered.some(f => (subtaskMap[f.id] || []).some(c => c.id === t.id))
         );
         // Apply same status filter
         const filteredSubs = currentFilter === 'active'
             ? mySubtasks.filter(t => !['done','cancelled'].includes(t.status))
-            : currentFilter === 'done' ? mySubtasks.filter(t => t.status === 'done')
+            : currentFilter === 'done' ? mySubtasks.filter(t => {
+                if (t.status === 'done') return true;
+                const myAsgn = t.assignees?.find(a => String(a.id) === String(myId));
+                return myAsgn && myAsgn.status === 'done';
+            })
             : currentFilter === 'overdue' ? mySubtasks.filter(t => t.status === 'overdue')
+            : currentFilter === 'mine' ? mySubtasks.filter(t => {
+                if (!myId || !t.assignees) return false;
+                return t.assignees.some(a => String(a.id) === String(myId) && a.is_responsible);
+            })
             : mySubtasks;
         // Render them as orphan sub-task cards (show parent ref from their parent_id)
         filteredSubs.forEach(s => {
@@ -1877,6 +2712,7 @@ function renderTasks() {
     }
 
     if (filtered.length === 0) {
+        list.innerHTML = '';          // MUHIM: eski workspace kartalarini tozalaymiz
         list.classList.add('hidden');
         empty.classList.remove('hidden');
         return;
@@ -1919,23 +2755,66 @@ function _renderTaskTree(task, children) {
         </div>`;
 }
 
+// "Sizning navbatingiz" / "Palonchining navbati" / "Palonchi, Palonchilarning navbati"
+function _buildTurnLabel(assignees, myId) {
+    // "Navbat" = hali bajarmaganlar (done/cancelled emas)
+    const active = assignees.filter(a => a.status !== 'done' && a.status !== 'cancelled');
+    if (!active.length) {
+        // Hammasi bajardi — birinchisining ismini ko'rsat
+        const n = assignees[0].name.split(' ')[0];
+        return `<span class="tc-meta-name tc-turn-done">✅ ${escapeHtml(n)} va jamoa</span>`;
+    }
+
+    const meActive = myId && active.some(a => String(a.id) === String(myId));
+
+    if (meActive) {
+        // Mening navbatim bor
+        const others = active.filter(a => String(a.id) !== String(myId));
+        if (others.length === 0) {
+            return `<span class="tc-meta-name tc-turn-me">Sizning navbatingiz</span>`;
+        } else if (others.length === 1) {
+            const o = escapeHtml(others[0].name.split(' ')[0]);
+            return `<span class="tc-meta-name tc-turn-me">Siz, ${o}ning navbati</span>`;
+        } else {
+            return `<span class="tc-meta-name tc-turn-me">Siz va boshqalarning navbati</span>`;
+        }
+    } else {
+        // Boshqalarning navbati
+        const names = active.slice(0, 3).map(a => escapeHtml(a.name.split(' ')[0]));
+        if (active.length === 1) {
+            return `<span class="tc-meta-name tc-turn-other">${names[0]}ning navbati</span>`;
+        } else if (active.length === 2) {
+            return `<span class="tc-meta-name tc-turn-other">${names.join(', ')}larning navbati</span>`;
+        } else {
+            const shown = names.slice(0, 2).join(', ');
+            return `<span class="tc-meta-name tc-turn-other">${shown} +${active.length - 2}larning navbati</span>`;
+        }
+    }
+}
+
 function _taskCardInner(task, opts = {}) {
     const { subtaskCount = 0, parentName = null } = opts;
     const dlClass = task.deadline ? getDeadlineClass(task.deadline, task.status) : '';
     const dlUrgent = dlClass === 'deadline-urgent';
     const dlSoon   = dlClass === 'deadline-soon';
 
-    // Assignees row
+    // Assignees row — "navbat" label
     let assigneeHtml = '';
     if (task.assignees && task.assignees.length > 0) {
+        const myId = window._myUserId;
+
+        // Avatar chips
         const chips = task.assignees.slice(0, 3).map(a => {
-            const init = (a.name || '?')[0].toUpperCase();
+            const isMe = myId && String(a.id) === String(myId);
+            const init = isMe ? '★' : (a.name || '?')[0].toUpperCase();
             const aSt = a.status || 'new';
-            return `<span class="tc-avatar tc-av-${aSt}" title="${escapeHtml(a.name)}">${escapeHtml(init)}</span>`;
+            const meCls = isMe ? ' tc-av-me' : '';
+            return `<span class="tc-avatar tc-av-${aSt}${meCls}" title="${escapeHtml(a.name)}">${init}</span>`;
         }).join('');
-        const names = task.assignees.slice(0, 2).map(a => escapeHtml(a.name.split(' ')[0])).join(', ')
-            + (task.assignees.length > 2 ? ` +${task.assignees.length - 2}` : '');
-        assigneeHtml = `<div class="tc-row">${chips}<span class="tc-meta-name">${names}</span></div>`;
+
+        // "Navbat" label logic
+        const turnLabel = _buildTurnLabel(task.assignees, myId);
+        assigneeHtml = `<div class="tc-row">${chips}${turnLabel}</div>`;
     }
 
     // Subtask / parent ref row
@@ -1954,17 +2833,69 @@ function _taskCardInner(task, opts = {}) {
         dlHtml = `<div class="tc-row ${dlCls} tc-countdown" data-deadline="${task.deadline}" data-status="${task.status}">${icon} <span class="tc-countdown-txt">${formatCountdown(task.deadline, task.status)}</span></div>`;
     }
 
+    // "Mas'ul" badge — agar joriy foydalanuvchi mas'ul bo'lsa
+    const myId = window._myUserId;
+    const iAmResponsible = myId && task.assignees && task.assignees.some(
+        a => String(a.id) === String(myId) && a.is_responsible
+    );
+    const respBadge = iAmResponsible
+        ? `<span class="tc-resp-badge" title="Siz mas'ulsiz">⭐ Mas'ul</span>`
+        : '';
+
+    // Kechikib bajarilgan vazifa — alohida belgilash
+    const lateDone = task.status === 'done' && task.deadline && task.completed_at
+        && new Date(task.completed_at) > new Date(task.deadline);
+    const statusLabel = lateDone
+        ? `⏰ ${tr('app.status.done_late')||'Kechikib bajarildi'}`
+        : (TC_STATUS[task.status] || task.status);
+    const statusCls = lateDone ? 'tc-badge-late' : `tc-badge-${task.status}`;
+
+    // Workflow (ketma-ketlik) belgisi
+    const wfBadge = task.has_workflow
+        ? `<span class="tc-wf-badge" title="Ketma-ketlik (workflow) vazifasi">🔄 Ketma-ketlik</span>`
+        : '';
+
     return `
         <div class="tc-header">
-            <span class="tc-title">${escapeHtml(task.title)}</span>
-            <span class="tc-badge tc-badge-${task.status}">${TC_STATUS[task.status] || task.status}</span>
+            <span class="tc-title">${wfBadge ? '<span class="tc-wf-dot">🔄</span> ' : ''}${escapeHtml(task.title)}</span>
+            <span class="tc-header-right">
+                ${respBadge}
+                <span class="tc-badge ${statusCls}">${statusLabel}</span>
+            </span>
         </div>
         <div class="tc-body">
-            ${assigneeHtml}${refHtml}${dlHtml}
+            ${wfBadge}${assigneeHtml}${refHtml}${dlHtml}
         </div>`;
 }
 
 // ===== Task Detail Modal =====
+async function refreshOpenTask() {
+    if (!currentTaskId) return;
+    FX.refresh();
+    const btn = document.getElementById('modal-refresh-btn');
+    if (btn) btn.classList.add('refreshing');
+    try {
+        // Workflow modal bo'lsa — workflow ko'rinishini saqlab yangilaymiz
+        const isWf = document.getElementById('task-modal')?.dataset.wfMode === '1';
+        if (isWf) {
+            const r = await apiRequest(`/workflows?task_id=${currentTaskId}`);
+            const w = r && r.workflows && r.workflows[0];
+            if (w) {
+                const idx = _wfData.findIndex(x => x.task_id === currentTaskId);
+                if (idx >= 0) _wfData[idx] = w; else _wfData.push(w);
+                openWorkflowDetail(currentTaskId);
+            }
+        } else {
+            await openTask(currentTaskId);  // oddiy vazifa
+        }
+        showToast('✓ Yangilandi');
+    } catch (e) {
+        console.warn('refreshOpenTask:', e);
+    } finally {
+        if (btn) setTimeout(() => btn.classList.remove('refreshing'), 400);
+    }
+}
+
 async function openTask(taskId) {
     currentTaskId = taskId;
     if (tg) tg.HapticFeedback?.impactOccurred('light');
@@ -1972,7 +2903,8 @@ async function openTask(taskId) {
     try {
         const data = await apiRequest(`/tasks/${taskId}`);
         const task = data.task;
-        
+        window._currentTaskFull = task;   // Mind map uchun saqlaymiz
+
         document.getElementById('modal-title').textContent = task.title;
         
         // Use i18n-resolved labels
@@ -1983,11 +2915,11 @@ async function openTask(taskId) {
         let bodyHtml = `
             <div class="modal-section">
                 <div class="modal-detail">
-                    <div class="modal-detail-label">📍 Status</div>
+                    <div class="modal-detail-label">${IC.pin} ${tr('app.modal.status')||'Status'}</div>
                     <div class="modal-detail-value badge-${task.status}">${statusNames[task.status] || task.status}</div>
                 </div>
                 <div class="modal-detail">
-                    <div class="modal-detail-label">⚡ Muhimlik</div>
+                    <div class="modal-detail-label">${IC.bolt} ${tr('app.modal.priority')||'Muhimlik'}</div>
                     <div class="modal-detail-value ${priorityColors[task.priority] || ''}">${priorityNames[task.priority] || task.priority}</div>
                 </div>
             </div>
@@ -1996,7 +2928,7 @@ async function openTask(taskId) {
         if (task.description) {
             bodyHtml += `
                 <div class="modal-detail">
-                    <div class="modal-detail-label">Tavsif</div>
+                    <div class="modal-detail-label">${tr('app.modal.desc')||'Tavsif'}</div>
                     <div class="modal-detail-value">${escapeHtml(task.description)}</div>
                 </div>
             `;
@@ -2005,7 +2937,7 @@ async function openTask(taskId) {
         if (task.deadline) {
             bodyHtml += `
                 <div class="modal-detail">
-                    <div class="modal-detail-label">Deadline</div>
+                    <div class="modal-detail-label">${tr('app.modal.deadline')||'Deadline'}</div>
                     <div class="modal-detail-value">${formatDeadlineFull(task.deadline)}</div>
                 </div>
             `;
@@ -2014,8 +2946,8 @@ async function openTask(taskId) {
         if (task.creator_name) {
             bodyHtml += `
                 <div class="modal-detail">
-                    <div class="modal-detail-label">Yaratgan</div>
-                    <div class="modal-detail-value">👤 ${escapeHtml(task.creator_name)}</div>
+                    <div class="modal-detail-label">${tr('app.modal.creator')||'Yaratgan'}</div>
+                    <div class="modal-detail-value">${IC.user} ${escapeHtml(task.creator_name)}</div>
                 </div>
             `;
         }
@@ -2029,8 +2961,8 @@ async function openTask(taskId) {
         if (task.responsible_name) {
             bodyHtml += `
                 <div class="modal-detail">
-                    <div class="modal-detail-label">⭐ Masul (Responsible)</div>
-                    <div class="modal-detail-value"><span class="resp-badge">⭐ ${escapeHtml(task.responsible_name)}</span></div>
+                    <div class="modal-detail-label">${IC.star} Mas'ul (Responsible)</div>
+                    <div class="modal-detail-value"><span class="resp-badge">${IC.star} ${escapeHtml(task.responsible_name)}</span></div>
                 </div>
             `;
         }
@@ -2042,7 +2974,7 @@ async function openTask(taskId) {
 
             const makeRow = (a, isResp) => {
                 const st = a.status || 'new';
-                const roleIcon = isResp ? '⭐' : '👁';
+                const roleIcon = isResp ? IC.star : IC.eye;
                 const roleTxt  = isResp
                     ? `<span class="asgn-role-badge asgn-resp">Mas'ul</span>`
                     : `<span class="asgn-role-badge asgn-obs">Kuzatuvchi</span>`;
@@ -2084,18 +3016,18 @@ async function openTask(taskId) {
                 const isDone = s.status === 'done' || s.status === 'DONE';
                 return `
                     <div class="subtask-item ${isDone ? 'subtask-done' : ''}" onclick="openTask(${s.id})">
-                        <span class="subtask-status">${isDone ? '✅' : '⬜'}</span>
+                        <span class="subtask-status subtask-check" title="${isDone ? 'Qayta ochish' : 'Bajarildi deb belgilash'}"
+                            onclick="event.stopPropagation(); toggleSubtaskCheck(${s.id}, ${isDone})">${isDone ? IC.done : IC.circle}</span>
                         <span class="subtask-title">${escapeHtml(s.title.slice(0, 50))}</span>
                     </div>
                 `;
             }).join('');
-            const addBtn = (!hasParent)
-                ? `<button class="subtask-add-btn" onclick="openSubtaskTypePicker(${task.id})">➕ Sub-task qo'shish</button>`
-                : '';
+            // Cheksiz iyerarxiya — har qanday vazifa (parent yoki child) ham subtask qo'sha oladi
+            const addBtn = `<button class="subtask-add-btn" onclick="openSubtaskTypePicker(${task.id})">${IC.plus} ${tr('app.subtask.add')||"Sub-task qo'shish"}</button>`;
             bodyHtml += `
                 <div class="subtask-section">
-                    <div class="subtask-section-title">📂 Sub-tasklar${subtasks.length ? ' ('+subtasks.length+')' : ''}</div>
-                    ${subItems || '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">Hali sub-task yo\'q</div>'}
+                    <div class="subtask-section-title">${IC.folder} ${tr('app.subtasks')||'Sub-tasklar'}${subtasks.length ? ' ('+subtasks.length+')' : ''}</div>
+                    ${subItems || '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">'+(tr('app.subtask.empty')||"Hali sub-task yo'q")+'</div>'}
                     ${addBtn}
                 </div>
             `;
@@ -2111,7 +3043,7 @@ async function openTask(taskId) {
                 return `
                     <div class="task-comment">
                         <div class="comment-header">
-                            <span class="comment-author">👤 ${authorName}</span>
+                            <span class="comment-author">${IC.user} ${authorName}</span>
                             <span class="comment-time">${commentTime}</span>
                         </div>
                         ${commentText ? `<div class="comment-text">${commentText}</div>` : ''}
@@ -2120,7 +3052,7 @@ async function openTask(taskId) {
             }).join('');
             bodyHtml += `
                 <div class="modal-detail">
-                    <div class="modal-detail-label">💬 Izohlar (${comments.length})</div>
+                    <div class="modal-detail-label">${IC.comment} ${tr('app.modal.comments')||'Izohlar'} (${comments.length})</div>
                     <div class="task-comments-list">${commentsHtml}</div>
                 </div>
             `;
@@ -2130,7 +3062,7 @@ async function openTask(taskId) {
         const atts = task.attachments || [];
         {
             const mediaCount = atts.length;
-            const mediaLabel = tr('app.media.title') || '📎 Mediya';
+            const mediaLabel = tr('app.media.title') || (IC.attach + ' Mediya');
             const hasCommentMedia = comments.filter(c => c.file_url).length;
             const totalMedia = mediaCount + hasCommentMedia;
             bodyHtml += `
@@ -2145,7 +3077,7 @@ async function openTask(taskId) {
         // Metadata — minimal
         bodyHtml += `
             <div class="modal-detail">
-                <div class="modal-detail-label">📅 Yaratilgan</div>
+                <div class="modal-detail-label">${IC.calendar} ${tr('app.modal.created')||'Yaratilgan'}</div>
                 <div class="modal-detail-value" style="font-size:12px">${formatDate(task.created_at)}</div>
             </div>
         `;
@@ -2153,9 +3085,9 @@ async function openTask(taskId) {
         // 📊 Vaqt / aktivlik chartlari
         bodyHtml += `
             <div class="modal-detail">
-                <div class="modal-detail-label">📊 Vaqt va aktivlik</div>
+                <div class="modal-detail-label">${IC.chart} ${tr('app.modal.time_activity')||'Vaqt va aktivlik'}</div>
                 <div id="task-chart-${task.id}" class="task-chart-wrap">
-                    <div class="task-chart-loading">Yuklanmoqda...</div>
+                    <div class="task-chart-loading">${tr('app.loading')||'Yuklanmoqda...'}</div>
                 </div>
             </div>
         `;
@@ -2164,7 +3096,7 @@ async function openTask(taskId) {
         if (task.history && task.history.length > 0) {
             bodyHtml += `
                 <div class="modal-detail">
-                    <div class="modal-detail-label">🕐 So'nggi harakatlari (${task.history.length})</div>
+                    <div class="modal-detail-label">${IC.clock} So'nggi harakatlari (${task.history.length})</div>
                     <div class="timeline" id="task-timeline-${task.id}">${_renderTimeline(task.history)}</div>
                 </div>
             `;
@@ -2176,18 +3108,24 @@ async function openTask(taskId) {
         let actionsHtml = '';
         const myStatus       = task.my_status;
         const isWorkflow     = task.has_workflow === true;
+        // Statusni faqat MAS'UL (responsible) o'zgartira oladi.
+        // Yaratuvchi avtomatik mas'ul HISOBLANMAYDI — agar yaratuvchi ham status
+        // o'zgartirmoqchi bo'lsa, o'zini ham mas'ul qilib qo'shishi kerak.
         const isResponsible  = task.my_is_responsible === true;
         const isObserver     = myStatus && !isResponsible;
 
         // Status + action buttons block
         const statusColors = { new:'#818CF8', in_progress:'#FBBF24', done:'#34D399', cancelled:'#6B7280', review:'#22D3EE' };
-        const statusIcons  = { new:'🆕', in_progress:'⚙️', done:'✅', cancelled:'🚫', review:'🔍' };
+        const statusIcons  = { new:IC.new, in_progress:IC.progress, done:IC.done, cancelled:IC.cancelled, review:IC.review };
 
-        if (myStatus) {
+        if (myStatus || task.is_creator) {
             const sColor = statusColors[myStatus] || '#818CF8';
             const sIcon  = statusIcons[myStatus] || '📌';
-            const sLabel = statusShort[myStatus] || myStatus;
-            const roleLabel = isResponsible ? IC.star+' Mas\'ul' : IC.eye+' Kuzatuvchi';
+            const sLabel = statusShort[myStatus] || (myStatus || '—');
+            let roleLabel;
+            if (isResponsible)         roleLabel = IC.star + ' ' + (tr('app.role.responsible')||"Mas'ul");
+            else if (task.is_creator)  roleLabel = '✍️ ' + (tr('app.role.creator')||'Yaratuvchi');
+            else                       roleLabel = IC.eye + ' ' + (tr('app.role.observer')||'Kuzatuvchi');
             actionsHtml += `
                 <div class="task-status-card" style="--s-color:${sColor}">
                     <div class="tsc-role">${roleLabel}</div>
@@ -2196,14 +3134,16 @@ async function openTask(taskId) {
         }
 
         if (isObserver) {
-            actionsHtml += `<div class="observer-badge">👁 Status faqat mas'ul shaxs tomonidan o'zgartiriladi</div>`;
+            actionsHtml += `<div class="observer-badge">${IC.eye} Status faqat mas'ul shaxs tomonidan o'zgartiriladi</div>`;
+        } else if (!isResponsible && task.is_creator) {
+            actionsHtml += `<div class="observer-badge">✍️ ${tr('app.creator.hint')||"Siz yaratuvchisiz — statusni mas'ul o'zgartiradi. Siz vazifani o'chirishingiz mumkin."}</div>`;
         }
 
         if (myStatus && isResponsible && !isWorkflow) {
             let btnClass = 'wf-btn-start', btnText = IC.play+' Boshlashni boshlash';
             if (myStatus === 'new')         { btnClass = 'wf-btn-start'; btnText = IC.play+' Boshlash'; }
             if (myStatus === 'in_progress') { btnClass = 'wf-btn-done';  btnText = IC.check+' Bajarildi deb belgilash'; }
-            if (myStatus === 'done')        { btnClass = 'wf-btn-secondary'; btnText = IC.check+' Bajarilgan'; }
+            if (myStatus === 'done')        { btnClass = 'wf-btn-secondary'; btnText = IC.check+' '+(tr('app.status.done_short')||'Bajarilgan'); }
             actionsHtml += `<button class="wf-status-btn ${btnClass}" onclick="handleTaskAction(${task.id}, '${myStatus}')">${btnText}</button>`;
         } else if (myStatus && isResponsible && isWorkflow) {
             if (myStatus === 'new') {
@@ -2215,8 +3155,10 @@ async function openTask(taskId) {
             }
         }
 
-        if (task.is_creator && !['done', 'cancelled'].includes(task.status)) {
-            actionsHtml += `<button class="modal-action-btn btn-danger" onclick="changeStatus(${task.id}, 'cancelled')">${IC.xmark} Vazifani bekor qilish</button>`;
+        // Yaratuvchi: TAHRIRLASH (deadline cho'zish) + O'CHIRISH
+        if (task.is_creator) {
+            actionsHtml += `<button class="modal-action-btn btn-secondary" onclick='openTaskEditForm(${task.id})'>${IC.edit||'✏️'} Tahrirlash / deadline</button>`;
+            actionsHtml += `<button class="modal-action-btn btn-danger" onclick="deleteTaskByCreator(${task.id})">${IC.xmark} ${tr('app.delete_task')||"Vazifani o'chirish"}</button>`;
         }
 
 
@@ -2228,7 +3170,19 @@ async function openTask(taskId) {
                         onchange="sendCommentWithMedia(${task.id}, this)">
                 </label>
                 <input type="text" class="comment-input-inline" id="comment-input-${task.id}"
-                    placeholder="💬 Izoh yozing..." maxlength="1000">
+                    placeholder="${(tr('app.comment.ph')||'Izoh yozing...')}" maxlength="1000">
+                <button class="comment-voice-btn" id="voice-btn-${task.id}" onclick="toggleVoiceRecord(${task.id})" title="Ovoz yozish">
+                    <svg style="width:17px;height:17px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                </button>
+                <button class="comment-video-btn"
+                        ontouchstart="startVideoRecord(event, ${task.id})"
+                        ontouchend="stopVideoRecord(event, ${task.id})"
+                        onmousedown="startVideoRecord(event, ${task.id})"
+                        onmouseup="stopVideoRecord(event, ${task.id})"
+                        onmouseleave="stopVideoRecord(event, ${task.id}, true)"
+                        title="Bosib turing — video tashlash">
+                    <svg style="width:17px;height:17px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                </button>
                 <button class="comment-send-btn-sm" onclick="sendComment(${task.id})"><svg style="width:15px;height:15px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
             </div>
         `;
@@ -2267,63 +3221,58 @@ async function loadTaskChart(taskId) {
 
         // Summary qator
         const startedLabel = data.task_started_at
-            ? `▶️ ${formatDateTime(data.task_started_at)}`
+            ? `${IC.play} ${formatDateTime(data.task_started_at)}`
             : '—';
         let html = `
             <div class="tc-summary">
-                <div class="tc-sum-item"><span class="tc-sum-val">${data.total_hours}</span><span class="tc-sum-lab">⏱ jami soat</span></div>
-                <div class="tc-sum-item"><span class="tc-sum-val">${data.lifespan_hours}</span><span class="tc-sum-lab">📅 umumiy davomiylik</span></div>
-                <div class="tc-sum-item"><span class="tc-sum-val">${data.totals.comments}</span><span class="tc-sum-lab">💬 izoh</span></div>
-                <div class="tc-sum-item"><span class="tc-sum-val">${data.totals.attachments}</span><span class="tc-sum-lab">📎 fayl</span></div>
+                <div class="tc-sum-item"><span class="tc-sum-val">${data.total_hours}</span><span class="tc-sum-lab">${IC.clock} ${tr('app.tc.total_hours')||'jami soat'}</span></div>
+                <div class="tc-sum-item"><span class="tc-sum-val">${data.lifespan_hours}</span><span class="tc-sum-lab">${IC.calendar} ${tr('app.tc.lifespan')||'umumiy davomiylik'}</span></div>
+                <div class="tc-sum-item"><span class="tc-sum-val">${data.totals.comments}</span><span class="tc-sum-lab">${IC.comment} ${tr('app.tc.comment')||'izoh'}</span></div>
+                <div class="tc-sum-item"><span class="tc-sum-val">${data.totals.attachments}</span><span class="tc-sum-lab">${IC.attach} ${tr('app.tc.file')||'fayl'}</span></div>
             </div>
-            ${data.task_started_at ? `<div class="tc-started-note">⚙️ Ish boshlangan: <b>${startedLabel}</b></div>` : ''}
+            ${data.task_started_at ? `<div class="tc-started-note">⚙️ ${tr('app.tc.started')||'Ish boshlangan'}: <b>${startedLabel}</b></div>` : ''}
         `;
 
-        if (users.length === 0 && steps.length === 0) {
-            wrap.innerHTML = html + '<div class="task-chart-empty">Hali aktivlik qayd etilmagan</div>';
+        // ── Kechiktirayotganlar ma'lumotini hisoblash ──
+        // Workflow bo'lsa — har qadam ijrochisining vaqti
+        // Oddiy task bo'lsa — har userning vaqti
+        let delayData = [];
+        if (steps.length > 0) {
+            // Workflow — qadam bo'yicha guruhlash
+            const byAssignee = {};
+            steps.forEach(s => {
+                const name = s.assignee || '—';
+                if (!byAssignee[name]) byAssignee[name] = { name, hours: 0, done: 0, active: 0, pending: 0 };
+                byAssignee[name].hours += (s.hours || 0);
+                if (s.status === 'done') byAssignee[name].done++;
+                else if (s.status === 'active') byAssignee[name].active++;
+                else byAssignee[name].pending++;
+            });
+            delayData = Object.values(byAssignee).filter(u => u.hours > 0 || u.active > 0);
+        } else {
+            // Oddiy task — users
+            delayData = users.filter(u => u.hours > 0);
+        }
+
+        if (delayData.length === 0) {
+            wrap.innerHTML = html + '<div class="task-chart-empty">'+(tr('app.tc.no_activity')||'Hali aktivlik qayd etilmagan')+'</div>';
             return;
         }
 
-        // Chart canvaslari
-        if (users.length > 0) {
-            html += `
-                <div class="tc-chart-block">
-                    <div class="tc-chart-title">👥 Kim nechi soat ketqazdi</div>
-                    <div class="tc-canvas-wrap" style="height:${Math.max(160, users.length * 38)}px">
-                        <canvas id="tc-users-${taskId}"></canvas>
-                    </div>
+        // YAGONA donut chart — kim kechiktirayotgan
+        html += `
+            <div class="tc-chart-block">
+                <div class="tc-chart-title">${IC.clock} ${tr('app.tc.who_delays')||'Kim kechiktirayotgan'}</div>
+                <div class="tc-canvas-wrap tc-pie-wrap" style="height:280px">
+                    <canvas id="tc-pie-${taskId}"></canvas>
                 </div>
-            `;
-        }
-
-        if (steps.length > 0) {
-            html += `
-                <div class="tc-chart-block">
-                    <div class="tc-chart-title">🪜 Qadamlar davomiyligi</div>
-                    <div class="tc-canvas-wrap" style="height:${Math.max(160, steps.length * 38)}px">
-                        <canvas id="tc-steps-${taskId}"></canvas>
-                    </div>
-                </div>
-            `;
-        }
-
-        // Aktivlik (comments + attachments)
-        const actUsers = users.filter(u => (u.comments + u.attachments) > 0);
-        if (actUsers.length > 0) {
-            html += `
-                <div class="tc-chart-block">
-                    <div class="tc-chart-title">💬 Aktivlik (izoh + fayl)</div>
-                    <div class="tc-canvas-wrap" style="height:${Math.max(160, actUsers.length * 38)}px">
-                        <canvas id="tc-activity-${taskId}"></canvas>
-                    </div>
-                </div>
-            `;
-        }
+            </div>
+        `;
 
         wrap.innerHTML = html;
 
         // Eski instancelarni tozalash
-        ['users', 'steps', 'activity'].forEach(k => {
+        ['users', 'steps', 'activity', 'pie'].forEach(k => {
             const key = `${taskId}_${k}`;
             if (_taskChartInstances[key]) {
                 try { _taskChartInstances[key].destroy(); } catch(_) {}
@@ -2331,119 +3280,64 @@ async function loadTaskChart(taskId) {
             }
         });
 
-        const palette = ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#f472b6', '#22d3ee', '#fb923c'];
+        // Issiq → Sovuq palette: eng ko'p kechiktirayotgan qizil, kam-yashil
+        const heatPalette = ['#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#06b6d4','#8b5cf6'];
+        // Eng ko'pdan kamga saralash — eng "kechiktirgan" qizilroq bo'ladi
+        delayData.sort((a, b) => (b.hours || 0) - (a.hours || 0));
 
-        // 1) Users chart (horizontal bar)
-        if (users.length > 0) {
-            const ctx = document.getElementById(`tc-users-${taskId}`);
+        // YAGONA donut chart
+        {
+            const ctx = document.getElementById(`tc-pie-${taskId}`);
             if (ctx) {
-                _taskChartInstances[`${taskId}_users`] = new Chart(ctx, {
-                    type: 'bar',
+                _taskChartInstances[`${taskId}_pie`] = new Chart(ctx, {
+                    type: 'doughnut',
                     data: {
-                        labels: users.map(u => u.name),
+                        labels: delayData.map(u => u.name),
                         datasets: [{
-                            label: 'Soat',
-                            data: users.map(u => u.hours),
-                            backgroundColor: users.map((_, i) => palette[i % palette.length]),
-                            borderRadius: 8,
+                            data: delayData.map(u => Number((u.hours || 0).toFixed(2))),
+                            backgroundColor: delayData.map((_, i) => heatPalette[i % heatPalette.length]),
+                            borderColor: '#0D1117',
+                            borderWidth: 3,
+                            hoverOffset: 12,
                         }],
                     },
                     options: {
-                        indexAxis: 'y',
                         responsive: true,
                         maintainAspectRatio: false,
+                        cutout: '58%',
                         plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                callbacks: {
-                                    label: (ctx) => `${ctx.parsed.x} soat`,
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    color: '#e2e8f0',
+                                    font: { size: 12, weight: '600' },
+                                    padding: 12,
+                                    usePointStyle: true,
+                                    pointStyleWidth: 12,
                                 },
                             },
-                        },
-                        scales: {
-                            x: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.1)' } },
-                            y: { ticks: { color: '#e2e8f0' }, grid: { display: false } },
-                        },
-                    },
-                });
-            }
-        }
-
-        // 2) Steps chart
-        if (steps.length > 0) {
-            const ctx = document.getElementById(`tc-steps-${taskId}`);
-            if (ctx) {
-                const statusColor = {
-                    done: '#34d399', active: '#60a5fa', pending: '#64748b', blocked: '#fb923c',
-                };
-                _taskChartInstances[`${taskId}_steps`] = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: steps.map(s => `${s.order}. ${s.title.length > 22 ? s.title.slice(0,22)+'…' : s.title}`),
-                        datasets: [{
-                            label: 'Soat',
-                            data: steps.map(s => s.hours),
-                            backgroundColor: steps.map(s => statusColor[s.status] || '#64748b'),
-                            borderRadius: 8,
-                        }],
-                    },
-                    options: {
-                        indexAxis: 'y',
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false },
                             tooltip: {
                                 callbacks: {
-                                    label: (ctx) => {
-                                        const s = steps[ctx.dataIndex];
-                                        return [
-                                            `${s.hours} soat`,
-                                            `👤 ${s.assignee}`,
-                                            `📍 ${s.status}`,
-                                            `💬 ${s.comments_count} · 📎 ${s.attachments_count}`,
-                                        ];
+                                    label: (c) => {
+                                        const u = delayData[c.dataIndex];
+                                        const total = c.dataset.data.reduce((a, b) => a + b, 0);
+                                        const pct = total ? Math.round(c.parsed / total * 100) : 0;
+                                        const lines = [` ${u.hours.toFixed(1)} soat (${pct}%)`];
+                                        if (u.active != null) {
+                                            lines.push(` 🟢 Faol qadam: ${u.active}`);
+                                            if (u.done) lines.push(` ✅ Tugatdi: ${u.done}`);
+                                            if (u.pending) lines.push(` ⏳ Kutilmoqda: ${u.pending}`);
+                                        }
+                                        return lines;
                                     },
                                 },
                             },
                         },
-                        scales: {
-                            x: { beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.1)' } },
-                            y: { ticks: { color: '#e2e8f0' }, grid: { display: false } },
-                        },
                     },
                 });
             }
         }
 
-        // 3) Activity chart (stacked)
-        if (actUsers.length > 0) {
-            const ctx = document.getElementById(`tc-activity-${taskId}`);
-            if (ctx) {
-                _taskChartInstances[`${taskId}_activity`] = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: actUsers.map(u => u.name),
-                        datasets: [
-                            { label: '💬 Izoh', data: actUsers.map(u => u.comments), backgroundColor: '#60a5fa', borderRadius: 6 },
-                            { label: '📎 Fayl', data: actUsers.map(u => u.attachments), backgroundColor: '#fbbf24', borderRadius: 6 },
-                        ],
-                    },
-                    options: {
-                        indexAxis: 'y',
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { labels: { color: '#e2e8f0' } },
-                        },
-                        scales: {
-                            x: { stacked: true, beginAtZero: true, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.1)' } },
-                            y: { stacked: true, ticks: { color: '#e2e8f0' }, grid: { display: false } },
-                        },
-                    },
-                });
-            }
-        }
     } catch (err) {
         console.error('chart load error', err);
         wrap.innerHTML = '<div class="task-chart-empty">Chart yuklanmadi</div>';
@@ -2458,12 +3352,658 @@ function closeModal() {
     currentTaskId = null;
 }
 
+// ════════════════════════════════════════════════════════════════
+//  🌐 MIND MAP — NotebookLM-style (markmap.js)
+// ════════════════════════════════════════════════════════════════
+let _mmInstance = null;
+
+function _mmEsc(s) {
+    const d = document.createElement('div');
+    d.textContent = String(s == null ? '' : s).slice(0, 90);
+    return d.innerHTML;
+}
+function _mmNode(content, children) {
+    // Kontentni .mm-card wrapper ichiga olamiz — markmap to'liq enini o'lchaydi
+    const n = { content: `<span class="mm-card">${content}</span>` };
+    if (children && children.length) n.children = children;
+    return n;
+}
+
+const _MM_STATUS_EMOJI = {
+    new: '🆕', in_progress: '⚙️', review: '🔍', done: '✅', overdue: '⏰', cancelled: '🚫',
+    active: '🟢', pending: '⚪', blocked: '⏸',
+};
+const _MM_PRIO_EMOJI = { low: '🟢', medium: '🟡', high: '🟠', urgent: '🔴' };
+
+// Fayl node — bosib ochiladigan (payload.fileUrl orqali)
+const _MM_FILE_EMOJI = { photo: '🖼', video: '🎥', voice: '🎤', audio: '🎵', document: '📄' };
+function _mmFileNode(file) {
+    const name = file.file_name || file.fileName || 'fayl';
+    const node = _mmNode(`${_MM_FILE_EMOJI[file.file_type] || '📎'} ${_mmEsc(name)}`);
+    const url = file.file_url || file.url;
+    if (url) {
+        node.payload = Object.assign({}, node.payload, { fileUrl: url });
+    }
+    return node;
+}
+
+// Inline badge'lar — har task/subtask uchun qisqa belgilar
+function _mmBadges(n) {
+    const parts = [];
+    const resp = (n.assignees || []).filter(a => a.is_responsible);
+    if (resp.length) {
+        const names = resp.map(a => a.name.split(' ')[0]).slice(0, 2).join(', ');
+        parts.push(`⭐${_mmEsc(names)}${resp.length > 2 ? '+' : ''}`);
+    }
+    if (n.comments_count)    parts.push(`💬${n.comments_count}`);
+    if (n.attachments_count) parts.push(`📎${n.attachments_count}`);
+    if (n.subtasks && n.subtasks.length) parts.push(`📂${n.subtasks.length}`);
+    return parts.length ? `  <span style="opacity:.7;font-size:12px">${parts.join('  ')}</span>` : '';
+}
+
+// Bitta task/subtask node'ini rekursiv quradi — to'liq tafsilot bilan
+function _mmTaskNode(n, isRoot) {
+    const statusEmo = _MM_STATUS_EMOJI[n.status] || '•';
+    const prioEmo   = _MM_PRIO_EMOJI[n.priority] || '';
+    const typeIcon  = n.has_workflow ? '🔄' : '📋';
+
+    const kids = [];
+
+    // Holat + muhimlik
+    kids.push(_mmNode(`${statusEmo} Holat: <b>${getStatusLabel(n.status)}</b>`));
+    kids.push(_mmNode(`${prioEmo} Muhimlik: ${getPriorityLabel(n.priority)}`));
+    if (n.deadline) {
+        kids.push(_mmNode(`⏰ Deadline: ${_mmEsc(formatDateTime(n.deadline))}`));
+    }
+    if (n.completed_at) {
+        kids.push(_mmNode(`✅ Bajarildi: ${_mmEsc(formatDate(n.completed_at))}`));
+    }
+
+    // Yaratuvchi (faqat root uchun)
+    if (isRoot && n.creator_name) {
+        kids.push(_mmNode(`✍️ Yaratuvchi: <b>${_mmEsc(n.creator_name)}</b>`));
+    }
+
+    // Mas'ullar / kuzatuvchilar
+    const responsibles = (n.assignees || []).filter(a => a.is_responsible);
+    const observers    = (n.assignees || []).filter(a => !a.is_responsible);
+    if (responsibles.length) {
+        kids.push(_mmNode(`⭐ Mas'ullar (${responsibles.length})`,
+            responsibles.map(a => {
+                const e = _MM_STATUS_EMOJI[a.status] || '•';
+                const sub = a.completed_at ? [_mmNode(`✅ ${_mmEsc(formatDate(a.completed_at))}`)] : [];
+                return _mmNode(`${e} ${_mmEsc(a.name)} — ${getStatusLabel(a.status)}`, sub);
+            })));
+    }
+    if (observers.length) {
+        kids.push(_mmNode(`👁 Kuzatuvchilar (${observers.length})`,
+            observers.map(a => _mmNode(_mmEsc(a.name)))));
+    }
+
+    // Izoh / fayl soni
+    if (n.comments_count)    kids.push(_mmNode(`💬 ${n.comments_count} izoh`));
+    if (n.attachments_count) kids.push(_mmNode(`📎 ${n.attachments_count} fayl`));
+
+    // 🔁 Rekursiv ichki subtasklar
+    const subs = n.subtasks || [];
+    if (subs.length) {
+        kids.push(_mmNode(`📂 Sub-tasklar (${subs.length})`,
+            subs.map(s => _mmTaskNode(s, false))));
+    }
+
+    const label = isRoot
+        ? `${typeIcon} <b>${_mmEsc(n.title)}</b>`
+        : `${statusEmo} <b>${_mmEsc(n.title)}</b>${_mmBadges(n)}`;
+
+    return _mmNode(label, kids);
+}
+
+let _mmCache = null;            // {tree, steps, task} — qayta qurish uchun
+let _mmCollapsed = new Set();   // yopilgan node ID'lar
+
+// Ma'lumotni fetch qilib keshlaymiz, keyin sync root quramiz
+async function _mmBuildTree(task) {
+    let tree;
+    try {
+        const r = await apiRequest(`/tasks/${task.id}/tree`);
+        tree = r.tree;
+    } catch (e) { tree = null; }
+    if (!tree) {
+        tree = {
+            id: task.id, title: task.title, status: task.status,
+            priority: task.priority, deadline: task.deadline,
+            completed_at: task.completed_at, creator_name: task.creator_name,
+            has_workflow: task.has_workflow,
+            comments_count: (task.history || []).filter(h => h.type === 'comment').length,
+            attachments_count: (task.attachments || []).length,
+            assignees: task.assignees || [],
+            subtasks: (task.subtasks || []).map(s => ({ ...s, assignees: [], subtasks: [] })),
+        };
+    }
+    let steps = [];
+    if (task.has_workflow) {
+        // wfSteps to'liq (izoh matni + fayl URL) — undan foydalanamiz
+        if (task.wfSteps && task.wfSteps.length) {
+            steps = task.wfSteps.map((s, i) => ({
+                order: s.order != null ? s.order : (i + 1),
+                title: s.title,
+                status: s.status,
+                assignee: s.assignee_name || s.assignee || '—',
+                hours: s.hours || 0,
+                comments: s.comments || [],
+                attachments: s.attachments || [],
+            }));
+        } else {
+            try {
+                const chartData = await apiRequest(`/tasks/${task.id}/chart`);
+                steps = chartData.steps || [];
+            } catch (e) { /* skip */ }
+        }
+    }
+    _mmCache = { tree, steps, task };
+    _mmCollapsed = new Set();
+    // 1-marta: ID'larni olish uchun quramiz, keyin HAMMASINI yopamiz
+    const probe = _mmRootFromCache();
+    _mmCollapseAllIds(probe);
+    return _mmRootFromCache();   // endi hammasi yopiq holatda
+}
+
+// Barcha bolali node'larni collapsed Set'ga (boshida hammasi yopiq)
+function _mmCollapseAllIds(node) {
+    if (node.children && node.children.length) {
+        if (node.payload && node.payload.mmid != null) _mmCollapsed.add(node.payload.mmid);
+        node.children.forEach(_mmCollapseAllIds);
+    }
+}
+
+// _mmCache'dan markmap root'ni QAYTADAN (sync) quradi — har toggle'da yangi obyektlar
+function _mmRootFromCache() {
+    if (!_mmCache) return _mmNode('—');
+    const { tree, steps, task } = _mmCache;
+    const rootNode = _mmTaskNode(tree, true);
+
+    if (steps.length) {
+        const kids = steps.map(s => {
+            const e = _MM_STATUS_EMOJI[s.status] || '⚪';
+            const sub = [_mmNode(`👤 ${_mmEsc(s.assignee)}`)];
+            if (s.hours > 0) sub.push(_mmNode(`⏱ ${s.hours.toFixed(1)} soat`));
+            // Izohlar — matn bilan (wfSteps) yoki son (chart)
+            const sComments = s.comments || [];
+            if (sComments.length) {
+                sub.push(_mmNode(`💬 Izohlar (${sComments.length})`,
+                    sComments.map(c => _mmNode(`<b>${_mmEsc(c.user || c.user_name || '?')}:</b> ${_mmEsc(c.content || c.text || '')}`))));
+            } else if (s.comments_count) {
+                sub.push(_mmNode(`💬 ${s.comments_count} izoh`));
+            }
+            // Fayllar — bosib ochiladigan (wfSteps) yoki son (chart)
+            const sAtts = s.attachments || [];
+            if (sAtts.length) {
+                sub.push(_mmNode(`📎 Fayllar (${sAtts.length})`, sAtts.map(_mmFileNode)));
+            } else if (s.attachments_count) {
+                sub.push(_mmNode(`📎 ${s.attachments_count} fayl`));
+            }
+            return _mmNode(`${e} <b>${s.order}.</b> ${_mmEsc(s.title)}`, sub);
+        });
+        rootNode.children = rootNode.children || [];
+        rootNode.children.splice(2, 0, _mmNode(`🪜 Qadamlar (${steps.length})`, kids));
+    }
+
+    const comments = (task.history || []).filter(h => h.type === 'comment');
+    if (comments.length) {
+        rootNode.children = rootNode.children || [];
+        rootNode.children.push(_mmNode(`💬 Izohlar (${comments.length})`,
+            comments.slice(-8).map(c => _mmNode(`<b>${_mmEsc(c.user_name)}:</b> ${_mmEsc(c.content)}`))));
+    }
+
+    // Fayllar — bosib ochiladigan (oddiy vazifa)
+    const atts = task.attachments || [];
+    if (atts.length) {
+        rootNode.children = rootNode.children || [];
+        rootNode.children.push(_mmNode(`📎 Fayllar (${atts.length})`, atts.map(_mmFileNode)));
+    }
+
+    const events = (task.history || []).filter(h => h.type === 'history');
+    if (events.length) {
+        const map = {
+            created: 'yaratdi', status_changed: "status o'zgartirdi",
+            my_status_changed: 'shaxsiy status', subtask_created: "subtask qo'shdi",
+            attachment_added: "fayl qo'shdi", priority_changed: "muhimlik o'zgartirdi",
+            title_changed: "sarlavha o'zgartirdi",
+        };
+        rootNode.children = rootNode.children || [];
+        rootNode.children.push(_mmNode(`🕐 Tarix (${events.length})`,
+            events.slice(-8).map(h => _mmNode(`${_mmEsc(h.user_name || '?')} — ${map[h.action] || h.action}`))));
+    }
+
+    // ⏰ KECHIKTIRAYOTGANNI aniqlash — eng tepaga qo'shamiz
+    const now = new Date();
+    const taskLate = task.deadline && new Date(task.deadline) < now && task.status !== 'done';
+    const delayers = [];
+    if (steps.length) {
+        // Workflow: aktiv qadam egasi — hamma uni kutmoqda
+        steps.filter(s => s.status === 'active').forEach(s => {
+            delayers.push({
+                name: s.assignee || '—',
+                where: `${s.order}. ${s.title}`,
+                late: !!taskLate,
+            });
+        });
+    } else if (taskLate) {
+        // Oddiy vazifa: deadline o'tgan + bajarmagan mas'ullar
+        (tree.assignees || []).filter(a => a.is_responsible && a.status !== 'done').forEach(a => {
+            delayers.push({ name: a.name, where: 'vazifa', late: true });
+        });
+    }
+    if (delayers.length) {
+        const lateN = delayers.filter(d => d.late).length;
+        const branchTitle = lateN
+            ? `⏰ <b>Kechiktirayotgan (${lateN})</b>`
+            : `⏳ Hozir kim ustida (${delayers.length})`;
+        rootNode.children = rootNode.children || [];
+        rootNode.children.unshift(_mmNode(branchTitle, delayers.map(d => {
+            const icon = d.late ? '🔴' : '🟡';
+            const sub = [_mmNode(`📍 ${_mmEsc(d.where)}`)];
+            sub.push(_mmNode(d.late ? '⏰ Deadline o\'tgan — kechikmoqda' : '⏳ Navbatda, hamma kutmoqda'));
+            return _mmNode(`${icon} <b>${_mmEsc(d.name)}</b>`, sub);
+        })));
+        // Root kartochkasiga ⏰ belgi — yopiq holatda ham ko'rinadi
+        if (lateN && rootNode.content) {
+            rootNode.content = rootNode.content.replace(/<\/span>\s*$/,
+                ' <span style="color:#ef4444;font-weight:800">⏰</span></span>');
+        }
+    }
+
+    // Har node'ga stabil ID + yopilgan bo'lsa fold:1
+    _mmAssignIds(rootNode, '0');
+    return rootNode;
+}
+
+// Path-based stabil ID + collapsed holatdan fold
+function _mmAssignIds(node, path) {
+    node.payload = node.payload || {};
+    node.payload.mmid = path;
+    if (_mmCollapsed.has(path)) node.payload.fold = 1;
+    else delete node.payload.fold;
+    (node.children || []).forEach((c, i) => _mmAssignIds(c, path + '.' + i));
+}
+
+// QAYTA YARATIB toggle (ichki toggle ishlamaydi) — toza fit
+function _mmRerender() {
+    const svg = document.getElementById('mm-svg');
+    if (!svg || !window.markmap) return;
+    const root = _mmRootFromCache();
+    if (_mmInstance) { try { _mmInstance.destroy(); } catch (e) {} _mmInstance = null; }
+    svg.innerHTML = '';
+    const palette = ['#6366f1','#22c55e','#f59e0b','#ef4444','#06b6d4','#a855f7','#ec4899','#14b8a6'];
+    _mmInstance = window.markmap.Markmap.create(svg, _mmOptions(palette), root);
+    requestAnimationFrame(() => {
+        try { _mmInstance.fit(); } catch (e) {}
+        requestAnimationFrame(_mmEnhance);
+    });
+}
+
+function _mmOptions(palette) {
+    return {
+        duration: 0,              // animatsiya YO'Q — geometriya darrov barqaror (chiziqlar to'g'ri)
+        nodeMinHeight: 16,
+        spacingVertical: 12,
+        spacingHorizontal: 90,
+        paddingX: 8,
+        fitRatio: 0.88,
+        initialExpandLevel: -1,   // markmap auto-fold YO'Q — fold'ni o'zimiz beramiz
+        color: (node) => {
+            const d = node?.state?.depth ?? node?.depth ?? 0;
+            return palette[d % palette.length];
+        },
+    };
+}
+
+async function openMindMap() {
+    const task = window._currentTaskFull;
+    if (!task) { showToast('Vazifa yuklanmagan', true); return; }
+    if (typeof window.markmap === 'undefined' || !window.markmap.Markmap) {
+        showToast('Mind map kutubxonasi yuklanmadi', true);
+        return;
+    }
+    FX.tap();
+
+    const modal = document.getElementById('mindmap-modal');
+    const loading = document.getElementById('mm-loading');
+    const titleEl = document.getElementById('mm-title-text');
+    if (titleEl) titleEl.textContent = task.title.slice(0, 40);
+    modal.classList.remove('hidden');
+    loading.style.display = 'flex';
+
+    try {
+        const root = await _mmBuildTree(task);
+        const svg = document.getElementById('mm-svg');
+        svg.innerHTML = '';
+
+        const isDark = !document.body.classList.contains('theme-light');
+        const palette = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#a855f7', '#ec4899', '#14b8a6'];
+
+        if (_mmInstance) { try { _mmInstance.destroy(); } catch(e){} _mmInstance = null; }
+        const { Markmap } = window.markmap;
+        _mmInstance = Markmap.create(svg, _mmOptions(palette), root);
+
+        // Matn rangini theme'ga moslash
+        svg.style.setProperty('--mm-text', isDark ? '#e8e8f5' : '#1a1a2e');
+
+        loading.style.display = 'none';
+        _mmRenderLegend();
+
+        // Animatsiya yo'q — darrov fit + chizish (geometriya barqaror)
+        requestAnimationFrame(() => {
+            try { _mmInstance.fit(); } catch(e){}
+            requestAnimationFrame(_mmEnhance);
+        });
+    } catch (e) {
+        console.error('mindmap error', e);
+        loading.innerHTML = '<span style="color:#ef4444">❌ Xato: ' + (e.message || e) + '</span>';
+    }
+}
+
+// Chiziqlarni KARTA MARKAZIDAN ulaymiz + strelka (chevron) toggle qo'shamiz.
+// MutationObserver YO'Q — faqat render'dan keyin va chevron bosilganda ishlaydi.
+function _mmEnhance() {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.getElementById('mm-svg');
+    const mainG = svg && svg.querySelector('g');
+    if (!mainG) return;
+
+    // Chiziq qatlami (node'lardan orqada)
+    let linkLayer = mainG.querySelector('g.mm-clinks');
+    if (!linkLayer) {
+        linkLayer = document.createElementNS(NS, 'g');
+        linkLayer.setAttribute('class', 'mm-clinks');
+        mainG.insertBefore(linkLayer, mainG.firstChild);
+    }
+    while (linkLayer.firstChild) linkLayer.removeChild(linkLayer.firstChild);
+
+    // Chevron (strelka) qatlami — eng ustda
+    let chevLayer = mainG.querySelector('g.mm-chevs');
+    if (!chevLayer) {
+        chevLayer = document.createElementNS(NS, 'g');
+        chevLayer.setAttribute('class', 'mm-chevs');
+        mainG.appendChild(chevLayer);
+    }
+    while (chevLayer.firstChild) chevLayer.removeChild(chevLayer.firstChild);
+
+    const nodeEls = Array.prototype.slice.call(mainG.querySelectorAll('g.markmap-node'));
+    const geom = (el) => {
+        const tr = el.getAttribute('transform') || '';
+        const m = /translate\(\s*([-\d.]+)[ ,]\s*([-\d.]+)/.exec(tr);
+        const nx = m ? +m[1] : 0, ny = m ? +m[2] : 0;
+        const fo = el.querySelector('foreignObject');
+        const fx = fo ? +(fo.getAttribute('x') || 0) : 0;
+        const fy = fo ? +(fo.getAttribute('y') || 0) : 0;
+        const fw = fo ? +(fo.getAttribute('width') || 0) : 0;
+        const fh = fo ? +(fo.getAttribute('height') || 0) : 0;
+        // circle markaz koordinatasi node g ichida (transform'siz)
+        return { rx: nx + fx + fw, lx: nx + fx, cy: ny + fy + fh / 2,
+                 lcx: fx + fw + 14, lcy: fy + fh / 2 };
+    };
+
+    nodeEls.forEach((el) => {
+        const d = el.__data__;
+        if (!d) return;
+        const g = geom(el);
+
+        // Fayl node — bosilganda ochiladi (payload.fileUrl)
+        const fileUrl = d.data && d.data.payload && d.data.payload.fileUrl;
+        if (fileUrl) {
+            const card = el.querySelector('.mm-card');
+            const target = card || el.querySelector('foreignObject');
+            if (target) {
+                if (card) card.style.cursor = 'pointer';
+                target.onclick = (ev) => {
+                    ev.preventDefault(); ev.stopPropagation();
+                    FX.tap();
+                    try { window.open(fileUrl, '_blank'); } catch (e) {}
+                };
+            }
+        }
+
+        // Ko'rinib turgan bolalarga chiziq (markaz → markaz)
+        (d.children || []).forEach((cd) => {
+            const ce = nodeEls.find((e) => e.__data__ === cd);
+            if (!ce) return;
+            const cg = geom(ce);
+            const x1 = g.rx + 14, y1 = g.cy, x2 = cg.lx, y2 = cg.cy;
+            const mx = (x1 + x2) / 2;
+            const p = document.createElementNS(NS, 'path');
+            p.setAttribute('d', `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+            p.setAttribute('class', 'mm-clink');
+            linkLayer.appendChild(p);
+        });
+
+        // Bolalari bo'lsa — strelka + toggle (KARTA va STRELKA ikkalasi bosiladi)
+        const dataKids = (d.data && d.data.children) || [];
+        if (dataKids.length) {
+            const expanded = !!(d.children && d.children.length);
+            const datum = d;
+
+            const doToggle = (ev) => {
+                if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+                FX.tap();
+                const id = datum.data && datum.data.payload && datum.data.payload.mmid;
+                if (id == null) return;
+                if (_mmCollapsed.has(id)) _mmCollapsed.delete(id);
+                else _mmCollapsed.add(id);
+                _mmRerender();
+            };
+
+            // 1) Strelka tugmasi
+            const cx = g.rx + 14, cy = g.cy;
+            const ch = document.createElementNS(NS, 'g');
+            ch.setAttribute('class', 'mm-chev');
+            ch.setAttribute('transform', `translate(${cx},${cy})`);
+            const bg = document.createElementNS(NS, 'circle');
+            bg.setAttribute('r', 11);
+            bg.setAttribute('class', 'mm-chev-bg');
+            const pa = document.createElementNS(NS, 'path');
+            pa.setAttribute('d', expanded ? 'M2.5,-4.5 L-3,0 L2.5,4.5' : 'M-2.5,-4.5 L3,0 L-2.5,4.5');
+            pa.setAttribute('class', 'mm-chev-arrow');
+            ch.appendChild(bg);
+            ch.appendChild(pa);
+            ch.addEventListener('click', doToggle);
+            chevLayer.appendChild(ch);
+
+            // 2) Kartani bosish ham toggle qiladi (eng katta yuza — ishonchli)
+            const card = el.querySelector('.mm-card');
+            if (card) {
+                card.style.cursor = 'pointer';
+                card.onclick = doToggle;
+            }
+            const fo = el.querySelector('foreignObject');
+            if (fo) fo.onclick = doToggle;
+        }
+    });
+}
+
+function _mmRenderLegend() {
+    const el = document.getElementById('mm-legend');
+    if (!el) return;
+    el.innerHTML = `
+        <span class="mm-leg-item">✍️ Yaratuvchi</span>
+        <span class="mm-leg-item">⭐ Mas'ul</span>
+        <span class="mm-leg-item">👁 Kuzatuvchi</span>
+        <span class="mm-leg-item">🪜 Qadam</span>
+        <span class="mm-leg-item">💬 Izoh</span>
+        <span class="mm-leg-item">📎 Fayl</span>
+    `;
+}
+
+function mmFit() {
+    if (_mmInstance) { try { _mmInstance.fit(); FX.tap(); } catch(e){} setTimeout(_mmEnhance, 460); }
+}
+
+function closeMindMap() {
+    const modal = document.getElementById('mindmap-modal');
+    if (modal) modal.classList.add('hidden');
+    FX.tap();
+}
+
+async function mmExportPng() {
+    const svg = document.getElementById('mm-svg');
+    if (!svg) return;
+    FX.tap();
+    try {
+        const clone = svg.cloneNode(true);
+        const bbox = svg.getBBox();
+        const pad = 40;
+        const w = Math.ceil(bbox.width + pad * 2);
+        const h = Math.ceil(bbox.height + pad * 2);
+        clone.setAttribute('viewBox', `${bbox.x - pad} ${bbox.y - pad} ${w} ${h}`);
+        clone.setAttribute('width', w);
+        clone.setAttribute('height', h);
+
+        const isDark = !document.body.classList.contains('theme-light');
+        const bg = isDark ? '#0d0d18' : '#ffffff';
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', bbox.x - pad); rect.setAttribute('y', bbox.y - pad);
+        rect.setAttribute('width', w); rect.setAttribute('height', h);
+        rect.setAttribute('fill', bg);
+        clone.insertBefore(rect, clone.firstChild);
+
+        const xml = new XMLSerializer().serializeToString(clone);
+        const svg64 = btoa(unescape(encodeURIComponent(xml)));
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const scale = 2;
+            canvas.width = w * scale; canvas.height = h * scale;
+            const ctx = canvas.getContext('2d');
+            ctx.scale(scale, scale);
+            ctx.drawImage(img, 0, 0);
+            canvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `mindmap_${Date.now()}.png`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast('✅ PNG saqlandi');
+            }, 'image/png');
+        };
+        img.src = 'data:image/svg+xml;base64,' + svg64;
+    } catch (e) {
+        showToast('❌ Eksport xatosi', true);
+    }
+}
+
 // Close modal on overlay click
 document.getElementById('task-modal')?.addEventListener('click', (e) => {
     if (e.target.classList.contains('modal-overlay')) closeModal();
 });
 
 // ===== Change Status =====
+// Sub-task checkbox ni bosish — statusni toggle qiladi (done ↔ in_progress)
+async function toggleSubtaskCheck(subtaskId, isDone) {
+    const newStatus = isDone ? 'in_progress' : 'done';
+    try {
+        await apiRequest(`/tasks/${subtaskId}/status`, 'PATCH', { status: newStatus });
+        if (tg) tg.HapticFeedback?.notificationOccurred('success');
+        // Ota-taskni qayta yuklaymiz
+        if (currentTaskId) await openTask(currentTaskId);
+    } catch(e) {
+        showToast('Xatolik yuz berdi', true);
+    }
+}
+
+// ============ YARATUVCHI: VAZIFANI TAHRIRLASH (deadline cho'zish) ============
+function _toDTLocal(iso) {
+    if (!iso) return '';
+    try {
+        const d = new Date(iso);
+        const p = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    } catch(e) { return ''; }
+}
+
+function openTaskEditForm(taskId) {
+    const t = window._currentTaskFull;
+    if (!t || t.id !== taskId) { showToast('Vazifa yuklanmagan', true); return; }
+    FX.tap();
+    const body = document.getElementById('modal-body');
+    body.innerHTML = `
+        <div class="te-form">
+            <div class="te-row">
+                <label>📝 Sarlavha</label>
+                <input type="text" id="te-title" value="${escapeHtml(t.title||'')}" maxlength="500">
+            </div>
+            <div class="te-row">
+                <label>📄 Tavsif</label>
+                <textarea id="te-desc" rows="3">${escapeHtml(t.description||'')}</textarea>
+            </div>
+            <div class="te-row">
+                <label>⚡ Muhimlik</label>
+                <select id="te-prio">
+                    <option value="low"${t.priority==='low'?' selected':''}>🟢 Past</option>
+                    <option value="medium"${t.priority==='medium'?' selected':''}>🟡 O'rta</option>
+                    <option value="high"${t.priority==='high'?' selected':''}>🟠 Yuqori</option>
+                    <option value="urgent"${t.priority==='urgent'?' selected':''}>🔴 Juda muhim</option>
+                </select>
+            </div>
+            <div class="te-row">
+                <label>⏰ Deadline (cho'zish/o'zgartirish)</label>
+                <input type="datetime-local" id="te-deadline" value="${_toDTLocal(t.deadline)}">
+                <div style="font-size:11px;color:var(--text3);margin-top:4px">Bo'sh qoldirsangiz — deadline olib tashlanadi</div>
+            </div>
+            <div class="te-actions">
+                <button class="modal-action-btn btn-secondary" onclick="openTask(${taskId})">← Bekor</button>
+                <button class="modal-action-btn btn-primary" id="te-save" onclick="saveTaskEditMini(${taskId})">💾 Saqlash</button>
+            </div>
+        </div>
+    `;
+    document.getElementById('modal-actions').innerHTML = '';
+}
+
+async function saveTaskEditMini(taskId) {
+    const btn = document.getElementById('te-save');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
+    const dl = document.getElementById('te-deadline').value;
+    const payload = {
+        title:       document.getElementById('te-title').value,
+        description: document.getElementById('te-desc').value,
+        priority:    document.getElementById('te-prio').value,
+        deadline:    dl ? new Date(dl).toISOString() : null,
+    };
+    try {
+        const r = await apiRequest(`/tasks/${taskId}/edit`, 'PATCH', payload);
+        showToast(r.message || '✅ Saqlandi');
+        FX.success();
+        await openTask(taskId);   // modalni yangilaymiz
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '💾 Saqlash'; }
+        showToast('❌ ' + (e.message || e), true);
+    }
+}
+
+async function deleteTaskByCreator(taskId) {
+    const ok = (typeof tg?.showConfirm === 'function')
+        ? await new Promise(r => tg.showConfirm("Bu vazifani butunlay o'chirib tashlaysizmi? Buni qaytarib bo'lmaydi.", v => r(v)))
+        : confirm("Bu vazifani butunlay o'chirib tashlaysizmi? Buni qaytarib bo'lmaydi.");
+    if (!ok) return;
+    try {
+        await apiRequest(`/tasks/${taskId}`, 'DELETE');
+        // Local listdan olib tashlaymiz
+        const idx = allTasks.findIndex(t => t.id === taskId);
+        if (idx !== -1) allTasks.splice(idx, 1);
+        renderTasks();
+        closeModal();
+        showToast("✅ Vazifa o'chirildi");
+        if (tg) tg.HapticFeedback?.notificationOccurred('success');
+        try {
+            const stats = await apiRequest(`/stats?company_id=${currentWorkspaceId}`);
+            updateQuickStats(stats); updateStatsTab(stats);
+        } catch {}
+    } catch (err) {
+        showToast('❌ ' + (err.message || err), true);
+        if (tg) tg.HapticFeedback?.notificationOccurred('error');
+    }
+}
+
 async function changeStatus(taskId, newStatus) {
     try {
         await apiRequest(`/tasks/${taskId}/status`, 'PATCH', { status: newStatus });
@@ -2492,8 +4032,8 @@ function changeMyStatus(taskId, newStatus) {
     if (!actionsEl) return;
 
     const STATUS_LABELS = {
-        in_progress: '▶️ Jarayonda', done: '✅ Bajarildi',
-        review: '🔍 Ko\'rilmoqda', cancelled: '🚫 Bekor qilish',
+        in_progress: IC.progress+' Jarayonda', done: IC.done+' Bajarildi',
+        review: IC.review+' Ko\'rilmoqda', cancelled: IC.cancelled+' Bekor qilish',
     };
     const sLabel = STATUS_LABELS[newStatus] || newStatus;
     const originalHtml = actionsEl.innerHTML;
@@ -2685,7 +4225,7 @@ function renderWorkflowSteps() {
             </div>
             <div class="wf-step-foot">
                 <select class="wf-step-sel" onchange="updateWorkflowStep(${idx}, 'assignee', this.value)">
-                    <option value="">Ijrochini tanlang</option>
+                    <option value="">Kuzatuvchini tanlang</option>
                     ${assigneeOpts}
                 </select>
                 <button class="${dlCls}" onclick="_openStepDeadline(${idx})">${dlLabel}</button>
@@ -2730,11 +4270,28 @@ async function createTask() {
     const priority = document.querySelector('.priority-btn.selected')?.dataset.priority || 'medium';
     const deadline = document.getElementById('task-deadline').value;
 
+    // "Hammasi" da workspace tanlash majburiy
+    if (currentWorkspaceId === 'all' && !_createWsOverride) {
+        showToast('⚠️ Avval ishchi makonni tanlang', true);
+        if (tg) tg.HapticFeedback?.notificationOccurred('error');
+        const label = document.getElementById('create-workspace-label');
+        if (label) {
+            label.classList.add('ws-pulse');
+            setTimeout(() => label.classList.remove('ws-pulse'), 1500);
+            label.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return;
+    }
+
     if (!title || title.length < 3) {
         showToast('Vazifa nomi kamida 3 belgi bo\'lsin', true);
         if (tg) tg.HapticFeedback?.notificationOccurred('error');
         return;
     }
+
+    // Effective workspace (override yoki current)
+    const _effWsId = (currentWorkspaceId === 'all' && _createWsOverride)
+        ? _createWsOverride.id : currentWorkspaceId;
 
     // Workflow validation
     if (currentTaskType === 'workflow') {
@@ -2774,8 +4331,8 @@ async function createTask() {
             };
             if (description) body.description = description;
             if (deadline) body.deadline = new Date(deadline).toISOString();
-            if (currentWorkspaceId !== 'personal') {
-                body.company_id = currentWorkspaceId;
+            if (_effWsId !== 'personal') {
+                body.company_id = _effWsId;
             }
             if (_stParentId) body.parent_id = _stParentId;
 
@@ -2799,8 +4356,8 @@ async function createTask() {
             if (description) body.description = description;
             if (deadline) body.deadline = new Date(deadline).toISOString();
             if (_stParentId) body.parent_id = _stParentId;
-            if (currentWorkspaceId !== 'personal') {
-                body.company_id = currentWorkspaceId;
+            if (_effWsId !== 'personal') {
+                body.company_id = _effWsId;
                 const allSelIds = [...selectedAssigneeIds, ...externalAssignees.map(e => e.id)];
                 if (allSelIds.length === 0) {
                     showToast("Kamida bitta ijrochi tanlang", true);
@@ -2871,9 +4428,169 @@ function showToast(message, isError = false) {
     const toast = document.getElementById('toast');
     document.getElementById('toast-message').textContent = message;
     toast.className = isError ? 'toast error' : 'toast';
-    
     setTimeout(() => { toast.classList.add('hidden'); }, 2500);
+
+    // Audio + haptic — turi aniqlanadi message ichidagi belgi orqali
+    if (isError) {
+        FX.error();
+    } else if (/✅|✓/.test(message)) {
+        FX.success();
+    } else if (/🎉|tugat|yakunlandi/.test(message)) {
+        FX.celebrate();
+    } else {
+        FX.notify();
+    }
 }
+
+// ════════════════════════════════════════════════════════════════
+//  FX — Audio + Haptic feedback (Apple-style polished UX)
+// ════════════════════════════════════════════════════════════════
+const FX = (() => {
+    let ctx = null;
+    let masterGain = null;
+    const SOUND_KEY = 'fx_sound_enabled';
+    const HAPTIC_KEY = 'fx_haptic_enabled';
+
+    function isSoundOn()  { return localStorage.getItem(SOUND_KEY)  !== '0'; }   // default ON
+    function isHapticOn() { return localStorage.getItem(HAPTIC_KEY) !== '0'; }
+    function setSoundOn(v)  { localStorage.setItem(SOUND_KEY,  v ? '1' : '0'); }
+    function setHapticOn(v) { localStorage.setItem(HAPTIC_KEY, v ? '1' : '0'); }
+
+    function _ensure() {
+        if (ctx) return ctx;
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return null;
+            ctx = new AC();
+            masterGain = ctx.createGain();
+            masterGain.gain.value = 0.18;   // jami volume past — tinch
+            masterGain.connect(ctx.destination);
+        } catch(e) { return null; }
+        return ctx;
+    }
+
+    // Bitta ton — frequency, duration, type, gain envelope
+    function _tone({ freq = 440, dur = 0.12, type = 'sine', vol = 1, attack = 0.005, decay = 0.08, delay = 0 } = {}) {
+        if (!isSoundOn()) return;
+        const c = _ensure(); if (!c) return;
+        try { if (c.state === 'suspended') c.resume(); } catch(_){}
+        const t0 = c.currentTime + delay;
+        const osc = c.createOscillator();
+        const g = c.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, t0);
+        g.gain.setValueAtTime(0, t0);
+        g.gain.linearRampToValueAtTime(vol, t0 + attack);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + attack + decay);
+        osc.connect(g).connect(masterGain);
+        osc.start(t0);
+        osc.stop(t0 + attack + decay + 0.02);
+    }
+
+    // Frekvensiya sweep (whoosh, slide)
+    function _sweep({ from = 200, to = 800, dur = 0.2, vol = 0.5, type = 'sine' } = {}) {
+        if (!isSoundOn()) return;
+        const c = _ensure(); if (!c) return;
+        try { if (c.state === 'suspended') c.resume(); } catch(_){}
+        const t0 = c.currentTime;
+        const osc = c.createOscillator();
+        const g = c.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(from, t0);
+        osc.frequency.exponentialRampToValueAtTime(Math.max(20, to), t0 + dur);
+        g.gain.setValueAtTime(0, t0);
+        g.gain.linearRampToValueAtTime(vol, t0 + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+        osc.connect(g).connect(masterGain);
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.02);
+    }
+
+    function _haptic(type) {
+        if (!isHapticOn()) return;
+        const t = window.Telegram?.WebApp?.HapticFeedback;
+        if (!t) {
+            // Fallback — Vibration API
+            try { navigator.vibrate?.([type === 'heavy' ? 25 : 10]); } catch(_){}
+            return;
+        }
+        try {
+            switch (type) {
+                case 'light':   t.impactOccurred('light');         break;
+                case 'medium':  t.impactOccurred('medium');        break;
+                case 'heavy':   t.impactOccurred('heavy');         break;
+                case 'success': t.notificationOccurred('success'); break;
+                case 'warning': t.notificationOccurred('warning'); break;
+                case 'error':   t.notificationOccurred('error');   break;
+                case 'select':  t.selectionChanged();              break;
+            }
+        } catch(_){}
+    }
+
+    return {
+        isSoundOn, isHapticOn, setSoundOn, setHapticOn,
+
+        // Yumshoq tap — har tugma uchun
+        tap() {
+            _tone({ freq: 880, dur: 0.04, type: 'sine', vol: 0.35, decay: 0.04 });
+            _haptic('light');
+        },
+
+        // Tanlash — chip, filter, dropdown
+        select() {
+            _tone({ freq: 1100, dur: 0.05, type: 'sine', vol: 0.3, decay: 0.05 });
+            _haptic('select');
+        },
+
+        // ✅ Bajarildi (yumshoq qo'ng'iroq)
+        success() {
+            _tone({ freq: 988, dur: 0.12, type: 'sine', vol: 0.35, decay: 0.12 });
+            _tone({ freq: 1318, dur: 0.16, type: 'sine', vol: 0.32, decay: 0.16, delay: 0.07 });
+            _haptic('success');
+        },
+
+        // ❌ Xato (past, qisqa)
+        error() {
+            _tone({ freq: 220, dur: 0.08, type: 'square', vol: 0.32, decay: 0.08 });
+            _tone({ freq: 180, dur: 0.12, type: 'square', vol: 0.30, decay: 0.12, delay: 0.07 });
+            _haptic('error');
+        },
+
+        // 🔄 Refresh — yumshoq whoosh
+        refresh() {
+            _sweep({ from: 600, to: 1400, dur: 0.18, vol: 0.22, type: 'sine' });
+            _haptic('light');
+        },
+
+        // 📥 Notification — pop
+        notify() {
+            _tone({ freq: 1320, dur: 0.07, type: 'sine', vol: 0.30, decay: 0.07 });
+            _tone({ freq: 1760, dur: 0.10, type: 'sine', vol: 0.25, decay: 0.10, delay: 0.04 });
+            _haptic('light');
+        },
+
+        // 🎉 Celebrate — 3 ta nota ramp
+        celebrate() {
+            _tone({ freq: 784,  dur: 0.10, type: 'triangle', vol: 0.30, decay: 0.10, delay: 0.00 }); // G5
+            _tone({ freq: 988,  dur: 0.10, type: 'triangle', vol: 0.30, decay: 0.10, delay: 0.08 }); // B5
+            _tone({ freq: 1318, dur: 0.18, type: 'triangle', vol: 0.35, decay: 0.18, delay: 0.16 }); // E6
+            _haptic('success');
+        },
+
+        // 📨 Send (yuborilgan)
+        send() {
+            _sweep({ from: 400, to: 1100, dur: 0.12, vol: 0.28, type: 'sine' });
+            _haptic('medium');
+        },
+
+        // 🗑 Delete
+        delete() {
+            _sweep({ from: 800, to: 200, dur: 0.16, vol: 0.30, type: 'sawtooth' });
+            _haptic('warning');
+        },
+    };
+})();
+window.FX = FX;
 
 // ===== Helpers =====
 function escapeHtml(text) {
@@ -2939,35 +4656,32 @@ function formatCountdown(iso, status) {
     if (status === 'done' || status === 'cancelled') return formatDate(iso);
 
     if (diff < 0) {
-        // Kechikkan — to'liq ko'rsatish
+        // Kechikkan
         const abs  = -diff;
         const days = Math.floor(abs / 86400000);
         const hrs  = Math.floor((abs % 86400000) / 3600000);
         const mins = Math.floor((abs % 3600000) / 60000);
-        const secs = Math.floor((abs % 60000) / 1000);
-        if (days > 0) return `${days}k ${String(hrs).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s kechikdi`;
-        if (hrs  > 0) return `${String(hrs).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s kechikdi`;
-        if (mins > 0) return `${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s kechikdi`;
-        return `${String(secs).padStart(2,'0')}s kechikdi`;
+        if (days > 0) return `${days}kun ${hrs}soat ${mins}min kechikdi`;
+        if (hrs  > 0) return `${hrs}soat ${mins}min kechikdi`;
+        return `${mins || 1}min kechikdi`;
     }
 
-    // Qolgan vaqt — to'liq ko'rsatish
+    // Qolgan vaqt
     const days = Math.floor(diff / 86400000);
     const hrs  = Math.floor((diff % 86400000) / 3600000);
     const mins = Math.floor((diff % 3600000) / 60000);
-    const secs = Math.floor((diff % 60000) / 1000);
 
-    if (days >= 7) return `${days}k ${String(hrs).padStart(2,'0')}h qoldi`;
-    if (days >  0) return `${days}k ${String(hrs).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m qoldi`;
-    if (hrs  >  0) return `${String(hrs).padStart(2,'0')}h ${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s qoldi`;
-    if (mins >  0) return `${String(mins).padStart(2,'0')}m ${String(secs).padStart(2,'0')}s qoldi`;
-    return `${String(secs).padStart(2,'0')}s qoldi`;
+    if (days >= 7) return `${days}kun ${hrs}soat qoldi`;
+    if (days >  0) return `${days}kun ${hrs}soat ${mins}min qoldi`;
+    if (hrs  >  0) return `${hrs}soat ${mins}min qoldi`;
+    return `${mins || 1}min qoldi`;
 }
 
 let _countdownInterval = null;
 function startCountdownTicker() {
     if (_countdownInterval) clearInterval(_countdownInterval);
-    _countdownInterval = setInterval(_tickCountdowns, 1000);
+    _tickCountdowns(); // darhol bir marta chaqir
+    _countdownInterval = setInterval(_tickCountdowns, 60000); // har 1 daqiqada
 }
 function _tickCountdowns() {
     document.querySelectorAll('.tc-countdown[data-deadline]').forEach(el => {
@@ -3049,12 +4763,12 @@ async function openMediaCommentsFeed(taskId) {
             } else if (ft === 'voice' || mime.startsWith('audio/')) {
                 preview = `<div class="feed-audio-wrap">🎤 <audio src="${url}" controls class="feed-audio" preload="metadata"></audio></div>`;
             } else {
-                preview = `<a href="${url}" target="_blank" class="feed-file-link">📎 ${name}</a>`;
+                preview = `<a href="${url}" target="_blank" class="feed-file-link">${IC.attach} ${name}</a>`;
             }
             return `
                 <div class="feed-item feed-item-media">
                     <div class="feed-preview">${preview}</div>
-                    <div class="feed-meta">👤 ${who} · <span class="feed-time">${when}</span></div>
+                    <div class="feed-meta">${IC.user} ${who} · <span class="feed-time">${when}</span></div>
                 </div>`;
         } else {
             const who  = escapeHtml(item.user_name || '?');
@@ -3063,7 +4777,7 @@ async function openMediaCommentsFeed(taskId) {
             return `
                 <div class="feed-item feed-item-comment">
                     <div class="feed-comment-bubble">
-                        <div class="feed-comment-author">👤 ${who}</div>
+                        <div class="feed-comment-author">${IC.user} ${who}</div>
                         <div class="feed-comment-text">${txt}</div>
                         <div class="feed-time">${when}</div>
                     </div>
@@ -3106,10 +4820,10 @@ async function openMediaGallery(taskId) {
     overlay.className = 'media-overlay';
     overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
 
-    const mediaLabel = tr('app.media.title') || '📎 Mediya';
+    const mediaLabel = tr('app.media.title') || (IC.attach + ' Mediya');
     const emptyLabel = tr('app.media.empty') || 'Mediya fayllari yo\'q';
-    const uploadLabel = tr('app.media.upload') || '📤 Fayl yuklash';
-    const commentPh = tr('app.media.comment_ph') || '💬 Izoh qo\'shing (ixtiyoriy)...';
+    const uploadLabel = tr('app.media.upload') || 'Fayl yuklash';
+    const commentPh = tr('app.media.comment_ph') || 'Izoh yozing yoki fayl tanlang...';
 
     const itemsHtml = atts.length ? atts.map(a => {
         const ft = a.file_type || 'document';
@@ -3158,8 +4872,8 @@ async function openMediaGallery(taskId) {
             <div class="mg-item">
                 <div class="mg-preview">${preview}</div>
                 <div class="mg-meta">
-                    <div class="mg-uploader">👤 ${byLabel}</div>
-                    <div class="mg-date">📅 ${dateStr}${sizeStr ? ' · ' + sizeStr : ''}</div>
+                    <div class="mg-uploader">${IC.user} ${byLabel}</div>
+                    <div class="mg-date">${IC.calendar} ${dateStr}${sizeStr ? ' · ' + sizeStr : ''}</div>
                     ${canDownload ? `<a href="${a.file_url}" target="_blank" class="mg-download-btn">⬇️ Yuklab olish</a>` : ''}
                 </div>
             </div>
@@ -3175,9 +4889,17 @@ async function openMediaGallery(taskId) {
 
             <!-- Upload area -->
             <div class="mg-upload-area">
-                <textarea id="mg-comment-${taskId}" class="mg-comment-input"
-                    placeholder="${commentPh}" rows="2" maxlength="500"></textarea>
+                <div class="mg-input-row">
+                    <textarea id="mg-comment-${taskId}" class="mg-comment-input"
+                        placeholder="${commentPh}" rows="1" maxlength="500"
+                        oninput="mgAutoResize(this)"
+                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMgComment(${taskId})}"></textarea>
+                    <button class="mg-send-btn" onclick="sendMgComment(${taskId})" title="Yuborish">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    </button>
+                </div>
                 <label class="mg-upload-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
                     ${uploadLabel}
                     <input type="file" style="display:none"
                         accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar,.pptx"
@@ -3197,12 +4919,12 @@ async function openMediaGallery(taskId) {
 function _fileIcon(mime, name) {
     const m = (mime || '').toLowerCase();
     const ext = (name||'').split('.').pop().toLowerCase();
-    if (m.includes('pdf') || ext === 'pdf') return '📄';
-    if (m.includes('word') || ['doc','docx'].includes(ext)) return '📝';
-    if (m.includes('excel') || m.includes('spreadsheet') || ['xls','xlsx'].includes(ext)) return '📊';
-    if (m.includes('powerpoint') || m.includes('presentation') || ['ppt','pptx'].includes(ext)) return '📑';
-    if (m.includes('zip') || m.includes('rar') || ['zip','rar','7z'].includes(ext)) return '🗜️';
-    return '📎';
+    if (m.includes('pdf') || ext === 'pdf') return IC.file;
+    if (m.includes('word') || ['doc','docx'].includes(ext)) return IC.clipboard;
+    if (m.includes('excel') || m.includes('spreadsheet') || ['xls','xlsx'].includes(ext)) return IC.chart;
+    if (m.includes('powerpoint') || m.includes('presentation') || ['ppt','pptx'].includes(ext)) return IC.flag;
+    if (m.includes('zip') || m.includes('rar') || ['zip','rar','7z'].includes(ext)) return IC.folder;
+    return IC.attach;
 }
 
 function _formatFileSize(bytes) {
@@ -3225,29 +4947,217 @@ async function uploadMediaFromGallery(taskId, input) {
     fd.append('file', file);
 
     const uploadBtn = document.querySelector(`#media-gallery-modal .mg-upload-btn`);
-    if (uploadBtn) uploadBtn.textContent = tr('app.media.uploading') || 'Yuklanmoqda...';
+    const origLabel = uploadBtn?.innerHTML;
+    if (uploadBtn) uploadBtn.innerHTML = '<span style="opacity:.7">⏳ Yuklanmoqda...</span>';
 
     const headers = {};
     applyAuthHeaders(headers);
     try {
         const res = await fetch(`/api/tasks/${taskId}/attachments`, { method: 'POST', body: fd, headers });
-        if (!res.ok) throw new Error('upload failed');
-        showToast('✅ Fayl yuklandi');
+        if (!res.ok) {
+            let errMsg = 'Yuklab bo\'lmadi';
+            try { const d = await res.json(); errMsg = d.error || errMsg; } catch(_) {}
+            throw new Error(errMsg);
+        }
+        const commentText = (commentInput?.value || '').trim();
+        showToast(commentText ? '✅ Fayl va izoh yuklandi' : '✅ Fayl yuklandi');
         if (commentInput) commentInput.value = '';
         input.value = '';
+        // allTasks ni yangilaymiz
+        try {
+            const fresh = await apiRequest(`/tasks/${taskId}`);
+            if (fresh?.task) {
+                const idx = allTasks.findIndex(t => t.id === taskId);
+                if (idx !== -1) allTasks[idx] = { ...allTasks[idx], ...fresh.task };
+            }
+        } catch(_) {}
         // Galleryni yangilaymiz
         document.getElementById('media-gallery-modal')?.remove();
-        // allTasks ni yangilaymiz
-        const fresh = await apiRequest(`/tasks/${taskId}`);
-        if (fresh && fresh.task) {
-            const idx = allTasks.findIndex(t => t.id === taskId);
-            if (idx !== -1) allTasks[idx] = { ...allTasks[idx], ...fresh.task };
-        }
         openMediaGallery(taskId);
     } catch (e) {
-        showToast('Yuklab bo\'lmadi', true);
-        if (uploadBtn) uploadBtn.textContent = tr('app.media.upload') || '📤 Fayl yuklash';
+        showToast(e?.message || 'Yuklab bo\'lmadi', true);
+        if (uploadBtn && origLabel) uploadBtn.innerHTML = origLabel;
     }
+}
+
+function mgAutoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+async function sendMgComment(taskId) {
+    const input = document.getElementById(`mg-comment-${taskId}`);
+    const text = (input?.value || '').trim();
+    if (!text) { input?.focus(); return; }
+
+    const btn = document.querySelector(`#media-gallery-modal .mg-send-btn`);
+    if (btn) btn.disabled = true;
+
+    try {
+        const res = await apiRequest(`/tasks/${taskId}/comments`, 'POST', { content: text });
+        showToast('✅ Izoh yuborildi');
+        if (input) { input.value = ''; input.style.height = 'auto'; }
+        // Taskni background da yangilaymiz — gallereyni yopmay
+        try {
+            const fresh = await apiRequest(`/tasks/${taskId}`);
+            if (fresh?.task) {
+                const idx = allTasks.findIndex(t => t.id === taskId);
+                if (idx !== -1) allTasks[idx] = { ...allTasks[idx], ...fresh.task };
+            }
+        } catch(_) {}
+    } catch(e) {
+        showToast(e?.message || 'Yuborib bo\'lmadi', true);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// ============ VOICE & VIDEO RECORDING (Telegram-like) ============
+let _voiceRec = null;        // { mediaRecorder, chunks, stream, taskId }
+let _videoRec = null;        // { mediaRecorder, chunks, stream, taskId, overlay, startedAt }
+let _videoHoldArmed = false; // 'true' if currently pressing video button
+
+async function _uploadBlobAsComment(taskId, blob, filename, mime) {
+    const file = new File([blob], filename, { type: mime });
+    const commentInput = document.getElementById(`comment-input-${taskId}`);
+    const comment = (commentInput?.value || '').trim();
+    const fd = new FormData();
+    if (comment) fd.append('comment', comment);
+    fd.append('file', file);
+    const headers = {};
+    applyAuthHeaders(headers);
+    try {
+        const res = await fetch(`/api/tasks/${taskId}/attachments`, {
+            method: 'POST', body: fd, headers,
+        });
+        if (!res.ok) throw new Error('upload failed');
+        if (commentInput) commentInput.value = '';
+        showToast('✅ Yuborildi');
+        openTask(taskId);
+    } catch (e) {
+        showToast('❌ Yuborilmadi: ' + e.message, true);
+    }
+}
+
+// ── Ovoz yozish (tap-to-toggle) ──
+async function toggleVoiceRecord(taskId) {
+    const btn = document.getElementById(`voice-btn-${taskId}`);
+    if (_voiceRec) {
+        // To'xtatish
+        try { _voiceRec.mediaRecorder.stop(); } catch(e) {}
+        return;
+    }
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+        showToast('Brauzeringiz ovoz yozishni qo\'llab-quvvatlamaydi', true);
+        return;
+    }
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+            ? 'audio/webm;codecs=opus' : 'audio/webm';
+        const rec = new MediaRecorder(stream, { mimeType: mime });
+        const chunks = [];
+        rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+        rec.onstop = async () => {
+            try { stream.getTracks().forEach(t => t.stop()); } catch(e) {}
+            if (btn) btn.classList.remove('recording');
+            _voiceRec = null;
+            if (chunks.length === 0) { showToast('Bo\'sh yozuv', true); return; }
+            const blob = new Blob(chunks, { type: mime });
+            const ext = mime.includes('webm') ? 'webm' : 'ogg';
+            await _uploadBlobAsComment(taskId, blob, `voice_${Date.now()}.${ext}`, mime);
+        };
+        rec.start();
+        _voiceRec = { mediaRecorder: rec, chunks, stream, taskId };
+        if (btn) btn.classList.add('recording');
+        if (tg) tg.HapticFeedback?.impactOccurred('medium');
+        showToast('🎤 Yozilmoqda... yana bosing — yuborish');
+    } catch (e) {
+        showToast('Mikrofon ruxsati yo\'q', true);
+    }
+}
+
+// ── Video kruzhok (hold-to-record) ──
+function _videoOverlay(create = true) {
+    let el = document.getElementById('video-rec-overlay');
+    if (!el && create) {
+        el = document.createElement('div');
+        el.id = 'video-rec-overlay';
+        el.className = 'video-rec-overlay';
+        el.innerHTML = `
+            <div class="vro-frame">
+                <video id="vro-preview" autoplay muted playsinline></video>
+                <div class="vro-ring"></div>
+                <div class="vro-hint">⭕ Yozilmoqda... ushlab turing</div>
+            </div>
+        `;
+        document.body.appendChild(el);
+    }
+    return el;
+}
+
+async function startVideoRecord(ev, taskId) {
+    if (ev) ev.preventDefault();
+    if (_videoRec || _videoHoldArmed) return;
+    _videoHoldArmed = true;
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+        showToast('Brauzeringiz video yozishni qo\'llab-quvvatlamaydi', true);
+        _videoHoldArmed = false;
+        return;
+    }
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 480 } },
+            audio: true,
+        });
+        if (!_videoHoldArmed) {
+            // Tugma allaqachon qo'yib yuborilgan
+            stream.getTracks().forEach(t => t.stop());
+            return;
+        }
+        const overlay = _videoOverlay(true);
+        const preview = overlay.querySelector('#vro-preview');
+        preview.srcObject = stream;
+        overlay.classList.add('active');
+
+        const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+            ? 'video/webm;codecs=vp9,opus'
+            : (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+                ? 'video/webm;codecs=vp8,opus' : 'video/webm');
+        const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 800000 });
+        const chunks = [];
+        rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+        rec.onstop = async () => {
+            try { stream.getTracks().forEach(t => t.stop()); } catch(e) {}
+            const ov = _videoOverlay(false);
+            if (ov) ov.classList.remove('active');
+            const wasCancelled = !!_videoRec?._cancelled;
+            const duration = _videoRec?.startedAt ? (Date.now() - _videoRec.startedAt) : 0;
+            _videoRec = null;
+            if (wasCancelled || duration < 500) {
+                showToast('Yozuv bekor qilindi', true);
+                return;
+            }
+            if (chunks.length === 0) { showToast('Bo\'sh yozuv', true); return; }
+            const blob = new Blob(chunks, { type: mime });
+            await _uploadBlobAsComment(taskId, blob, `video_${Date.now()}.webm`, mime);
+        };
+        rec.start();
+        _videoRec = { mediaRecorder: rec, chunks, stream, taskId, startedAt: Date.now() };
+        if (tg) tg.HapticFeedback?.impactOccurred('medium');
+    } catch (e) {
+        _videoHoldArmed = false;
+        showToast('Kamera ruxsati yo\'q', true);
+    }
+}
+
+function stopVideoRecord(ev, taskId, cancel = false) {
+    if (ev) ev.preventDefault();
+    if (!_videoHoldArmed) return;
+    _videoHoldArmed = false;
+    if (!_videoRec) return;
+    if (cancel) _videoRec._cancelled = true;
+    try { _videoRec.mediaRecorder.stop(); } catch(e) {}
 }
 
 async function sendCommentWithMedia(taskId, input) {
@@ -3336,10 +5246,10 @@ async function setTaskPriority(taskId, priority) {
 
 // ============ Priority tab ============
 const P_CONFIG = {
-    urgent: { label: 'Juda muhum', icon: '🔴', cls: 'urgent', pillCls: 'hero-pill-urgent' },
-    high:   { label: 'Muhum',      icon: '🟠', cls: 'high',   pillCls: 'hero-pill-high' },
-    medium: { label: "O'rta",      icon: '🟡', cls: 'medium', pillCls: 'hero-pill-medium' },
-    low:    { label: 'Past',       icon: '🟢', cls: 'low',    pillCls: 'hero-pill-low' },
+    urgent: { label: 'Juda muhum', icon: IC.urgent, cls: 'urgent', pillCls: 'hero-pill-urgent' },
+    high:   { label: 'Muhum',      icon: IC.high,   cls: 'high',   pillCls: 'hero-pill-high' },
+    medium: { label: "O'rta",      icon: IC.medium, cls: 'medium', pillCls: 'hero-pill-medium' },
+    low:    { label: 'Past',       icon: IC.low,    cls: 'low',    pillCls: 'hero-pill-low' },
 };
 const STATUS_LABELS_P = {
     new: 'Yangi', in_progress: 'Jarayonda', review: "Ko'rilmoqda",
@@ -3349,7 +5259,7 @@ const STATUS_LABELS_P = {
 async function loadPriorityTab() {
     const box = document.getElementById('priority-list');
     if (!box) return;
-    box.innerHTML = '<div class="priority-loading">⚡ Yuklanmoqda...</div>';
+    box.innerHTML = `<div class="priority-loading">${IC.bolt} Yuklanmoqda...</div>`;
     try {
         const all = [];
         const seen = new Set();
@@ -3383,7 +5293,7 @@ async function loadPriorityTab() {
 
         let html = `
             <div class="priority-hero">
-                <div class="priority-hero-title">⚡ Muhimlik darajasi</div>
+                <div class="priority-hero-title">${IC.bolt} Muhimlik darajasi</div>
                 <div class="priority-hero-sub">${all.length} ta vazifa - ${totalActive} ta faol${totalUrgent ? ` - <span style="color:#F87171;font-weight:700">${totalUrgent} juda muhim!</span>` : ''}</div>
                 <div class="priority-hero-pills">${pillsHtml || '<span style="color:rgba(255,255,255,0.3)">Vazifalar yo\'q</span>'}</div>
             </div>
@@ -3418,15 +5328,26 @@ function _priorityCard(t, p, idx) {
     let deadlineHtml = '';
     if (t.deadline) {
         const diff = new Date(t.deadline) - Date.now();
-        const urgent = diff < 0;
-        const soon = !urgent && diff < 86400000 * 2;
-        const label = urgent ? '⏰ ' + formatDeadline(t.deadline) : (soon ? '⌛ ' + formatDeadline(t.deadline) : '📅 ' + formatDeadline(t.deadline));
+        // Bajarilgan/bekor qilingan vazifa uchun "kechikdi" deb belgilanmaydi —
+        // u allaqachon yopilgan, deadline o'tgan-o'tmaganligi ahamiyatsiz
+        const urgent = isActive && diff < 0;
+        const soon   = isActive && !urgent && diff < 86400000 * 2;
+        let label;
+        if (!isActive) {
+            label = IC.calendar + ' ' + formatDate(t.deadline);
+        } else if (urgent) {
+            label = IC.overdue + ' ' + formatDeadline(t.deadline);
+        } else if (soon) {
+            label = IC.fire + ' ' + formatDeadline(t.deadline);
+        } else {
+            label = IC.calendar + ' ' + formatDeadline(t.deadline);
+        }
         const cls = urgent ? 'pc-deadline-urgent' : (soon ? 'pc-deadline-soon' : '');
         deadlineHtml = `<span class="pc-meta-item ${cls}">${label}</span>`;
     }
     const assignees = (t.assignees || []);
     const assigneeHtml = assignees.length
-        ? `<span class="pc-meta-item">👤 ${assignees.map(a => escapeHtml(a.name?.split(' ')[0] || '?')).join(', ')}</span>`
+        ? `<span class="pc-meta-item">${IC.user} ${assignees.map(a => escapeHtml(a.name?.split(' ')[0] || '?')).join(', ')}</span>`
         : '';
     return `
         <div class="priority-card pc-${p}" onclick="openTask(${t.id})" style="animation-delay:${idx * 40}ms">
@@ -3450,11 +5371,13 @@ document.addEventListener('click', (e) => {
 });
 
 // ============ Calendar ============
-const CAL_MONTHS = [
-    'Yanvar','Fevral','Mart','Aprel','May','Iyun',
-    'Iyul','Avgust','Sentabr','Oktabr','Noyabr','Dekabr',
-];
-const CAL_DAYS_UZ = ['Dushanba','Seshanba','Chorshanba','Payshanba','Juma','Shanba','Yakshanba'];
+// Bu o'zgaruvchilar dinamik — renderCalendar har chaqirilganda yangi tildagi
+// nomlarni getter orqali oladi.
+function _calMonths() { return Array.from({length:12}, (_,i) => _monthName(i)); }
+function _calDays()   { return Array.from({length:7},  (_,i) => _dayLong(i)); }
+// Backward compat — eski kod uchun
+const CAL_MONTHS = new Proxy([], { get: (_, idx) => _calMonths()[idx] });
+const CAL_DAYS_UZ = new Proxy([], { get: (_, idx) => _calDays()[idx] });
 
 function _calKey(date) {
     return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
@@ -3581,7 +5504,7 @@ function _renderCalDayPanel(key, tasks) {
     // Sort by time
     const sorted = [...tasks].sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
 
-    const P_EMOJI = { urgent:'🔴', high:'🟠', medium:'🟡', low:'🟢' };
+    const P_EMOJI = { urgent:IC.urgent, high:IC.high, medium:IC.medium, low:IC.low };
     const ST_SHORT = {
         new:'Yangi', in_progress:'Jarayonda', review:"Ko'rilmoqda",
         done:'Bajarildi', overdue:'Kechikdi', cancelled:'Bekor',
@@ -3604,7 +5527,7 @@ function _renderCalDayPanel(key, tasks) {
                     <div class="cal-task-meta">
                         <span class="tc-badge tc-badge-${st}">${ST_SHORT[st] || st}</span>
                         ${t.assignees && t.assignees.length
-                            ? `<span class="cal-task-assignees">👤 ${t.assignees.slice(0,2).map(a=>escapeHtml(a.name.split(' ')[0])).join(', ')}${t.assignees.length>2?' +'+( t.assignees.length-2):''}</span>`
+                            ? `<span class="cal-task-assignees">${IC.user} ${t.assignees.slice(0,2).map(a=>escapeHtml(a.name.split(' ')[0])).join(', ')}${t.assignees.length>2?' +'+( t.assignees.length-2):''}</span>`
                             : ''}
                     </div>
                 </div>
@@ -3650,11 +5573,11 @@ function _renderTimeline(history) {
     }
 
     const STATUS_SHORT = {
-        new: '🆕 Yangi', in_progress: '⚙️ Jarayonda', review: '🔍 Ko\'rilmoqda',
-        done: '✅ Bajarildi', overdue: '⏰ Kechikdi', cancelled: '🚫 Bekor',
+        new: IC.new+' Yangi', in_progress: IC.progress+' Jarayonda', review: IC.review+' Ko\'rilmoqda',
+        done: IC.done+' Bajarildi', overdue: IC.overdue+' Kechikdi', cancelled: IC.cancelled+' Bekor',
     };
     const PRIORITY_SHORT = {
-        low: '🟢 Past', medium: '🟡 O\'rta', high: '🟠 Muhum', urgent: '🔴 Juda muhum',
+        low: IC.low+' Past', medium: IC.medium+' O\'rta', high: IC.high+' Muhum', urgent: IC.urgent+' Juda muhum',
     };
     const statusDot = {
         new: 'dot-indigo', in_progress: 'dot-yellow', review: 'dot-purple',
@@ -3664,17 +5587,17 @@ function _renderTimeline(history) {
     return history.map(h => {
         const time = formatDateTime(h.created_at);
         const uname = escapeHtml(h.user_name || '?');
-        let icon = '📌', dotCls = 'dot-indigo', label = '', extra = '';
+        let icon = IC.pin, dotCls = 'dot-indigo', label = '', extra = '';
 
         switch (h.action) {
             case 'created':
-                icon = '🎬'; dotCls = 'dot-indigo';
+                icon = IC.plus; dotCls = 'dot-indigo';
                 label = `<b>${uname}</b> vazifani yaratdi`;
                 break;
 
             case 'status_changed': {
                 const nSt = (h.new_value || {}).status || '';
-                icon = nSt === 'done' ? '✅' : (nSt === 'cancelled' ? '🚫' : '🔄');
+                icon = nSt === 'done' ? IC.done : (nSt === 'cancelled' ? IC.cancelled : IC.refresh);
                 dotCls = statusDot[nSt] || 'dot-indigo';
                 const oLbl = STATUS_SHORT[(h.old_value || {}).status] || '';
                 const nLbl = STATUS_SHORT[nSt] || nSt;
@@ -3685,35 +5608,35 @@ function _renderTimeline(history) {
 
             case 'my_status_changed': {
                 const mSt = (h.new_value || {}).status || '';
-                icon = mSt === 'done' ? '✅' : (mSt === 'in_progress' ? '▶️' : '🔄');
+                icon = mSt === 'done' ? IC.done : (mSt === 'in_progress' ? IC.play : IC.refresh);
                 dotCls = statusDot[mSt] || 'dot-indigo';
                 const moLbl = STATUS_SHORT[(h.old_value || {}).status] || '';
                 const mnLbl = STATUS_SHORT[mSt] || mSt;
                 label = `<b>${uname}</b> o'z statusini o'zgartirdi`;
                 extra = (moLbl ? moLbl + ' → ' : '') + `<b>${mnLbl}</b>`;
                 const myCmt = (h.new_value || {}).comment;
-                if (myCmt) extra += `<div class="tl-comment">💬 ${escapeHtml(myCmt)}</div>`;
+                if (myCmt) extra += `<div class="tl-comment">${IC.comment} ${escapeHtml(myCmt)}</div>`;
                 break;
             }
 
             case 'subtask_created': {
-                icon = '🧩'; dotCls = 'dot-cyan';
+                icon = IC.puzzle; dotCls = 'dot-cyan';
                 const stTitle = escapeHtml((h.new_value || {}).subtask_title || 'Subtask');
                 const stId    = (h.new_value || {}).subtask_id;
                 label = `<b>${uname}</b> subtask qo'shdi: <i>${stTitle}</i>`;
-                if (stId) extra = `<button class="tl-action-btn" onclick="event.stopPropagation();closeModal();openTask(${stId})">📋 Ochish →</button>`;
+                if (stId) extra = `<button class="tl-action-btn" onclick="event.stopPropagation();closeModal();openTask(${stId})">${IC.clipboard} Ochish →</button>`;
                 break;
             }
 
             case 'attachment_added': {
-                icon = '📎'; dotCls = 'dot-indigo';
+                icon = IC.attach; dotCls = 'dot-indigo';
                 const fname = escapeHtml((h.new_value || {}).file_name || 'fayl');
                 label = `<b>${uname}</b> fayl qo'shdi: <i>${fname}</i>`;
                 break;
             }
 
             case 'priority_changed': {
-                icon = '⚡'; dotCls = 'dot-yellow';
+                icon = IC.bolt; dotCls = 'dot-yellow';
                 const oP = PRIORITY_SHORT[(h.old_value || {}).priority] || '';
                 const nP = PRIORITY_SHORT[(h.new_value || {}).priority] || '';
                 label = `<b>${uname}</b> muhimlikni o'zgartirdi`;
@@ -3722,27 +5645,27 @@ function _renderTimeline(history) {
             }
 
             case 'title_changed': {
-                icon = '✏️'; dotCls = 'dot-indigo';
+                icon = IC.edit; dotCls = 'dot-indigo';
                 label = `<b>${uname}</b> sarlavhani o'zgartirdi`;
                 extra = `"${escapeHtml((h.new_value || {}).title || '')}"`;
                 break;
             }
 
             case 'comment': {
-                icon = '💬'; dotCls = 'dot-glass';
+                icon = IC.comment; dotCls = 'dot-glass';
                 label = `<b>${uname}</b>`;
                 extra = `<div class="tl-comment">${escapeHtml(h.content || '')}</div>`;
                 break;
             }
 
             default:
-                icon = '📌'; dotCls = 'dot-indigo';
+                icon = IC.pin; dotCls = 'dot-indigo';
                 label = `<b>${uname}</b>: ${escapeHtml(h.action)}`;
         }
 
         return `
             <div class="timeline-item">
-                <div class="timeline-dot ${dotCls}">${icon}</div>
+                <div class="timeline-dot ${dotCls} tl-dot-svg">${icon}</div>
                 <div class="timeline-body">
                     <div class="timeline-label">${label}</div>
                     ${extra ? `<div class="tl-extra">${extra}</div>` : ''}
@@ -3753,8 +5676,36 @@ function _renderTimeline(history) {
 }
 
 function switchTab(tabName) {
+    // To'g'ridan-to'g'ri tab pane ni ko'rsatamiz (ghost btn click ishlamasligi mumkin)
+    document.querySelectorAll('.bnav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+
     const btn = document.querySelector(`.bnav-btn[data-tab="${tabName}"]`);
-    if (btn) btn.click();
+    if (btn) btn.classList.add('active');
+
+    const pane = document.getElementById('tab-' + tabName);
+    if (pane) pane.classList.add('active');
+
+    const tabTitles = { tasks: 'Vazifalar', calendar: 'Kalendar', create: 'Yangi vazifa', kanban: 'Kanban', stats: 'Statistika', hujjatlar: 'Hujjatlarim' };
+    const hTitle = document.getElementById('header-title');
+    if (hTitle) {
+        if (tabName === 'create' && _subtaskParentId) hTitle.textContent = 'Sub-task yaratish';
+        else hTitle.textContent = tabTitles[tabName] || 'TaskBot';
+    }
+
+    _navStack.length = 0;
+    document.getElementById('back-btn')?.classList.add('hidden');
+    document.getElementById('hamburger-btn')?.classList.remove('hidden');
+
+    const qs = document.getElementById('quick-stats');
+    if (qs) qs.classList.toggle('hidden', tabName !== 'tasks');
+
+    if (tabName === 'kanban') { renderKanbanMemberBar(); renderKanban(); }
+    if (tabName === 'calendar') renderCalendar();
+    if (tabName !== 'create' && _subtaskParentId) {
+        _subtaskParentId = null; _subtaskParentTitle = null; _updateSubtaskBanner();
+    }
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
 }
 
 // Legacy compat (drawer funksiyalari endi ishlatilmaydi)
@@ -3789,24 +5740,22 @@ async function handleStepAction(taskId, stepStatus) {
 // ===== Task 2-State Action (regular tasks, not workflow) =====
 async function handleTaskAction(taskId, myStatus) {
     if (myStatus === 'new' || myStatus === 'pending') {
-        // Boshlash — call API to mark as in_progress + log to history
+        // Boshlash — in_progress ga o'tkazish
         try {
             const r = await apiRequest(`/tasks/${taskId}/start`, 'POST');
             if (r.ok && r.status === 'in_progress') {
                 tg?.HapticFeedback?.notificationOccurred('success');
-                // Reload task to show updated button
+                showToast('▶️ Taskni boshladingiz!');
                 await openTask(taskId);
-                tg?.showAlert?.('▶️ Taskni boshladingiz!');
             }
         } catch (e) {
-            tg?.showAlert?.('❌ Xato: ' + (e.message || e));
+            showToast('❌ Xato: ' + (e.message || e), true);
         }
     } else if (myStatus === 'in_progress') {
-        // Bajarildi — open completion modal
-        openTaskCompleteModal(taskId);
+        // Bajarildi — changeMyStatus orqali (ishonchli, xatoni ko'rsatadi)
+        changeMyStatus(taskId, 'done');
     } else {
-        // Done — show status
-        tg?.showAlert?.('✓ Bu task allaqachon tugagan');
+        showToast('✓ Bu task allaqachon tugagan');
     }
 }
 
@@ -3820,17 +5769,17 @@ function openTaskCompleteModal(taskId) {
     modal.innerHTML = `
         <div class="wf-modal">
             <div class="wf-modal-head">
-                <h3>✅ Taskni tugatish</h3>
+                <h3>${IC.done} Taskni tugatish</h3>
                 <button class="wf-modal-close" onclick="closeTaskCompleteModal()">×</button>
             </div>
             <div class="wf-modal-body">
-                <label class="wf-lbl">💬 Nimani bajardingiz? (ixtiyoriy)</label>
+                <label class="wf-lbl">${IC.comment} Nimani bajardingiz? (ixtiyoriy)</label>
                 <textarea id="task-comment-input" class="wf-textarea" rows="3"
                           placeholder="Qisqacha yozing..."></textarea>
             </div>
             <div class="wf-modal-foot">
                 <button class="wf-btn-secondary" onclick="closeTaskCompleteModal()">Bekor</button>
-                <button class="wf-btn-primary" onclick="submitTaskComplete(${taskId})">✅ Saqlash</button>
+                <button class="wf-btn-primary" onclick="submitTaskComplete(${taskId})">${IC.done} Saqlash</button>
             </div>
         </div>
     `;
@@ -3907,7 +5856,7 @@ function renderKanbanMemberBar() {
     const myActive = myId && _kanbanMemberId === myId;
     let html = `
         <div class="kmb-chip ${allActive ? 'active' : ''}" onclick="filterKanbanByMember(null)">
-            <div class="kmb-avatar all-icon">👥</div>
+            <div class="kmb-avatar all-icon">${IC.team}</div>
             <span class="kmb-name">Hammasi</span>
         </div>
     `;
@@ -3971,7 +5920,12 @@ function renderKanban() {
         }
 
         const groups = { new: [], in_progress: [], review: [], done: [] };
-        filtered.forEach(t => { if (groups[t.status]) groups[t.status].push(t); });
+        // Guruhlik/tayinlangan task uchun my_status bo'yicha joylashtir,
+        // shaxsiy task uchun umumiy status bo'yicha
+        filtered.forEach(t => {
+            const col = (t.my_status) ? t.my_status : t.status;
+            if (groups[col]) groups[col].push(t);
+        });
 
         cols.forEach(col => {
             const el  = document.getElementById('kanban-cards-' + col);
@@ -3981,21 +5935,21 @@ function renderKanban() {
 
             if (!list.length) {
                 const emptyMsgs = { new:'Yangi vazifa yo\'q', in_progress:'Jarayonda yo\'q', review:'Ko\'rib chiqilmoqda yo\'q', done:'Bajarilgan yo\'q' };
-                const emptyIcons = { new:'📭', in_progress:'🕐', review:'🔍', done:'🎉' };
-                el.innerHTML = `<div class="kanban-empty"><span class="kanban-empty-icon">${emptyIcons[col]||'📭'}</span><span>${emptyMsgs[col]||'Bo\'sh'}</span></div>`;
+                const emptyIcons = { new:IC.circle, in_progress:IC.clock, review:IC.review, done:IC.done };
+                el.innerHTML = `<div class="kanban-empty"><span class="kanban-empty-icon">${emptyIcons[col]||IC.circle}</span><span>${emptyMsgs[col]||'Bo\'sh'}</span></div>`;
                 return;
             }
 
             el.innerHTML = list.map(t => {
                 const isUrgentDl = t.deadline && (new Date(t.deadline) - Date.now()) < 3600000 && t.status !== 'done';
                 const dlClass = isUrgentDl ? 'kanban-card-dl kanban-card-dl-urgent' : 'kanban-card-dl';
-                const dl   = t.deadline ? `<span class="${dlClass}">⏰ ${formatDateShort(t.deadline)}</span>` : '';
+                const dl   = t.deadline ? `<span class="${dlClass}">${IC.clock} ${formatDateShort(t.deadline)}</span>` : '';
                 const resp = t.responsible_name
-                    ? `<div class="kanban-card-resp">⭐ ${escapeHtml(t.responsible_name.split(' ')[0])}</div>` : '';
+                    ? `<div class="kanban-card-resp">${IC.star} ${escapeHtml(t.responsible_name.split(' ')[0])}</div>` : '';
                 const assignees = (t.assignees || []).filter(a => !t.responsible_user_id || a.id !== t.responsible_user_id);
                 const asgn = assignees.length
-                    ? `<div class="kanban-card-resp" style="color:var(--text2)">👤 ${assignees.slice(0,2).map(a=>escapeHtml(a.name.split(' ')[0])).join(', ')}${assignees.length>2?' +'+( assignees.length-2):''}</div>` : '';
-                const subs = (t.subtasks_count||0) > 0 ? `<div class="kanban-card-subtasks">📂 ${t.subtasks_count} sub-task</div>` : '';
+                    ? `<div class="kanban-card-resp" style="color:var(--text2)">${IC.user} ${assignees.slice(0,2).map(a=>escapeHtml(a.name.split(' ')[0])).join(', ')}${assignees.length>2?' +'+( assignees.length-2):''}</div>` : '';
+                const subs = (t.subtasks_count||0) > 0 ? `<div class="kanban-card-subtasks">${IC.folder} ${t.subtasks_count} sub-task</div>` : '';
                 return `
                     <div class="kanban-card" data-priority="${t.priority}" data-task-id="${t.id}"
                          draggable="true"
@@ -4076,11 +6030,8 @@ function _kanbanInitScrollSync() {
 }
 
 async function loadTasksForKanban() {
-    const headers = {};
-    applyAuthHeaders(headers);
-    const ws = currentWorkspace || 'all';
-    const res = await fetch(`${API_BASE}/tasks?filter=all&workspace=${ws}`, { headers });
-    const data = await res.json();
+    const ws = currentWorkspaceId || 'personal';
+    const data = await apiRequest(`/tasks?company_id=${ws}`);
     return data.tasks || [];
 }
 
@@ -4141,15 +6092,30 @@ async function _kbDrop(e, col) {
 
     // Find task in allTasks
     const task = allTasks.find(t => t.id === taskId);
-    if (!task || task.status === col) return;
+    if (!task) return;
+
+    // Guruhlik/tayinlangan vazifami? my_status bor bo'lsa — faqat o'z statusini o'zgartir
+    const isAssigned = task.my_status != null;
+    const currentCol = isAssigned ? task.my_status : task.status;
+    if (currentCol === col) return;
 
     // Optimistic update
-    task.status = col;
+    if (isAssigned) {
+        task.my_status = col;
+    } else {
+        task.status = col;
+    }
     renderKanban();
     if (tg) tg.HapticFeedback?.impactOccurred('medium');
 
     try {
-        await apiRequest(`/tasks/${taskId}/status`, 'PATCH', { status: col });
+        if (isAssigned) {
+            // Faqat mening statusimni o'zgartir
+            await apiRequest(`/tasks/${taskId}/my-status`, 'PATCH', { status: col });
+        } else {
+            // Shaxsiy vazifa — umumiy statusni o'zgartir
+            await apiRequest(`/tasks/${taskId}/status`, 'PATCH', { status: col });
+        }
         showToast(`✅ Status o'zgartirildi`);
     } catch (err) {
         showToast('❌ Xatolik', true);
@@ -4223,14 +6189,26 @@ async function _kbTouchEnd(e) {
 
     if (!targetCol || !taskId) return;
     const task = allTasks.find(t => t.id === taskId);
-    if (!task || task.status === targetCol) return;
+    if (!task) return;
 
-    task.status = targetCol;
+    const isAssigned = task.my_status != null;
+    const currentCol = isAssigned ? task.my_status : task.status;
+    if (currentCol === targetCol) return;
+
+    if (isAssigned) {
+        task.my_status = targetCol;
+    } else {
+        task.status = targetCol;
+    }
     renderKanban();
     if (tg) tg.HapticFeedback?.impactOccurred('medium');
 
     try {
-        await apiRequest(`/tasks/${taskId}/status`, 'PATCH', { status: targetCol });
+        if (isAssigned) {
+            await apiRequest(`/tasks/${taskId}/my-status`, 'PATCH', { status: targetCol });
+        } else {
+            await apiRequest(`/tasks/${taskId}/status`, 'PATCH', { status: targetCol });
+        }
         showToast(`✅ Status o'zgartirildi`);
     } catch (err) {
         showToast('❌ Xatolik', true);
@@ -4289,7 +6267,7 @@ function _renderKanbanInline() {
                     <div class="kanban-card-title">${escapeHtml(t.title.slice(0, 55))}</div>
                     <div class="kanban-card-meta">
                         <span class="kanban-card-prio ${pClass[t.priority] || ''}">${t.priority}</span>
-                        ${t.deadline ? `<span class="kanban-card-dl">⏰ ${formatDateShort(t.deadline)}</span>` : ''}
+                        ${t.deadline ? `<span class="kanban-card-dl">${IC.clock} ${formatDateShort(t.deadline)}</span>` : ''}
                     </div>
                     ${t.responsible_name ? `<div class="kanban-card-resp">⭐ ${escapeHtml(t.responsible_name)}</div>` : ''}
                 </div>
@@ -4330,17 +6308,17 @@ async function openSubtaskModal(parentTaskId) {
     const selfM = members.find(m => m.is_self);
     if (selfM) _stAssigneeIds.push(selfM.id);
 
-    const pLow    = tr('app.priority.low')    || '🟢 Past';
-    const pMed    = tr('app.priority.medium') || "🟡 O'rta";
-    const pHigh   = tr('app.priority.high')   || '🟠 Muhum';
-    const pUrgent = tr('app.priority.urgent') || '🔴 Juda muhum';
+    const pLow    = tr('app.priority.low')    || (IC.low    + ' Past');
+    const pMed    = tr('app.priority.medium') || (IC.medium + " O'rta");
+    const pHigh   = tr('app.priority.high')   || (IC.high   + ' Muhum');
+    const pUrgent = tr('app.priority.urgent') || (IC.urgent + ' Juda muhum');
 
     const membersHtml = members.length ? members.map(m => {
         const sel = _stAssigneeIds.includes(m.id);
         const init = (m.name || '?')[0].toUpperCase();
         return `<div class="assignee-chip ${sel ? 'selected' : ''}" id="stchip-${m.id}" onclick="_stToggleAssignee(${m.id},this)">
             <span class="assignee-avatar">${escapeHtml(init)}</span>
-            <span class="assignee-name">👤 ${escapeHtml(m.name)}${m.is_self?' (siz)':''}</span>
+            <span class="assignee-name">${IC.user} ${escapeHtml(m.name)}${m.is_self?' (siz)':''}</span>
             <span class="assignee-check">${sel ? '✓' : ''}</span>
         </div>`;
     }).join('') : `<div class="form-hint" style="margin:0">Shaxsiy workspace — ijrochi tanlanmaydi</div>`;
@@ -4379,7 +6357,7 @@ async function openSubtaskModal(parentTaskId) {
                 <label class="form-label">Deadline</label>
                 <div style="display:flex;gap:8px;align-items:center">
                     <button class="dl-picker-btn" id="st-dl-btn" onclick="_stOpenDeadline()" style="flex:1;text-align:left">
-                        📅 <span id="st-dl-label">Sana tanlang...</span>
+                        ${IC.calendar} <span id="st-dl-label">Sana tanlang...</span>
                     </button>
                     <button onclick="_stClearDeadline()" style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;padding:4px">✕</button>
                 </div>
@@ -4387,7 +6365,7 @@ async function openSubtaskModal(parentTaskId) {
             </div>
 
             ${members.length ? `<div class="form-group" style="margin-bottom:14px">
-                <label class="form-label">👥 Ijrochilar</label>
+                <label class="form-label">👥 Kuzatuvchilar</label>
                 <div id="st-assignees-list">${membersHtml}</div>
             </div>` : ''}
 
@@ -4632,6 +6610,7 @@ function openSidebar() {
     ov.classList.remove('hidden');
     sb.classList.remove('hidden');
     setTimeout(() => sb.classList.add('open'), 10);
+    document.getElementById('hamburger-btn')?.classList.add('is-open');
     if (tg) tg.HapticFeedback?.impactOccurred('light');
 
     // Sync profile info
@@ -4659,6 +6638,7 @@ function closeSidebar() {
     const ov = document.getElementById('sidebar-overlay');
     if (!sb) return;
     sb.classList.remove('open');
+    document.getElementById('hamburger-btn')?.classList.remove('is-open');
     setTimeout(() => {
         ov?.classList.add('hidden');
         sb.classList.add('hidden');
@@ -4712,16 +6692,16 @@ async function openCompaniesPanel() {
 
         // Bot jamoalari section
         if (workspaces.length) {
-            html += `<div class="cmp-action-title" style="margin-bottom:8px">🏢 Bot jamoalari</div>`;
+            html += `<div class="cmp-action-title" style="margin-bottom:8px">${IC.building} Bot jamoalari</div>`;
             html += workspaces.map(w => {
                 const isOwner = w.is_owner;
                 const isAdmin = w.is_admin || isOwner;
-                const roleLabel = isOwner ? '👑 Owner' : (isAdmin ? '🛡 Admin' : '👤 A\'zo');
+                const roleLabel = isOwner ? IC.crown+' Owner' : (isAdmin ? IC.shield+' Admin' : IC.user+' A\'zo');
                 const roleClass = isOwner ? 'owner' : '';
                 return `
                     <div class="company-card" onclick="openCompanyDetail(${w.id},'${escapeHtml(w.name)}',${isAdmin})">
                         <div class="company-card-row">
-                            <span class="company-card-name">🏢 ${escapeHtml(w.name)}</span>
+                            <span class="company-card-name">${IC.building} ${escapeHtml(w.name)}</span>
                             <span class="company-card-role ${roleClass}">${roleLabel}</span>
                         </div>
                         <div class="company-card-meta">${w.member_count || ''} a'zo • <span class="team-type-badge bot">bot</span></div>
@@ -4732,12 +6712,12 @@ async function openCompaniesPanel() {
 
         // Telegram guruhlar section
         if (groups.length) {
-            html += `<div class="cmp-action-title" style="margin:16px 0 8px">💬 Telegram guruhlar</div>`;
+            html += `<div class="cmp-action-title" style="margin:16px 0 8px">${IC.comment} Telegram guruhlar</div>`;
             html += groups.map(g => {
                 return `
                     <div class="company-card" onclick="openCompanyDetail(${g.id},'${escapeHtml(g.title || g.name)}',false)">
                         <div class="company-card-row">
-                            <span class="company-card-name">💬 ${escapeHtml(g.title || g.name)}</span>
+                            <span class="company-card-name">${IC.team} ${escapeHtml(g.title || g.name)}</span>
                             <span class="team-type-badge group">guruh</span>
                         </div>
                         <div class="company-card-meta">${g.member_count || ''} a'zo</div>
@@ -4824,7 +6804,7 @@ function renderCompanyDetail(companyId, data) {
         // Owner — show edit options + delete
         html += `
             <div class="cmp-action-area">
-                <div class="cmp-action-title">👑 Owner imkoniyatlari</div>
+                <div class="cmp-action-title">${IC.crown} Owner imkoniyatlari</div>
                 <button class="btn-primary" style="width:100%;padding:12px;margin-bottom:8px;" onclick="openInviteLink(${companyId})">
                     🔗 Taklif havolasi
                 </button>
@@ -4838,13 +6818,13 @@ function renderCompanyDetail(companyId, data) {
     // Members list
     html += `<div class="cmp-action-title" style="margin-bottom:10px">👥 A'zolar (${members.length})</div>`;
     html += members.map(m => {
-        const roleLabel = m.is_owner ? '👑 Owner' : (m.role === 'admin' ? '🛡 Admin' : '👤 A\'zo');
+        const roleLabel = m.is_owner ? IC.crown+' Owner' : (m.role === 'admin' ? IC.shield+' Admin' : IC.user+' A\'zo');
         const canEdit = isAdmin && !m.is_self && !m.is_owner;
         const canRole = isAdmin && !m.is_self && !m.is_owner;
         const actionsHtml = canEdit ? `
             <div class="member-edit-actions" style="display:none">
                 <button class="member-role-btn" onclick="openRoleSheet(${companyId},${m.id},'${escapeHtml(m.name)}','${m.role||'member'}')">
-                    👑 Rol
+                    ${IC.crown} Rol
                 </button>
                 <button class="member-edit-btn" onclick="openReassignSheet(${companyId},${m.id},'${escapeHtml(m.name)}')">
                     🔄
@@ -4929,8 +6909,8 @@ function openRoleSheet(companyId, userId, userName, currentRole) {
     if (existing) existing.remove();
 
     const roles = [
-        { value: 'admin',  icon: '🛡', label: 'Admin',     desc: 'Jamoa boshqarish, a\'zo qo\'shish/chiqarish huquqi' },
-        { value: 'member', icon: '👤', label: 'A\'zo',     desc: 'Odatiy foydalanuvchi, faqat o\'z vazifalari' },
+        { value: 'admin',  icon: IC.shield, label: 'Admin',  desc: 'Jamoa boshqarish, a\'zo qo\'shish/chiqarish huquqi' },
+        { value: 'member', icon: IC.user,   label: 'A\'zo', desc: 'Odatiy foydalanuvchi, faqat o\'z vazifalari' },
     ];
 
     const overlay = document.createElement('div');
@@ -4939,7 +6919,7 @@ function openRoleSheet(companyId, userId, userName, currentRole) {
     overlay.innerHTML = `
         <div class="gp-sheet">
             <div class="gp-sheet-header">
-                <span class="gp-sheet-title">👑 ${escapeHtml(userName)} — Rol tanlash</span>
+                <span class="gp-sheet-title">${IC.crown} ${escapeHtml(userName)} — Rol tanlash</span>
                 <button class="gp-close-btn" onclick="document.getElementById('role-sheet-overlay').remove()">✕</button>
             </div>
             <div class="gp-sheet-body" style="padding:16px">
@@ -5080,7 +7060,29 @@ function openSettingsPanel() {
     document.querySelectorAll('.lang-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.lang === I18N.lang);
     });
-    if (tg) tg.HapticFeedback?.impactOccurred('light');
+
+    // FX toggle holatini ko'rsatish
+    document.getElementById('fx-sound-switch')?.classList.toggle('on', FX.isSoundOn());
+    document.getElementById('fx-haptic-switch')?.classList.toggle('on', FX.isHapticOn());
+
+    FX.tap();
+}
+
+function toggleFxSound() {
+    const newVal = !FX.isSoundOn();
+    FX.setSoundOn(newVal);
+    document.getElementById('fx-sound-switch')?.classList.toggle('on', newVal);
+    if (newVal) FX.success();
+    else FX.tap();   // toggle off — bir marta hapt'ic kech
+    showToast(newVal ? '🔊 Ovoz yoqildi' : '🔇 Ovoz o\'chirildi');
+}
+
+function toggleFxHaptic() {
+    const newVal = !FX.isHapticOn();
+    FX.setHapticOn(newVal);
+    document.getElementById('fx-haptic-switch')?.classList.toggle('on', newVal);
+    if (newVal) FX.success();
+    showToast(newVal ? '📳 Tebranish yoqildi' : '🔕 Tebranish o\'chirildi');
 }
 
 function closeSettingsPanel() {
@@ -5088,5 +7090,410 @@ function closeSettingsPanel() {
     if (!panel) return;
     panel.classList.remove('open');
     setTimeout(() => panel.classList.add('hidden'), 300);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  AI YORDAMCHI (maslahatchi) moduli
+// ═══════════════════════════════════════════════════════════════
+let _aiEnabled = false;
+let _aiHistory = [];        // [{role, content}]
+let _aiBusy = false;
+
+async function checkAiStatus() {
+    try {
+        const r = await apiRequest('/ai/status');
+        _aiEnabled = !!r.ai_enabled;
+    } catch (e) { _aiEnabled = false; }
+    const item = document.getElementById('sb-ai-item');
+    if (item) item.style.display = _aiEnabled ? '' : 'none';
+    const hdrBtn = document.getElementById('app-ai-btn');
+    if (hdrBtn) hdrBtn.style.display = _aiEnabled ? 'inline-flex' : 'none';
+}
+
+function openAiPanel() {
+    if (!_aiEnabled) {
+        showToast && showToast('🔒 AI yordamchi siz uchun yoqilmagan');
+        return;
+    }
+    const panel = document.getElementById('ai-panel');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    setTimeout(() => panel.classList.add('open'), 10);
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+    if (!_aiHistory.length) _aiRenderWelcome();
+    setTimeout(() => document.getElementById('ai-chat-input')?.focus(), 320);
+}
+
+function closeAiPanel() {
+    const panel = document.getElementById('ai-panel');
+    if (!panel) return;
+    panel.classList.remove('open');
+    setTimeout(() => panel.classList.add('hidden'), 300);
+}
+
+function clearAiChat() {
+    _aiHistory = [];
+    _aiRenderWelcome();
+}
+
+function _aiRenderWelcome() {
+    const body = document.getElementById('ai-chat-body');
+    if (!body) return;
+    const name = (window._currentUserName || '').split(' ')[0] || '';
+    body.innerHTML = `
+        <div class="ai-welcome">
+            <div class="ai-welcome-emoji">🤖</div>
+            <div class="ai-welcome-title">Salom${name ? ', ' + escapeHtml(name) : ''}! 👋</div>
+            <div class="ai-welcome-sub">Men sizning AI yordamchingizman. Vazifalaringizdan xabardorman va sizga yo'l-yo'riq ko'rsataman.</div>
+            <div class="ai-suggest-row">
+                <button class="ai-suggest" onclick="aiQuick('Bugun nimadan boshlasam yaxshi bo\\'ladi?')">📌 Nimadan boshlay?</button>
+                <button class="ai-suggest" onclick="aiQuick('Qaysi vazifalarim shoshilinch?')">🔥 Shoshilinch ishlar</button>
+                <button class="ai-suggest" onclick="aiQuick('Eng muhim vazifani ertaga soat 10:00 da eslat')">⏰ Eslatma qo'y</button>
+                <button class="ai-suggest" onclick="aiQuick('Ishlarni qanday tartibda qilsam unumli bo\\'ladi?')">🎯 Reja tuzib ber</button>
+            </div>
+        </div>`;
+}
+
+function aiAutoGrow(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function aiInputKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        aiSendMessage();
+    }
+}
+
+function aiQuick(text) {
+    const inp = document.getElementById('ai-chat-input');
+    if (inp) inp.value = text;
+    aiSendMessage();
+}
+
+function _aiAppendMsg(role, html) {
+    const body = document.getElementById('ai-chat-body');
+    if (!body) return null;
+    // welcome bloki bo'lsa olib tashlaymiz
+    const wel = body.querySelector('.ai-welcome');
+    if (wel) wel.remove();
+    const div = document.createElement('div');
+    div.className = 'ai-msg ai-msg-' + role;
+    div.innerHTML = `<div class="ai-bubble">${html}</div>`;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+    return div;
+}
+
+async function aiSendMessage() {
+    if (_aiBusy) return;
+    const inp = document.getElementById('ai-chat-input');
+    const text = (inp?.value || '').trim();
+    if (!text) return;
+    inp.value = '';
+    aiAutoGrow(inp);
+
+    _aiAppendMsg('user', escapeHtml(text));
+    _aiHistory.push({ role: 'user', content: text });
+    if (typeof FX !== 'undefined') FX.play && FX.play('send');
+
+    _aiBusy = true;
+    const btn = document.getElementById('ai-send-btn');
+    if (btn) btn.disabled = true;
+    const typing = _aiAppendMsg('assistant', '<span class="ai-typing"><i></i><i></i><i></i></span>');
+
+    try {
+        const r = await apiRequest('/ai/chat', 'POST', {
+            message: text,
+            company_id: currentWorkspaceId || 'personal',
+            history: _aiHistory.slice(-8),
+        });
+        const reply = (r.text || 'Tushunmadim, qaytadan yozing.');
+        if (typing) typing.remove();
+        _aiAppendMsg('assistant', _aiFormat(reply));
+        _aiHistory.push({ role: 'assistant', content: reply });
+        if (r.reminder_set && typeof FX !== 'undefined') FX.play && FX.play('success');
+    } catch (e) {
+        if (typing) typing.remove();
+        _aiAppendMsg('assistant', '❌ Xatolik: ' + escapeHtml(e.message || 'qaytadan urining'));
+    } finally {
+        _aiBusy = false;
+        if (btn) btn.disabled = false;
+    }
+}
+
+// Oddiy formatlash: <b>, qatorlar; xavfsiz (server HTMLni ishonchli yuboradi)
+function _aiFormat(s) {
+    return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/&lt;b&gt;/g, '<b>').replace(/&lt;\/b&gt;/g, '</b>')
+        .replace(/&lt;code&gt;/g, '<code>').replace(/&lt;\/code&gt;/g, '</code>')
+        .replace(/\n/g, '<br>');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MUROJAAT (Taklif va shikoyat) moduli
+// ═══════════════════════════════════════════════════════════════
+
+let _fbAnon = 0;
+let _fbType = 'suggestion';
+let _fbMedia = [];
+let _fbIsAdmin = false;
+let _fbInboxFilter = 'pending';
+
+function fbEsc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function openFeedbackPanel() {
+    closeSidebar();
+    const panel = document.getElementById('feedback-panel');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    setTimeout(() => panel.classList.add('open'), 10);
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+
+    // Admin tekshiruvi → "Kelganlar" tabini ko'rsatamiz
+    try {
+        const meta = await apiRequest('/feedback/meta');
+        _fbIsAdmin = !!meta.is_admin;
+    } catch (e) { _fbIsAdmin = false; }
+    document.getElementById('fb-tab-inbox')?.classList.toggle('hidden', !_fbIsAdmin);
+
+    fbSwitch('new');
+}
+
+function closeFeedbackPanel() {
+    const panel = document.getElementById('feedback-panel');
+    if (!panel) return;
+    panel.classList.remove('open');
+    setTimeout(() => panel.classList.add('hidden'), 300);
+}
+
+function fbSwitch(view) {
+    ['new', 'my', 'inbox'].forEach(v => {
+        document.getElementById('fb-view-' + v)?.classList.toggle('hidden', v !== view);
+        document.getElementById('fb-tab-' + v)?.classList.toggle('active', v === view);
+    });
+    if (view === 'my') fbLoadMy();
+    if (view === 'inbox') fbLoadInbox();
+    if (tg) tg.HapticFeedback?.impactOccurred('light');
+}
+
+function fbSetAnon(v) {
+    _fbAnon = v ? 1 : 0;
+    document.querySelectorAll('#fb-anon-seg .fb-seg-btn').forEach(b =>
+        b.classList.toggle('active', String(b.dataset.val) === String(_fbAnon)));
+    const hint = document.getElementById('fb-anon-hint');
+    if (hint) hint.textContent = _fbAnon
+        ? "🕵️ Hech kim sizning kimligingizni bilmaydi."
+        : "👤 Adminlar sizning kimligingizni ko'radi.";
+}
+
+function fbSetType(v) {
+    _fbType = v;
+    document.querySelectorAll('#fb-type-seg .fb-seg-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.val === v));
+}
+
+async function fbUploadFiles(files) {
+    if (!files || !files.length) return;
+    for (const file of files) {
+        if (_fbMedia.length >= 10) { tg?.showAlert?.('Maksimum 10 ta mediya'); break; }
+        try {
+            const fd = new FormData();
+            fd.append('file', file);
+            const headers = {};
+            applyAuthHeaders(headers);
+            const res = await fetch(API_BASE + '/feedback/upload', { method: 'POST', headers, body: fd });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Yuklash xatosi');
+            _fbMedia.push(data);
+        } catch (e) {
+            tg?.showAlert?.('❌ ' + (e.message || e));
+        }
+    }
+    document.getElementById('fb-file-input').value = '';
+    fbRenderMedia();
+}
+
+function fbRenderMedia() {
+    const wrap = document.getElementById('fb-media-list');
+    if (!wrap) return;
+    if (!_fbMedia.length) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = _fbMedia.map((m, i) => {
+        const isImg = m.file_type === 'photo';
+        const inner = isImg
+            ? `<img src="${m.file_url}" alt="">`
+            : `<span class="fb-media-doc">📎</span>`;
+        return `<div class="fb-media-item">${inner}<button class="fb-media-x" onclick="fbRemoveMedia(${i})">×</button></div>`;
+    }).join('');
+}
+
+function fbRemoveMedia(i) {
+    _fbMedia.splice(i, 1);
+    fbRenderMedia();
+}
+
+async function fbSubmit() {
+    const content = (document.getElementById('fb-content')?.value || '').trim();
+    if (content.length < 3) { tg?.showAlert?.('Iltimos, murojaat matnini yozing.'); return; }
+    const btn = document.getElementById('fb-submit');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Yuborilmoqda...'; }
+    try {
+        await apiRequest('/feedback', 'POST', {
+            type: _fbType,
+            is_anonymous: !!_fbAnon,
+            content,
+            attachments: _fbMedia,
+        });
+        tg?.HapticFeedback?.notificationOccurred('success');
+        // Reset
+        document.getElementById('fb-content').value = '';
+        _fbMedia = []; fbRenderMedia();
+        tg?.showAlert?.(_fbAnon
+            ? '✅ Murojaatingiz anonim yuborildi! Javob shu yerda ko\'rinadi.'
+            : '✅ Murojaatingiz yuborildi! Javob shu yerda ko\'rinadi.');
+        fbSwitch('my');
+    } catch (e) {
+        tg?.showAlert?.('❌ ' + (e.message || e));
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '📨 Yuborish'; }
+    }
+}
+
+function _fbStatusBadge(status, label) {
+    const cls = status === 'resolved' ? 'fb-st-resolved' : 'fb-st-pending';
+    return `<span class="fb-status ${cls}">${fbEsc(label)}</span>`;
+}
+
+function _fbTypeChip(item) {
+    const em = item.type === 'complaint' ? '😠' : '💡';
+    return `<span class="fb-type-chip">${em} ${fbEsc(item.type_label)}</span>`;
+}
+
+function _fbAttachHtml(atts) {
+    if (!atts || !atts.length) return '';
+    const parts = atts.map(a => {
+        if (!a.file_url) return `<span class="fb-att-file">📎 ${fbEsc(a.file_name || 'media')}</span>`;
+        if (a.file_type === 'photo')
+            return `<a href="${a.file_url}" target="_blank" class="fb-att-thumb"><img src="${a.file_url}" alt=""></a>`;
+        if (a.file_type === 'video')
+            return `<video class="fb-att-video" src="${a.file_url}" controls preload="metadata"></video>`;
+        if (a.file_type === 'voice' || a.file_type === 'audio')
+            return `<audio class="fb-att-audio" src="${a.file_url}" controls preload="none"></audio>`;
+        return `<a href="${a.file_url}" target="_blank" class="fb-att-file">📎 ${fbEsc(a.file_name || 'fayl')}</a>`;
+    });
+    return `<div class="fb-att-row">${parts.join('')}</div>`;
+}
+
+function _fbRepliesHtml(replies) {
+    if (!replies || !replies.length) return '';
+    return replies.map(r =>
+        `<div class="fb-reply"><div class="fb-reply-head">✍️ ${fbEsc(r.admin_name)} · ${fbEsc(r.created_at)}</div><div class="fb-reply-body">${fbEsc(r.content)}</div></div>`
+    ).join('');
+}
+
+async function fbLoadMy() {
+    const wrap = document.getElementById('fb-my-list');
+    if (!wrap) return;
+    wrap.innerHTML = '<div class="sp-loading">⏳ Yuklanmoqda...</div>';
+    try {
+        const data = await apiRequest('/feedback/my');
+        const items = data.items || [];
+        if (!items.length) {
+            wrap.innerHTML = '<div class="fb-empty">📭 Hali murojaatingiz yo\'q.<br>«Yangi» bo\'limidan yuboring.</div>';
+            return;
+        }
+        wrap.innerHTML = items.map(it => `
+            <div class="fb-card">
+                <div class="fb-card-top">
+                    ${_fbTypeChip(it)}
+                    ${it.is_anonymous ? '<span class="fb-anon-chip">🕵️ Anonim</span>' : ''}
+                    ${_fbStatusBadge(it.status, it.status_label)}
+                </div>
+                <div class="fb-card-content">${fbEsc(it.content)}</div>
+                ${_fbAttachHtml(it.attachments)}
+                <div class="fb-card-date">🕐 ${fbEsc(it.created_at)} · #${it.id}</div>
+                ${_fbRepliesHtml(it.replies)}
+            </div>
+        `).join('');
+    } catch (e) {
+        wrap.innerHTML = `<div class="fb-empty">❌ ${fbEsc(e.message || e)}</div>`;
+    }
+}
+
+function fbInboxFilter(f) {
+    _fbInboxFilter = f;
+    document.querySelectorAll('.fb-filter-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.f === f));
+    fbLoadInbox();
+}
+
+async function fbLoadInbox() {
+    const wrap = document.getElementById('fb-inbox-list');
+    if (!wrap) return;
+    wrap.innerHTML = '<div class="sp-loading">⏳ Yuklanmoqda...</div>';
+    try {
+        const q = _fbInboxFilter ? ('?status=' + _fbInboxFilter) : '';
+        const data = await apiRequest('/feedback/inbox' + q);
+        const items = data.items || [];
+        if (!items.length) {
+            wrap.innerHTML = '<div class="fb-empty">📭 Murojaat yo\'q.</div>';
+            return;
+        }
+        wrap.innerHTML = items.map(it => {
+            const canReply = it.status !== 'resolved';
+            return `
+            <div class="fb-card">
+                <div class="fb-card-top">
+                    ${_fbTypeChip(it)}
+                    ${it.is_anonymous ? '<span class="fb-anon-chip">🕵️ Anonim</span>' : ''}
+                    ${_fbStatusBadge(it.status, it.status_label)}
+                </div>
+                <div class="fb-from">${fbEsc(it.from_name || '')}</div>
+                <div class="fb-card-content">${fbEsc(it.content)}</div>
+                ${_fbAttachHtml(it.attachments)}
+                <div class="fb-card-date">🕐 ${fbEsc(it.created_at)} · #${it.id}</div>
+                ${_fbRepliesHtml(it.replies)}
+                ${canReply ? `
+                <div class="fb-reply-box">
+                    <textarea class="fb-reply-input" id="fb-reply-${it.id}" rows="2" placeholder="Javob yozing..."></textarea>
+                    <div class="fb-reply-actions">
+                        <button class="fb-reply-send" onclick="fbSendReply(${it.id})">📨 Javob</button>
+                        <button class="fb-resolve-btn" onclick="fbResolve(${it.id})">✅ Yechildi</button>
+                    </div>
+                </div>` : ''}
+            </div>`;
+        }).join('');
+    } catch (e) {
+        wrap.innerHTML = `<div class="fb-empty">❌ ${fbEsc(e.message || e)}</div>`;
+    }
+}
+
+async function fbSendReply(id) {
+    const ta = document.getElementById('fb-reply-' + id);
+    const content = (ta?.value || '').trim();
+    if (content.length < 2) { tg?.showAlert?.('Javob matnini yozing.'); return; }
+    try {
+        await apiRequest(`/feedback/${id}/reply`, 'POST', { content });
+        tg?.HapticFeedback?.notificationOccurred('success');
+        tg?.showAlert?.('✅ Javob yuborildi.');
+        fbLoadInbox();
+    } catch (e) {
+        tg?.showAlert?.('❌ ' + (e.message || e));
+    }
+}
+
+async function fbResolve(id) {
+    try {
+        await apiRequest(`/feedback/${id}/resolve`, 'POST', {});
+        tg?.HapticFeedback?.notificationOccurred('success');
+        fbLoadInbox();
+    } catch (e) {
+        tg?.showAlert?.('❌ ' + (e.message || e));
+    }
 }
 

@@ -46,3 +46,8 @@ htmlcov/
 bot_data/
 sessions/
 *.session
+
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+.scratch/

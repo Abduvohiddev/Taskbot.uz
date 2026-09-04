@@ -3,21 +3,34 @@ AI Handler - ovozli xabar va matn orqali AI bilan ishlash
 """
 import logging
 import os
+import random
 import tempfile
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 
 from database.db import get_session
-from database.models import User, Task, TaskStatus, Priority, TaskAssignment, TaskHistory
+from database.models import (
+    User, Task, TaskStatus, Priority, TaskAssignment, TaskHistory, Reminder,
+)
 from services.ai_service import AIService
 from services.notification_service import NotificationService
 
 router = Router()
 logger = logging.getLogger(__name__)
+_TZ = ZoneInfo("Asia/Tashkent")
+_UTC = ZoneInfo("UTC")
+
+_MOTIV = [
+    "💪 Sen bu ishni eplaysan!",
+    "🚀 Bir qadam tashla — qolgani o'zi keladi!",
+    "🔥 Diqqatni jamla va zarba ber!",
+    "⭐ O'zingga ishon, sen ulgurasan!",
+]
 
 PRIORITY_MAP = {
     "low": Priority.LOW,
@@ -26,7 +39,7 @@ PRIORITY_MAP = {
     "urgent": Priority.URGENT,
 }
 
-PRIORITY_NAME = {"low": "🟢 Past", "medium": "🟡 O'rta", "high": "🟠 Yuqori", "urgent": "🔴 Muhim"}
+PRIORITY_NAME = {"low": "🟢 Past", "medium": "🟡 O'rta", "high": "🟠 Muhum", "urgent": "🔴 Juda muhum"}
 
 # Tasdiq kutayotgan vazifalar (xotirada)
 # token -> {"user_id":..., "title":..., "description":..., "priority":..., "deadline": datetime}
@@ -49,21 +62,32 @@ def _clear_history(user_id: int) -> None:
 
 @router.message(Command("ai"))
 @router.message(F.text.in_({"🤖 AI Yordamchi", "🤖 AI Помощник", "🤖 AI Assistant"}))
-async def cmd_ai(message: Message) -> None:
+async def cmd_ai(message: Message, user: User) -> None:
+    if not getattr(user, "ai_enabled", False):
+        await message.answer(
+            "🔒 <b>AI Yordamchi siz uchun hali yoqilmagan.</b>\n\n"
+            "Iltimos, administrator bilan bog'laning — u sizga AI yordamchini yoqib beradi."
+        )
+        return
     await message.answer(
         "🤖 <b>AI Yordamchi</b>\n\n"
-        "Menga o'zbek tilida yozing yoki ovozli xabar yuboring:\n\n"
+        "Men sizning shaxsiy maslahatchingizman. Vazifalaringizdan xabardorman.\n"
+        "Menga o'zbekcha yozing yoki ovozli xabar yuboring:\n\n"
         "💬 <i>Masalan:</i>\n"
-        "• «Ertaga soat 5 ga hisobot tayyorla» — vazifa yaratadi\n"
-        "• «Bugungi vazifalarim» — ro'yxat ko'rsatadi\n"
-        "• «Statistikam» — hisobot ko'rsatadi\n"
-        "• Yoki istalgan savol bering 🎤"
+        "• «Bugun nimadan boshlay?» — maslahat beraman\n"
+        "• «Hamma vazifalarimni ko'rsat» — ro'yxat chiqaraman\n"
+        "• «Eng muhim ishni ertaga 10:00 da eslat» — eslatib turaman ⏰\n"
+        "• Istalgan savol bering 🎤"
     )
 
 
 @router.message(F.voice)
 async def handle_voice(message: Message, user: User, bot: Bot) -> None:
-    """Ovozli xabarni qayta ishlash"""
+    """Ovozli xabarni qayta ishlash (faqat AI yoqilgan foydalanuvchilar uchun)"""
+    if message.chat.type != "private":
+        return
+    if not getattr(user, "ai_enabled", False):
+        return  # AI o'chiq — ovozni AI bilan ishlamaymiz
     wait_msg = await message.answer("🎤 Ovoz tahlil qilinmoqda...")
 
     try:
@@ -92,22 +116,99 @@ async def handle_voice(message: Message, user: User, bot: Bot) -> None:
         await wait_msg.edit_text("❗ Xatolik yuz berdi.")
 
 
-@router.message(F.text & ~F.text.startswith("/"))
-async def handle_text_ai(message: Message, user: User) -> None:
-    """Oddiy matn xabarini AI orqali qayta ishlash"""
-    # Faqat shaxsiy chat da ishlaydi
-    if message.chat.type != "private":
+# Eslatma: oddiy matn xabarlari `handlers/common.py` dagi fallback_text orqali
+# AI maslahatchiga yo'naltiriladi (FSM holatlari bilan to'qnashmasligi uchun).
+
+
+async def _load_user_ctx(user: User):
+    """Foydalanuvchining barcha vazifalari + statistikasi (AI konteksti uchun)."""
+    from sqlalchemy import select, or_
+    async with get_session() as session:
+        res = await session.execute(
+            select(Task)
+            .outerjoin(TaskAssignment, TaskAssignment.task_id == Task.id)
+            .where(or_(Task.creator_id == user.id, TaskAssignment.user_id == user.id))
+            .order_by(Task.created_at.desc())
+            .distinct()
+        )
+        tasks = list(res.scalars().unique().all())
+    tasks_ctx = []
+    for t in tasks:
+        tasks_ctx.append({
+            "id": t.id,
+            "title": t.title,
+            "status": t.status.value if hasattr(t.status, "value") else (t.status or "new"),
+            "priority": t.priority.value if hasattr(t.priority, "value") else (t.priority or "medium"),
+            "deadline": t.deadline.isoformat() if t.deadline else None,
+        })
+    sc = {}
+    for t in tasks_ctx:
+        sc[t["status"]] = sc.get(t["status"], 0) + 1
+    stats_ctx = {
+        "total": len(tasks_ctx), "done": sc.get("done", 0),
+        "in_progress": sc.get("in_progress", 0), "new": sc.get("new", 0),
+        "overdue": sc.get("overdue", 0),
+    }
+    return tasks_ctx, stats_ctx
+
+
+async def _process_ai_consult(message: Message, user: User, text: str) -> None:
+    """AI MASLAHATCHI rejimi — maslahat + eslatma (vazifa yaratmaydi)."""
+    history = list(_USER_HISTORY.get(user.id, []))
+    tasks_ctx, stats_ctx = await _load_user_ctx(user)
+    result = await AIService.consult_message(text, user.full_name, tasks_ctx, stats_ctx, history)
+    action = result.get("action", "reply")
+    _push_history(user.id, "user", text)
+    logger.info(f"[AI CONSULT BOT] user={user.id} text={text!r} → {action}")
+
+    if action == "set_reminder":
+        raw = (result.get("remind_at") or "").strip()
+        rem_text = (result.get("text") or "Eslatma").strip()
+        task_ref = result.get("task_ref")
+        dt = None
+        for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S"):
+            try:
+                dt = datetime.strptime(raw, fmt); break
+            except (ValueError, TypeError):
+                continue
+        if not dt:
+            await message.answer("🤖 ⏰ Eslatma vaqtini tushunmadim. Masalan: «ertaga 15:00».")
+            _push_history(user.id, "assistant", "[eslatma vaqti noaniq]")
+            return
+        remind_utc = dt.replace(tzinfo=_TZ).astimezone(_UTC)
+        now = datetime.now(_UTC)
+        matched = None
+        if task_ref:
+            rs = str(task_ref).strip().lower()
+            for t in tasks_ctx:
+                if rs == str(t["id"]) or (rs and rs in (t["title"] or "").lower()):
+                    matched = t["id"]; break
+        if remind_utc <= now + timedelta(seconds=90):
+            # "hozir" — darrov eslatamiz
+            await message.answer(f"🔔 <b>Eslatma!</b>\n\n«{rem_text}»\n\n{random.choice(_MOTIV)}")
+        else:
+            async with get_session() as session:
+                session.add(Reminder(user_id=user.id, task_id=matched,
+                                     remind_at=remind_utc, text=rem_text))
+                await session.commit()
+            await message.answer(
+                f"✅ <b>{dt.strftime('%d.%m.%Y %H:%M')}</b> da eslatib qo'yaman:\n"
+                f"«{rem_text}»\n\nO'shanda sizni ruhlantirib eslataman 💪"
+            )
+        _push_history(user.id, "assistant", "[eslatma qo'yildi]")
         return
 
-    # Qisqa xabarlarni o'tkazib yuborish (navigatsiya tugmalari va h.k.)
-    if len(message.text) < 3:
-        return
-
-    await _process_ai_response(message, user, message.text)
+    reply = (result.get("text") or "Tushunmadim, qaytadan yozing.").strip()
+    _push_history(user.id, "assistant", reply[:500])
+    await message.answer(f"🤖 {reply}")
 
 
 async def _process_ai_response(message: Message, user: User, text: str) -> None:
     """AI javobini qayta ishlash va bajarish (suhbat tarixi bilan)"""
+    # AI yoqilgan bo'lsa — maslahatchi rejim (vazifa yaratmaydi, eslatadi)
+    if getattr(user, "ai_enabled", False):
+        await _process_ai_consult(message, user, text)
+        return
     history = list(_USER_HISTORY.get(user.id, []))
     result = await AIService.process_message(text, user.full_name, history=history)
     action = result.get("action", "reply")
@@ -426,7 +527,7 @@ async def _show_tasks(message: Message, user: User) -> None:
     for t in tasks:
         st = t.status.name if hasattr(t.status, 'name') else str(t.status)
         emoji = status_emoji.get(st, "•")
-        dl = f" | ⏰ {t.deadline.strftime('%d.%m')}" if t.deadline else ""
+        dl = f" | ⏰ {t.deadline.astimezone(_TZ).strftime('%d.%m')}" if t.deadline else ""
         lines.append(f"{emoji} /task_{t.id} — {t.title[:40]}{dl}")
 
     await message.answer("\n".join(lines))

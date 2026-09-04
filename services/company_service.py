@@ -57,14 +57,24 @@ class CompanyService:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def get_user_companies(session: AsyncSession, user_id: int) -> List[Company]:
-        """Foydalanuvchi qatnashadigan barcha kompaniyalarni olish.
+    async def get_user_companies(
+        session: AsyncSession,
+        user_id: int,
+        standalone_only: bool = False,
+    ) -> List[Company]:
+        """Foydalanuvchi qatnashadigan kompaniyalarni olish.
 
         Ikkita yo'l bilan topiladi:
         1. CompanyMember jadvalida to'g'ridan-to'g'ri a'zolik
         2. GroupMember → Group.company_id orqali (guruh orqali qo'shilganlar)
+
+        standalone_only=True bo'lsa — faqat guruhga bog'lanmagan ("sun'iy"
+        yaratilgan, "Yangi jamoa yaratish" orqali kelgan) kompaniyalar
+        qaytariladi. Bu "Jamoalarim" ro'yxati uchun ishlatiladi —
+        Telegram guruhga avtomatik bog'langanlari "Guruhlarim"da chiqadi.
         """
         from database.models import Group, GroupMember
+        from sqlalchemy import exists as sa_exists
 
         # 1) To'g'ridan-to'g'ri CompanyMember orqali
         direct_subq = (
@@ -85,16 +95,22 @@ class CompanyService:
             .scalar_subquery()
         )
 
-        result = await session.execute(
-            select(Company)
-            .where(
-                or_(
-                    Company.id.in_(direct_subq),
-                    Company.id.in_(via_group_subq),
-                )
+        stmt = select(Company).where(
+            or_(
+                Company.id.in_(direct_subq),
+                Company.id.in_(via_group_subq),
             )
-            .order_by(Company.name)
         )
+
+        if standalone_only:
+            # Kompaniya hech qanday Telegram guruhga bog'lanmagan bo'lsa —
+            # bu "sun'iy" yaratilgan jamoa (Workspace).
+            stmt = stmt.where(
+                ~sa_exists(select(Group.id).where(Group.company_id == Company.id))
+            )
+
+        stmt = stmt.order_by(Company.name)
+        result = await session.execute(stmt)
         companies = list(result.scalars().all())
 
         # Auto-sync: guruh orqali topilgan kompaniyalar uchun CompanyMember yo'q bo'lsa — qo'shamiz

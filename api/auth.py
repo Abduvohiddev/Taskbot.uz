@@ -1,16 +1,64 @@
 """
 Telegram WebApp initData autentifikatsiyasi
-HMAC-SHA256 orqali foydalanuvchini tekshirish
+HMAC-SHA256 orqali foydalanuvchini tekshirish.
+Token-based auth (Telegram Desktop fallback).
 """
 import hashlib
 import hmac
 import json
 import logging
+import secrets
+import time
 from urllib.parse import parse_qs, unquote
 
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+# ── Token store (xotirada, bir process ichida ishlaydi) ──────────────────────
+# {token: {telegram_id, first_name, last_name, username, expires_at}}
+_auth_tokens: dict[str, dict] = {}
+
+
+def create_auth_token(
+    telegram_id: int,
+    first_name: str = "",
+    last_name: str = "",
+    username: str = "",
+) -> str:
+    """5 daqiqalik bir martalik kirish tokeni yaratadi."""
+    # Eskirgan tokenlarni tozalash
+    now = time.time()
+    expired = [k for k, v in _auth_tokens.items() if v["expires_at"] < now]
+    for k in expired:
+        del _auth_tokens[k]
+
+    token = secrets.token_urlsafe(32)
+    _auth_tokens[token] = {
+        "telegram_id": telegram_id,
+        "first_name": first_name,
+        "last_name": last_name,
+        "username": username,
+        "expires_at": now + 300,  # 5 daqiqa
+    }
+    return token
+
+
+def validate_auth_token(token: str) -> dict | None:
+    """Token orqali foydalanuvchi ma'lumotini qaytaradi."""
+    data = _auth_tokens.get(token)
+    if not data:
+        return None
+    if data["expires_at"] < time.time():
+        _auth_tokens.pop(token, None)
+        return None
+    return {
+        "telegram_id": data["telegram_id"],
+        "first_name": data["first_name"],
+        "last_name": data["last_name"],
+        "username": data["username"],
+        "language_code": "uz",
+    }
 
 
 def validate_init_data(init_data: str) -> dict | None:

@@ -1,7 +1,12 @@
 """
 Stats handler - premium 4-chart media group dashboard + team leaderboard
 """
+import calendar
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+_TZ = ZoneInfo("Asia/Tashkent")
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -116,7 +121,7 @@ async def _send_personal_dashboard(message: Message, user: User,
 
     async with get_session() as session:
         stats    = await StatsService.get_user_stats(session, user.id, days=30)
-        weekly   = await StatsService.get_weekly_dynamics(session, user_id=user.id)
+        weekly   = await StatsService.get_weekly_dynamics(session, user_id=user.id, company_id=company_id)
         priority = await StatsService.get_user_priority_stats(
             session, user.id, company_id=company_id
         )
@@ -130,14 +135,21 @@ async def _send_personal_dashboard(message: Message, user: User,
         return
 
     # Generate 4 charts
+    now_tz = datetime.now(_TZ)
+    month_names_uz = [
+        "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
+        "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr",
+    ]
+    month_label = f"{month_names_uz[now_tz.month - 1]} {now_tz.year}"
+
     img1 = generate_status_donut_chart(stats, "Vazifalar holati")
-    img2 = generate_weekly_chart(weekly, "So'nggi 7 kun")
+    img2 = generate_weekly_chart(weekly, month_label)
     img3 = generate_priority_chart(priority, "Muhimlik taqsimoti")
     img4 = generate_summary_card(stats, user.full_name, rank_info=rank_info)
 
     caption = (
         f"📊 <b>{user.full_name}</b> — shaxsiy dashboard\n"
-        f"<i>Oxirgi 30 kun</i>\n\n"
+        f"<i>{month_label}</i>\n\n"
         f"📌 Jami: <b>{stats['total']}</b>  "
         f"✅ Bajarildi: <b>{stats['done']}</b>  "
         f"⏰ Kechikdi: <b>{stats['overdue']}</b>\n"
@@ -189,8 +201,8 @@ async def _send_team_dashboard(message: Message, user: User, company_id: int) ->
             "completion_rate": round(done / total * 100) if total else 0,
         }
 
-        # Weekly dynamics (team)
-        weekly = await StatsService.get_weekly_dynamics(session)
+        # Weekly dynamics (team) — faqat shu kompaniya bo'yicha
+        weekly = await StatsService.get_weekly_dynamics(session, company_id=company_id)
 
         # Member stats with rating
         member_stats = await StatsService.get_company_member_stats(session, company_id)
@@ -260,7 +272,7 @@ async def _send_member_dashboard(message: Message, viewer: User,
             return
 
         stats    = await StatsService.get_user_stats(session, target_user_id, days=30)
-        weekly   = await StatsService.get_weekly_dynamics(session, user_id=target_user_id)
+        weekly   = await StatsService.get_weekly_dynamics(session, user_id=target_user_id, company_id=company_id)
         priority = await StatsService.get_user_priority_stats(
             session, target_user_id, company_id=company_id
         )

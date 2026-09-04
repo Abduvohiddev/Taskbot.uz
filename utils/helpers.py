@@ -141,7 +141,7 @@ def format_task_detailed(task) -> str:
                 if a.user:
                     st_em = _ASGN_STATUS.get(a.status or "new", "🆕")
                     lines.append(f"{st_em} {a.user.full_name}")
-            text += f"👥 <b>Ijrochilar:</b>\n" + "\n".join(f"   {l}" for l in lines) + "\n"
+            text += f"👥 <b>Kuzatuvchilar:</b>\n" + "\n".join(f"   {l}" for l in lines) + "\n"
 
     if hasattr(task, 'subtasks') and task.subtasks:
         done_sub = sum(1 for s in task.subtasks if s.status == TaskStatus.DONE)

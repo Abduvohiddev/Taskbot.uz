@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     fonts-dejavu-core \
     tzdata \
+    tesseract-ocr \
+    tesseract-ocr-rus \
+    tesseract-ocr-uzb \
     && rm -rf /var/lib/apt/lists/*
 
 ENV TZ=Asia/Tashkent
@@ -27,4 +30,4 @@ USER botuser
 
 EXPOSE 8080
 
-CMD ["python", "bot.py"]
+CMD ["sh", "-c", "alembic upgrade head && python bot.py"]

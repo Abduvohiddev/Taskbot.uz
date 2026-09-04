@@ -30,6 +30,20 @@ class AuthMiddleware(BaseMiddleware):
         
         if not tg_user or tg_user.is_bot:
             return await handler(event, data)
+
+        # Admin tomonidan bloklangan guruh — bot bu yerda umuman ishlamasin
+        if isinstance(event, Message) and event.chat.type in ("group", "supergroup"):
+            try:
+                from database.models import Group as _G
+                async with get_session() as _s:
+                    _gr = (await _s.execute(
+                        select(_G).where(_G.telegram_group_id == event.chat.id)
+                    )).scalar_one_or_none()
+                    if _gr and _gr.is_blocked_by_admin:
+                        # Guruh bloklangan — bot jim qoladi, hech qanday handler chaqirilmaydi
+                        return
+            except Exception as e:
+                logger.warning(f"Group block check xato: {e}")
         
         try:
             async with get_session() as session:
@@ -57,9 +71,19 @@ class AuthMiddleware(BaseMiddleware):
                 
                 if user.is_banned:
                     if isinstance(event, Message):
-                        await event.answer("🚫 Sizning hisobingiz bloklangan.")
+                        # Guruhda jim qoldiramiz — har xabarga "bloklangan" deb yozish
+                        # spam'ga aylanadi. Faqat shaxsiy chatda javob beramiz.
+                        if event.chat.type == "private":
+                            try:
+                                await event.answer("🚫 Sizning hisobingiz bloklangan.")
+                            except Exception:
+                                pass
                     elif isinstance(event, CallbackQuery):
-                        await event.answer("🚫 Hisobingiz bloklangan.", show_alert=True)
+                        # Tugma bosilganda — alert (foydalanuvchi aniq harakat qildi)
+                        try:
+                            await event.answer("🚫 Hisobingiz bloklangan.", show_alert=True)
+                        except Exception:
+                            pass
                     return
                 
                 # Guruhdan xabar kelsa — avtomatik GroupMember + CompanyMember qo'shish

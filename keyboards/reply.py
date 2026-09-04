@@ -2,7 +2,7 @@
 Reply (pastdagi) klaviaturalar — ko'p tillilik (uz/ru/en) bilan
 """
 from aiogram.types import (
-    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, WebAppInfo,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
 )
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
@@ -14,12 +14,8 @@ def main_reply_keyboard(lang: str = "uz") -> ReplyKeyboardMarkup:
     """Asosiy reply klaviatura — inline menyu bilan bir xil tugmalar."""
     builder = ReplyKeyboardBuilder()
 
-    # 1-qator: Mini App (WebApp tugmasi)
-    if settings.WEBAPP_URL:
-        builder.row(KeyboardButton(
-            text=t("kb.app", lang),
-            web_app=WebAppInfo(url=settings.WEBAPP_URL),
-        ))
+    # 1-qator: Mini App — plain text (bot token generatsiya qiladi)
+    builder.row(KeyboardButton(text=t("kb.app", lang)))
 
     # 2-qator: Yangi vazifa | Mening vazifalarim
     builder.row(
@@ -39,9 +35,9 @@ def main_reply_keyboard(lang: str = "uz") -> ReplyKeyboardMarkup:
         KeyboardButton(text=t("kb.groups", lang)),
     )
 
-    # 5-qator: AI Yordamchi | Sozlamalar
+    # 5-qator: Murojaat | Sozlamalar
     builder.row(
-        KeyboardButton(text=t("kb.ai", lang)),
+        KeyboardButton(text=t("kb.feedback", lang)),
         KeyboardButton(text=t("kb.settings", lang)),
     )
 

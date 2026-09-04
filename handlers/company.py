@@ -56,38 +56,53 @@ def company_detail_keyboard(company: Company, user_role: CompanyRole) -> InlineK
 @router.message(Command("company"))
 @router.message(Command("companies"))
 async def cmd_companies(message: Message, user: User) -> None:
-    """Mening jamoalarim"""
+    """Mening jamoalarim — faqat guruhga bog'lanmagan (sun'iy yaratilgan) workspacelar.
+    Telegram guruhlari bilan bog'liq kompaniyalar 'Guruhlarim'da ko'rinadi."""
     async with get_session() as session:
         # Company_id yo'q guruhlarni avval tuzatamiz
         await CompanyService.repair_group_companies(session, user.id)
-        companies = await CompanyService.get_user_companies(session, user.id)
+        companies = await CompanyService.get_user_companies(
+            session, user.id, standalone_only=True
+        )
 
     if not companies:
         text = (
-            "🏢 <b>Siz hali hech qanday jamoaga a'zo emassiz.</b>\n\n"
-            "O'z jamoangizni yarating yoki mavjud jamoaga taklif havolasi orqali qo'shiling."
+            "🏢 <b>Sizda hali sun'iy yaratilgan jamoa yo'q.</b>\n\n"
+            "<i>Telegram guruhlaringiz 'Guruhlarim' bo'limida ko'rinadi.</i>\n\n"
+            "O'zingiz uchun yangi jamoa (workspace) yaratish mumkin:"
         )
     else:
-        text = "🏢 <b>Mening jamoalarim (Workspaces):</b>\nBoshqarish uchun jamoani tanlang:"
+        text = (
+            "🏢 <b>Mening jamoalarim (Workspaces):</b>\n"
+            "<i>Telegram guruhsiz, sun'iy yaratilgan jamoalar.</i>\n\n"
+            "Boshqarish uchun jamoani tanlang:"
+        )
 
     await message.answer(text, reply_markup=company_list_keyboard(companies))
 
 
 @router.callback_query(F.data == "menu:companies")
 async def cb_companies(callback: CallbackQuery, user: User) -> None:
-    """Mening jamoalarim (callback)"""
+    """Mening jamoalarim (callback) — faqat guruhga bog'lanmagan workspacelar."""
     async with get_session() as session:
         # Company_id yo'q guruhlarni avval tuzatamiz
         await CompanyService.repair_group_companies(session, user.id)
-        companies = await CompanyService.get_user_companies(session, user.id)
+        companies = await CompanyService.get_user_companies(
+            session, user.id, standalone_only=True
+        )
 
     if not companies:
         text = (
-            "🏢 <b>Siz hali hech qanday jamoaga a'zo emassiz.</b>\n\n"
-            "O'z jamoangizni yarating yoki taklif havolasi orqali qo'shiling."
+            "🏢 <b>Sizda hali sun'iy yaratilgan jamoa yo'q.</b>\n\n"
+            "<i>Telegram guruhlaringiz 'Guruhlarim' bo'limida ko'rinadi.</i>\n\n"
+            "O'zingiz uchun yangi jamoa (workspace) yaratish mumkin:"
         )
     else:
-        text = "🏢 <b>Mening jamoalarim (Workspaces):</b>\nBoshqarish uchun jamoani tanlang:"
+        text = (
+            "🏢 <b>Mening jamoalarim (Workspaces):</b>\n"
+            "<i>Telegram guruhsiz, sun'iy yaratilgan jamoalar.</i>\n\n"
+            "Boshqarish uchun jamoani tanlang:"
+        )
 
     await callback.message.edit_text(text, reply_markup=company_list_keyboard(companies))
 

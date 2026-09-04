@@ -2,20 +2,42 @@
 <html lang="uz">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>TaskBot</title>
-    <link rel="stylesheet" href="/css/style.css?v=v80&t=1779300000">
+    <link rel="stylesheet" href="/css/style.css?v=v127&t=1781700027">
+    <link rel="stylesheet" href="/css/employee.css?v=2">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <!-- Markmap (mind map — NotebookLM style) -->
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/markmap-view@0.17.0/dist/browser/index.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <!-- Loading Screen -->
     <div id="loading-screen" class="loading-screen">
-        <div class="loading-spinner"></div>
-        <p class="loading-text">Yuklanmoqda...</p>
+        <div class="ld-card">
+            <div class="ld-logo">
+                <div class="ld-logo-glow"></div>
+                <div class="ld-logo-ring"></div>
+                <div class="ld-logo-emoji">📋</div>
+            </div>
+            <div class="ld-brand">TaskBot</div>
+            <div class="ld-status" id="ld-status">Tizim ishga tushmoqda…</div>
+            <div class="ld-bar">
+                <div class="ld-bar-fill" id="ld-bar-fill"></div>
+                <div class="ld-bar-shine"></div>
+            </div>
+            <div class="ld-percent" id="ld-percent">0%</div>
+            <div class="ld-steps">
+                <div class="ld-step" data-step="auth">  <span class="ld-step-dot"></span><span data-i18n="app.loading.auth">Avtorizatsiya</span></div>
+                <div class="ld-step" data-step="ws">    <span class="ld-step-dot"></span><span data-i18n="app.loading.workspace">Workspace</span></div>
+                <div class="ld-step" data-step="tasks"> <span class="ld-step-dot"></span><span data-i18n="app.loading.tasks">Vazifalar</span></div>
+                <div class="ld-step" data-step="stats"> <span class="ld-step-dot"></span><span data-i18n="app.loading.stats">Statistika</span></div>
+            </div>
+        </div>
     </div>
 
     <!-- Main App -->
@@ -32,15 +54,31 @@
                 </button>
                 <!-- CENTER: page title -->
                 <div class="header-center">
-                    <h1 class="header-title" id="header-title">Vazifalar</h1>
+                    <h1 class="header-title" id="header-title" data-i18n="app.tab.tasks">Vazifalar</h1>
                 </div>
-                <!-- RIGHT: workspace select + avatar -->
+                <!-- RIGHT: workspace picker + theme + avatar -->
                 <div class="header-right">
-                    <select id="workspace-select" class="workspace-select" onchange="changeWorkspace()">
-                        <option value="all">🌍 Hammasi</option>
-                        <option value="personal">👤 Shaxsiy</option>
-                    </select>
-                    <div class="avatar" id="user-avatar">A</div>
+                    <!-- Custom workspace picker -->
+                    <div class="ws-picker" id="ws-picker">
+                        <button class="ws-picker-btn" id="ws-picker-btn" onclick="toggleWsPicker()" aria-label="Workspace tanlash">
+                            <span class="ws-picker-dot" id="ws-picker-dot">H</span>
+                            <span class="ws-picker-label" id="ws-picker-label" data-i18n="app.ws.all">Hammasi</span>
+                            <svg class="ws-picker-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="ws-picker-dropdown hidden" id="ws-picker-dropdown">
+                            <div class="ws-picker-arrow"></div>
+                        </div>
+                    </div>
+                    <button class="app-ai-btn" id="app-ai-btn" onclick="openAiPanel()" title="AI Yordamchi" style="display:none">🤖</button>
+                    <button class="app-refresh-btn" id="app-refresh-btn" onclick="manualRefresh()" title="Yangilash">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <polyline points="1 20 1 14 7 14"/>
+                            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                        </svg>
+                    </button>
+                    <button class="app-theme-btn" id="app-theme-btn" onclick="appToggleTheme()" title="Mavzu"></button>
+                    <div class="avatar" id="user-avatar" onclick="openSidebar()" style="cursor:pointer" title="Profil">A</div>
                 </div>
             </div>
         </header>
@@ -50,9 +88,9 @@
             <button class="bnav-btn" data-tab="tasks"></button>
             <button class="bnav-btn" data-tab="calendar"></button>
             <button class="bnav-btn" data-tab="create"></button>
-            <button class="bnav-btn" data-tab="kanban"></button>
             <button class="bnav-btn" data-tab="stats"></button>
             <button class="bnav-btn" data-tab="priority"></button>
+            <button class="bnav-btn" data-tab="hujjatlar"></button>
         </div>
 
         <!-- Floating Add Button -->
@@ -69,7 +107,7 @@
                 <div class="sidebar-profile">
                     <div class="sb-avatar" id="sb-avatar">A</div>
                     <div class="sb-info">
-                        <div class="sb-name" id="sb-name">Foydalanuvchi</div>
+                        <div class="sb-name" id="sb-name" data-i18n="app.user.default">Foydalanuvchi</div>
                         <div class="sb-sub" id="sb-sub">@username</div>
                     </div>
                 </div>
@@ -78,29 +116,40 @@
             <nav class="sidebar-nav">
                 <button class="sb-item active" onclick="closeSidebar();switchTab('tasks')">
                     <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg></span>
-                    <span>Vazifalarim</span>
-                </button>
-                <button class="sb-item" onclick="closeSidebar();switchTab('kanban')">
-                    <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="11" rx="1"/><rect x="17" y="3" width="5" height="15" rx="1"/></svg></span>
-                    <span>Kanban</span>
+                    <span data-i18n="app.sidebar.tasks">Vazifalarim</span>
                 </button>
                 <button class="sb-item" onclick="closeSidebar();switchTab('calendar')">
                     <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
-                    <span>Kalendar</span>
+                    <span data-i18n="app.sidebar.calendar">Kalendar</span>
                 </button>
                 <button class="sb-item" onclick="closeSidebar();switchTab('stats')">
                     <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
-                    <span>Statistika</span>
+                    <span data-i18n="app.sidebar.stats">Statistika</span>
                 </button>
                 <div class="sb-divider"></div>
+                <button class="sb-item" onclick="closeSidebar();switchTab('hujjatlar');document.getElementById('header-title').textContent=(tr('app.sidebar.docs')||'Hujjatlarim');empInit()">
+                    <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
+                    <span data-i18n="app.sidebar.docs">Hujjatlarim</span>
+                    <span class="sb-badge" id="sb-docs-pending" style="display:none;background:rgba(251,191,36,0.2);color:#fbbf24"></span>
+                </button>
                 <button class="sb-item" onclick="openTeamsPanel()">
                     <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg></span>
-                    <span>Jamoalar & Guruhlar</span>
+                    <span data-i18n="app.sidebar.teams">Jamoalar &amp; Guruhlar</span>
                     <span class="sb-badge" id="sb-companies-count"></span>
+                </button>
+                <button class="sb-item" onclick="openFeedbackPanel()">
+                    <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                    <span data-i18n="app.sidebar.feedback">Taklif va shikoyat</span>
+                    <span class="sb-badge" id="sb-fb-pending" style="display:none;background:rgba(99,102,241,0.25);color:#a5b4fc"></span>
+                </button>
+                <button class="sb-item" id="sb-ai-item" style="display:none" onclick="closeSidebar();openAiPanel()">
+                    <span class="sb-icon">🤖</span>
+                    <span>AI Yordamchi</span>
+                    <span class="sb-badge" style="background:rgba(168,85,247,0.22);color:#c084fc">yangi</span>
                 </button>
                 <button class="sb-item" onclick="openSettingsPanel()">
                     <span class="sb-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
-                    <span>Sozlamalar</span>
+                    <span data-i18n="app.sidebar.settings">Sozlamalar</span>
                 </button>
             </nav>
         </div>
@@ -108,8 +157,8 @@
         <!-- Teams Panel (companies + telegram groups) -->
         <div class="side-panel hidden" id="companies-panel">
             <div class="sp-header">
-                <button class="sp-back" onclick="closeCompaniesPanel()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Orqaga</button>
-                <span class="sp-title">🏢 Jamoalar & Guruhlar</span>
+                <button class="sp-back" onclick="closeCompaniesPanel()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> <span data-i18n="app.back">Orqaga</span></button>
+                <span class="sp-title"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg> Jamoalar & Guruhlar</span>
             </div>
             <div class="sp-body" id="companies-list">
                 <div class="sp-loading">⏳ Yuklanmoqda...</div>
@@ -119,8 +168,8 @@
         <!-- Company/Team Detail Panel -->
         <div class="side-panel hidden" id="company-detail-panel">
             <div class="sp-header">
-                <button class="sp-back" onclick="closeCompanyDetail()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Orqaga</button>
-                <span class="sp-title" id="company-detail-name">Jamoa</span>
+                <button class="sp-back" onclick="closeCompanyDetail()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> <span data-i18n="app.back">Orqaga</span></button>
+                <span class="sp-title" id="company-detail-name" data-i18n="app.workspace">Jamoa</span>
                 <button class="sp-action-btn hidden" id="company-edit-btn" onclick="toggleCompanyEdit()">✏️</button>
             </div>
             <div class="sp-body" id="company-detail-body"></div>
@@ -129,12 +178,12 @@
         <!-- Settings Panel -->
         <div class="side-panel hidden" id="settings-panel">
             <div class="sp-header">
-                <button class="sp-back" onclick="closeSettingsPanel()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Orqaga</button>
-                <span class="sp-title">⚙️ Sozlamalar</span>
+                <button class="sp-back" onclick="closeSettingsPanel()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> <span data-i18n="app.back">Orqaga</span></button>
+                <span class="sp-title">⚙️ <span data-i18n="app.sidebar.settings">Sozlamalar</span></span>
             </div>
             <div class="sp-body">
                 <div class="settings-section">
-                    <div class="settings-label">🌐 Til</div>
+                    <div class="settings-label">🌐 <span data-i18n="app.settings.lang">Til</span></div>
                     <div class="settings-lang-row">
                         <button class="lang-btn" data-lang="uz" onclick="setAppLanguage('uz')">🇺🇿 O'zbek</button>
                         <button class="lang-btn" data-lang="ru" onclick="setAppLanguage('ru')">🇷🇺 Русский</button>
@@ -142,19 +191,108 @@
                     </div>
                 </div>
                 <div class="settings-section">
-                    <div class="settings-label">📱 Mini App</div>
+                    <div class="settings-label">📱 <span data-i18n="app.settings.mini_app">Mini App</span></div>
                     <div class="settings-info-row">
-                        <span>Versiya</span>
+                        <span data-i18n="app.settings.version">Versiya</span>
                         <span class="settings-val">v63</span>
                     </div>
                     <div class="settings-info-row">
-                        <span>Bot</span>
+                        <span data-i18n="app.settings.bot">Bot</span>
                         <span class="settings-val">@task_cardinar_bot</span>
                     </div>
                 </div>
                 <div class="settings-section">
-                    <div class="settings-label">🌐 Veb-sayt</div>
-                    <a href="https://taskbot.uz" target="_blank" class="settings-link-btn">taskbot.uz →</a>
+                    <div class="settings-label">🔔 Bildirishnoma effektlari</div>
+                    <div class="fx-toggle-row" onclick="toggleFxSound(this)">
+                        <span>🔊 Ovoz effektlari</span>
+                        <span class="fx-switch" id="fx-sound-switch"></span>
+                    </div>
+                    <div class="fx-toggle-row" onclick="toggleFxHaptic(this)">
+                        <span>📳 Tebranish (haptic)</span>
+                        <span class="fx-switch" id="fx-haptic-switch"></span>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> <span data-i18n="app.settings.admin_panel">Admin panel</span></div>
+                    <a href="/admin" target="_blank" class="settings-link-btn settings-admin-btn" data-i18n="app.settings.admin_enter">Admin panelga kirish →</a>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg> <span data-i18n="app.settings.hr_panel">HR panel</span></div>
+                    <a href="/hr" target="_blank" class="settings-link-btn" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none" data-i18n="app.settings.hr_enter">HR panelga kirish →</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Yordamchi Panel -->
+        <div class="side-panel hidden" id="ai-panel">
+            <div class="sp-header">
+                <button class="sp-back" onclick="closeAiPanel()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> <span data-i18n="app.back">Orqaga</span></button>
+                <span class="sp-title">🤖 AI Yordamchi</span>
+                <button class="sp-action-btn" onclick="clearAiChat()" title="Suhbatni tozalash">🧹</button>
+            </div>
+            <div class="ai-chat-body" id="ai-chat-body"></div>
+            <div class="ai-chat-inputbar">
+                <textarea id="ai-chat-input" rows="1" placeholder="Maslahat so'rang yoki «buni ertaga 15:00 da eslat» deng..." oninput="aiAutoGrow(this)" onkeydown="aiInputKey(event)"></textarea>
+                <button class="ai-send-btn" id="ai-send-btn" onclick="aiSendMessage()" aria-label="Yuborish">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Feedback (Taklif va shikoyat) Panel -->
+        <div class="side-panel hidden" id="feedback-panel">
+            <div class="sp-header">
+                <button class="sp-back" onclick="closeFeedbackPanel()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> <span data-i18n="app.back">Orqaga</span></button>
+                <span class="sp-title">📨 Taklif va shikoyat</span>
+            </div>
+            <div class="fb-tabs">
+                <button class="fb-tab active" id="fb-tab-new" onclick="fbSwitch('new')">✍️ Yangi</button>
+                <button class="fb-tab" id="fb-tab-my" onclick="fbSwitch('my')">📋 Mening</button>
+                <button class="fb-tab hidden" id="fb-tab-inbox" onclick="fbSwitch('inbox')">📥 Kelganlar</button>
+            </div>
+            <div class="sp-body">
+                <!-- NEW: create form -->
+                <div class="fb-view" id="fb-view-new">
+                    <div class="fb-field-label" data-i18n="app.fb.visibility">Ko'rinish</div>
+                    <div class="fb-seg" id="fb-anon-seg">
+                        <button class="fb-seg-btn active" data-val="0" onclick="fbSetAnon(0)">👤 Oshkora</button>
+                        <button class="fb-seg-btn" data-val="1" onclick="fbSetAnon(1)">🕵️ Anonim</button>
+                    </div>
+                    <div class="fb-hint" id="fb-anon-hint">Adminlar sizning kimligingizni ko'radi.</div>
+
+                    <div class="fb-field-label" data-i18n="app.fb.type">Turi</div>
+                    <div class="fb-seg" id="fb-type-seg">
+                        <button class="fb-seg-btn active" data-val="suggestion" onclick="fbSetType('suggestion')">💡 Taklif</button>
+                        <button class="fb-seg-btn" data-val="complaint" onclick="fbSetType('complaint')">😠 Shikoyat</button>
+                    </div>
+
+                    <div class="fb-field-label">Mediya (ixtiyoriy)</div>
+                    <div class="fb-media-row" id="fb-media-list"></div>
+                    <label class="fb-upload-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Mediya yuklash
+                        <input type="file" id="fb-file-input" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xlsx" multiple style="display:none" onchange="fbUploadFiles(this.files)">
+                    </label>
+
+                    <div class="fb-field-label" data-i18n="app.fb.text">Matn</div>
+                    <textarea class="fb-textarea" id="fb-content" rows="5" placeholder="Murojaatingizni batafsil yozing..."></textarea>
+
+                    <button class="fb-submit-btn" id="fb-submit" onclick="fbSubmit()">📨 Yuborish</button>
+                </div>
+
+                <!-- MY: my feedbacks -->
+                <div class="fb-view hidden" id="fb-view-my">
+                    <div class="fb-list" id="fb-my-list"><div class="sp-loading">⏳ Yuklanmoqda...</div></div>
+                </div>
+
+                <!-- INBOX: admin -->
+                <div class="fb-view hidden" id="fb-view-inbox">
+                    <div class="fb-inbox-filter">
+                        <button class="fb-filter-btn active" data-f="pending" onclick="fbInboxFilter('pending')">🕓 Ochiq</button>
+                        <button class="fb-filter-btn" data-f="resolved" onclick="fbInboxFilter('resolved')">✅ Yechilgan</button>
+                        <button class="fb-filter-btn" data-f="" onclick="fbInboxFilter('')" data-i18n="app.common.all">Hammasi</button>
+                    </div>
+                    <div class="fb-list" id="fb-inbox-list"><div class="sp-loading">⏳ Yuklanmoqda...</div></div>
                 </div>
             </div>
         </div>
@@ -187,10 +325,10 @@
                 <!-- Sub-tab toggle -->
                 <div class="tasks-subtab-bar">
                     <button class="tasks-subtab active" id="subtab-regular" onclick="switchTasksSubtab('regular')">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Oddiy vazifalar
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> <span data-i18n="app.subtab.regular">Oddiy vazifalar</span>
                     </button>
                     <button class="tasks-subtab" id="subtab-workflow" onclick="switchTasksSubtab('workflow')">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg> Ketma-ketlik
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg> <span data-i18n="app.subtab.workflow">Ketma-ketlik</span>
                     </button>
                 </div>
 
@@ -201,6 +339,7 @@
                         <button class="chip" data-filter="all" data-i18n="app.filter.all"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> Barchasi</button>
                         <button class="chip" data-filter="done" data-i18n="app.filter.done"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg> Bajarilgan</button>
                         <button class="chip" data-filter="overdue" data-i18n="app.filter.overdue"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Kechikkan</button>
+                        <button class="chip chip-mine" data-filter="mine" data-i18n="app.filter.mine"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Mening</button>
                     </div>
                     <div class="task-list" id="task-list"></div>
                     <div class="empty-state hidden" id="empty-tasks">
@@ -290,7 +429,7 @@
                         <label class="form-label" data-i18n="app.create.deadline">Deadline</label>
                         <button type="button" class="dl-picker-btn" id="dl-picker-btn" onclick="openDeadlinePicker()">
                             <span class="dl-picker-icon">📅</span>
-                            <span class="dl-picker-text" id="dl-picker-text">Sana va vaqt tanlang</span>
+                            <span class="dl-picker-text" id="dl-picker-text" data-i18n="app.dl.pick">Sana va vaqt tanlang</span>
                             <span class="dl-picker-clear hidden" id="dl-picker-clear" onclick="event.stopPropagation();clearDeadline()">✕</span>
                         </button>
                         <input type="hidden" id="task-deadline">
@@ -298,13 +437,13 @@
                         <div class="dl-quick-row">
                             <button type="button" class="dl-quick-btn" onclick="setQuickDeadline('today')">Bugun 18:00</button>
                             <button type="button" class="dl-quick-btn" onclick="setQuickDeadline('tomorrow')">Ertaga 12:00</button>
-                            <button type="button" class="dl-quick-btn" onclick="setQuickDeadline('week')">Hafta oxiri</button>
+                            <button type="button" class="dl-quick-btn" onclick="setQuickDeadline('week')" data-i18n="app.dl.weekend">Hafta oxiri</button>
                         </div>
                     </div>
 
                     <!-- Workflow Steps (hidden by default) -->
                     <div class="form-group hidden" id="workflow-steps-group">
-                        <label class="form-label" data-i18n="app.create.steps">🪜 Qadamlar</label>
+                        <label class="form-label" data-i18n="app.create.steps"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg> Qadamlar</label>
                         <div id="workflow-steps-list" class="workflow-steps-list"></div>
                         <button type="button" class="btn-add-step" onclick="addWorkflowStep()" data-i18n="app.create.add_step">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Qadam qo'shish
@@ -312,9 +451,9 @@
                     </div>
 
                     <div class="form-group hidden" id="assignees-group">
-                        <label class="form-label">👥 Ijrochilar</label>
+                        <label class="form-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg> Kuzatuvchilar</label>
                         <div class="assignees-list" id="assignees-list"></div>
-                        <div class="form-hint" id="assignees-hint">Kamida bitta xodim tanlang</div>
+                        <div class="form-hint" id="assignees-hint" data-i18n="app.form.pick_assignee">Kamida bitta xodim tanlang</div>
                     </div>
 
                     <!-- Mas'ul shaxs -->
@@ -346,11 +485,11 @@
 
                     <!-- Legend -->
                     <div class="cal-legend">
-                        <span class="cal-legend-item"><span class="cal-dot cal-dot-overdue"></span>Kechikdi</span>
-                        <span class="cal-legend-item"><span class="cal-dot cal-dot-urgent"></span>Juda muhim</span>
-                        <span class="cal-legend-item"><span class="cal-dot cal-dot-high"></span>Yuqori</span>
-                        <span class="cal-legend-item"><span class="cal-dot cal-dot-normal"></span>Oddiy</span>
-                        <span class="cal-legend-item"><span class="cal-dot cal-dot-done"></span>Bajarildi</span>
+                        <span class="cal-legend-item"><span class="cal-dot cal-dot-overdue"></span><span data-i18n="app.status.overdue">Kechikdi</span></span>
+                        <span class="cal-legend-item"><span class="cal-dot cal-dot-urgent"></span><span data-i18n="app.priority.urgent">Juda muhim</span></span>
+                        <span class="cal-legend-item"><span class="cal-dot cal-dot-high"></span><span data-i18n="app.priority.high">Yuqori</span></span>
+                        <span class="cal-legend-item"><span class="cal-dot cal-dot-normal"></span><span data-i18n="app.priority.normal">Oddiy</span></span>
+                        <span class="cal-legend-item"><span class="cal-dot cal-dot-done"></span><span data-i18n="app.status.done">Bajarildi</span></span>
                     </div>
 
                     <!-- Day names -->
@@ -378,22 +517,22 @@
                         <div class="kct-tab kct-new active" data-col="new" onclick="kanbanScrollTo('new')">
                             <span class="kct-icon">🆕</span>
                             <span class="kct-count" id="kanban-count-new">0</span>
-                            <span>Yangi</span>
+                            <span data-i18n="app.status.new">Yangi</span>
                         </div>
                         <div class="kct-tab kct-progress" data-col="in_progress" onclick="kanbanScrollTo('in_progress')">
                             <span class="kct-icon">⚙️</span>
                             <span class="kct-count" id="kanban-count-in_progress">0</span>
-                            <span>Jarayonda</span>
+                            <span data-i18n="app.status.in_progress">Jarayonda</span>
                         </div>
                         <div class="kct-tab kct-review" data-col="review" onclick="kanbanScrollTo('review')">
                             <span class="kct-icon">🔍</span>
                             <span class="kct-count" id="kanban-count-review">0</span>
-                            <span>Ko'rilmoqda</span>
+                            <span data-i18n="app.status.review">Ko'rilmoqda</span>
                         </div>
                         <div class="kct-tab kct-done" data-col="done" onclick="kanbanScrollTo('done')">
                             <span class="kct-icon">✅</span>
                             <span class="kct-count" id="kanban-count-done">0</span>
-                            <span>Bajarildi</span>
+                            <span data-i18n="app.status.done">Bajarildi</span>
                         </div>
                     </div>
 
@@ -435,7 +574,7 @@
             <div class="tab-pane" id="tab-priority">
                 <div class="priority-header">
                     <h2 class="form-title">🔥 Muhimlik bo'yicha vazifalar</h2>
-                    <p class="form-hint">Hamma jamoa va shaxsiy vazifalaringiz muhimlilik bo'yicha</p>
+                    <p class="form-hint" data-i18n="app.priority.hint">Hamma jamoa va shaxsiy vazifalaringiz muhimlilik bo'yicha</p>
                 </div>
                 <div id="priority-list"></div>
             </div>
@@ -444,8 +583,8 @@
             <div class="tab-pane" id="tab-stats">
                 <div class="stats-container" id="stats-container">
                     <div class="stats-header">
-                        <h2 id="stats-tab-title">📊 Statistikangiz</h2>
-                        <p class="stats-period">Oxirgi 30 kun</p>
+                        <h2 id="stats-tab-title"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> Statistikangiz</h2>
+                        <p class="stats-period" data-i18n="app.stats.current_month">Joriy oy</p>
                     </div>
 
                     <div class="progress-section">
@@ -459,43 +598,43 @@
                                 <span class="progress-label">%</span>
                             </div>
                         </div>
-                        <p class="progress-desc">Bajarilish darajasi</p>
+                        <p class="progress-desc" data-i18n="app.stats.completion_rate">Bajarilish darajasi</p>
                     </div>
 
                     <div class="stats-grid">
                         <div class="stats-item">
-                            <div class="stats-item-icon" style="background:rgba(33,150,243,0.2);color:#2196F3">📌</div>
+                            <div class="stats-item-icon" style="background:rgba(33,150,243,0.2);color:#2196F3"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
                             <div class="stats-item-info">
                                 <span class="stats-item-value" id="stats-total">0</span>
-                                <span class="stats-item-label">Jami vazifalar</span>
+                                <span class="stats-item-label" data-i18n="app.stats.total_tasks">Jami vazifalar</span>
                             </div>
                         </div>
                         <div class="stats-item">
-                            <div class="stats-item-icon" style="background:rgba(76,175,80,0.2);color:#4CAF50">✅</div>
+                            <div class="stats-item-icon" style="background:rgba(76,175,80,0.2);color:#4CAF50"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg></div>
                             <div class="stats-item-info">
                                 <span class="stats-item-value" id="stats-done-count">0</span>
-                                <span class="stats-item-label">Bajarildi</span>
+                                <span class="stats-item-label" data-i18n="app.stats.done">Bajarildi</span>
                             </div>
                         </div>
                         <div class="stats-item">
-                            <div class="stats-item-icon" style="background:rgba(255,152,0,0.2);color:#FF9800">⚙️</div>
+                            <div class="stats-item-icon" style="background:rgba(255,152,0,0.2);color:#FF9800"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg></div>
                             <div class="stats-item-info">
                                 <span class="stats-item-value" id="stats-progress">0</span>
-                                <span class="stats-item-label">Jarayonda</span>
+                                <span class="stats-item-label" data-i18n="app.stats.in_progress">Jarayonda</span>
                             </div>
                         </div>
                         <div class="stats-item">
-                            <div class="stats-item-icon" style="background:rgba(244,67,54,0.2);color:#F44336">⏰</div>
+                            <div class="stats-item-icon" style="background:rgba(244,67,54,0.2);color:#F44336"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
                             <div class="stats-item-info">
                                 <span class="stats-item-value" id="stats-overdue-count">0</span>
-                                <span class="stats-item-label">Kechikdi</span>
+                                <span class="stats-item-label" data-i18n="app.stats.overdue">Kechikdi</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- Status pie chart -->
                     <div class="chart-section" id="status-chart-section">
-                        <h3 class="chart-title">🍩 Vazifalar holati</h3>
+                        <h3 class="chart-title"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg> Vazifalar holati</h3>
                         <div class="chart-wrap">
                             <canvas id="status-chart"></canvas>
                         </div>
@@ -503,7 +642,7 @@
 
                     <!-- Priority distribution chart -->
                     <div class="chart-section" id="priority-chart-section">
-                        <h3 class="chart-title">⚡ Muhimlik bo'yicha</h3>
+                        <h3 class="chart-title"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Muhimlik bo'yicha</h3>
                         <div class="chart-wrap">
                             <canvas id="priority-chart"></canvas>
                         </div>
@@ -511,7 +650,7 @@
 
                     <!-- Completion trend chart -->
                     <div class="chart-section" id="trend-chart-section">
-                        <h3 class="chart-title">📈 Bajarilish trendi (7 kun)</h3>
+                        <h3 class="chart-title"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg> Bajarilish trendi (joriy oy)</h3>
                         <div class="chart-wrap">
                             <canvas id="trend-chart"></canvas>
                         </div>
@@ -519,7 +658,7 @@
 
                     <!-- Overdue trend chart -->
                     <div class="chart-section" id="overdue-chart-section">
-                        <h3 class="chart-title">⏰ Kechikkan vazifalar trendi</h3>
+                        <h3 class="chart-title"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Kechikkan vazifalar trendi</h3>
                         <div class="chart-wrap">
                             <canvas id="overdue-chart"></canvas>
                         </div>
@@ -527,13 +666,98 @@
 
                     <!-- Admin dashboard - har xodim ko'rsatkichi -->
                     <div class="chart-section hidden" id="members-chart-section">
-                        <h3 class="chart-title">👥 A'zolar bo'yicha ko'rsatkichlar</h3>
+                        <h3 class="chart-title"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg> A'zolar bo'yicha ko'rsatkichlar</h3>
                         <div class="chart-wrap chart-wrap-tall">
                             <canvas id="members-chart"></canvas>
                         </div>
                     </div>
                 </div>
             </div>
+            <!-- Hujjatlarim Tab -->
+            <div class="tab-pane" id="tab-hujjatlar">
+
+                <!-- LOADING -->
+                <div id="emp-loading" class="emp-loading">
+                    <div class="emp-loading-spinner"></div>
+                    <div class="emp-loading-txt">Yuklanmoqda...</div>
+                </div>
+
+                <!-- NOT IN TELEGRAM -->
+                <div id="emp-notelegram" class="emp-error-screen hidden">
+                    <div class="emp-error-icon">📱</div>
+                    <h2 data-i18n="app.emp.open_via_tg">Telegram orqali oching</h2>
+                    <p>Bu bo'lim Telegram Mini App ichida ishlaydi.</p>
+                </div>
+
+                <!-- ERROR -->
+                <div id="emp-error-screen" class="emp-error-screen hidden">
+                    <div class="emp-error-icon">⚠️</div>
+                    <h2 id="emp-error-title" data-i18n="app.error">Xatolik</h2>
+                    <p id="emp-error-msg" data-i18n="app.error.unknown">Noma'lum xatolik yuz berdi</p>
+                    <button onclick="empLoad()" class="emp-retry-btn" data-i18n="app.retry">Qayta urinish</button>
+                </div>
+
+                <!-- MAIN APP -->
+                <div id="emp-app" class="emp-app hidden">
+
+                    <!-- STATS -->
+                    <div class="emp-stats" style="padding-top:14px">
+                        <div class="emp-stat-card emp-stat-total">
+                            <div class="emp-stat-val" id="st-total">0</div>
+                            <div class="emp-stat-lbl" data-i18n="app.stats.total">Jami</div>
+                        </div>
+                        <div class="emp-stat-card emp-stat-confirmed">
+                            <div class="emp-stat-val" id="st-confirmed">0</div>
+                            <div class="emp-stat-lbl" data-i18n="app.emp.confirmed">Tasdiqlagan</div>
+                        </div>
+                        <div class="emp-stat-card emp-stat-pending">
+                            <div class="emp-stat-val" id="st-pending">0</div>
+                            <div class="emp-stat-lbl" data-i18n="app.emp.pending">Kutilmoqda</div>
+                        </div>
+                        <div class="emp-stat-card emp-stat-rejected">
+                            <div class="emp-stat-val" id="st-rejected">0</div>
+                            <div class="emp-stat-lbl" data-i18n="app.emp.rejected">Rad etilgan</div>
+                        </div>
+                    </div>
+
+                    <!-- FILTER TABS -->
+                    <div class="emp-tabs">
+                        <button class="emp-tab active" onclick="empFilter('all',this)" data-i18n="app.common.all">Barchasi</button>
+                        <button class="emp-tab"        onclick="empFilter('pending',this)">
+                            Kutilmoqda <span class="emp-tab-badge" id="tab-badge-pending" style="display:none"></span>
+                        </button>
+                        <button class="emp-tab" onclick="empFilter('confirmed',this)" data-i18n="app.emp.confirmed">Tasdiqlangan</button>
+                        <button class="emp-tab" onclick="empFilter('rejected',this)" data-i18n="app.emp.rejected">Rad etilgan</button>
+                    </div>
+
+                    <!-- LIST -->
+                    <div class="emp-list" id="emp-list"></div>
+
+                    <!-- EMPTY -->
+                    <div class="emp-empty hidden" id="emp-empty">
+                        <div class="emp-empty-icon">📭</div>
+                        <div class="emp-empty-txt" data-i18n="app.emp.empty">Hujjatlar topilmadi</div>
+                    </div>
+
+                </div><!-- /emp-app -->
+
+            </div><!-- /tab-hujjatlar -->
+
+        </div>
+    </div>
+
+    <!-- EMPLOYEE DETAIL MODAL (fixed, sits above everything) -->
+    <div class="emp-modal hidden" id="emp-modal" onclick="if(event.target===this)empCloseModal()">
+        <div class="emp-modal-box">
+            <div class="emp-modal-head">
+                <h3 id="emp-modal-title" data-i18n="app.doc">Hujjat</h3>
+                <button class="emp-modal-close" onclick="empCloseModal()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="emp-modal-body" id="emp-modal-body"></div>
         </div>
     </div>
 
@@ -541,8 +765,23 @@
     <div class="modal-overlay hidden" id="task-modal">
         <div class="modal">
             <div class="modal-header">
-                <h3 class="modal-title" id="modal-title">Vazifa</h3>
-                <button class="modal-close" onclick="closeModal()">&times;</button>
+                <h3 class="modal-title" id="modal-title" data-i18n="app.modal.task">Vazifa</h3>
+                <div class="modal-header-actions">
+                    <button class="modal-mindmap" id="modal-mindmap-btn" onclick="openMindMap()" title="Mind Map">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="5" cy="12" r="2.5"/><circle cx="18" cy="5" r="2.5"/><circle cx="18" cy="19" r="2.5"/>
+                            <path d="M7.2 10.8 15.8 6.2M7.2 13.2l8.6 4.6"/>
+                        </svg>
+                    </button>
+                    <button class="modal-refresh" id="modal-refresh-btn" onclick="refreshOpenTask()" title="Yangilash">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <polyline points="1 20 1 14 7 14"/>
+                            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                        </svg>
+                    </button>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
             </div>
             <div class="modal-body" id="modal-body">
                 <!-- Task details rendered here -->
@@ -551,6 +790,33 @@
                 <!-- Action buttons rendered here -->
             </div>
         </div>
+    </div>
+
+    <!-- Mind Map (NotebookLM-style) fullscreen -->
+    <div class="mm-overlay hidden" id="mindmap-modal">
+        <div class="mm-header">
+            <div class="mm-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="2.5"/><circle cx="18" cy="5" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M7.2 10.8 15.8 6.2M7.2 13.2l8.6 4.6"/></svg>
+                <span id="mm-title-text">Mind Map</span>
+            </div>
+            <div class="mm-actions">
+                <button class="mm-btn" onclick="mmFit()" title="Markazlash">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                </button>
+                <button class="mm-btn" onclick="mmExportPng()" title="PNG saqlash">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                </button>
+                <button class="mm-btn mm-close" onclick="closeMindMap()" title="Yopish">&times;</button>
+            </div>
+        </div>
+        <div class="mm-canvas-wrap">
+            <svg id="mm-svg"></svg>
+            <div class="mm-loading" id="mm-loading">
+                <div class="mm-spinner"></div>
+                <span>Mind map chizilmoqda…</span>
+            </div>
+        </div>
+        <div class="mm-legend" id="mm-legend"></div>
     </div>
 
     <!-- Toast -->
@@ -562,7 +828,7 @@
     <div class="gp-overlay hidden" id="group-picker-sheet" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="gp-sheet">
             <div class="gp-sheet-header">
-                <span class="gp-sheet-title">🏢 Guruhni tanlang</span>
+                <span class="gp-sheet-title"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg> Guruhni tanlang</span>
                 <button class="gp-close-btn" onclick="document.getElementById('group-picker-sheet').classList.add('hidden')">✕</button>
             </div>
             <div class="gp-sheet-body" id="group-picker-list">
@@ -575,8 +841,8 @@
     <div class="gp-overlay hidden" id="group-member-sheet" onclick="if(event.target===this)this.classList.add('hidden')">
         <div class="gp-sheet">
             <div class="gp-sheet-header">
-                <button class="gp-back-btn" onclick="document.getElementById('group-member-sheet').classList.add('hidden');document.getElementById('group-picker-sheet').classList.remove('hidden')">‹ Orqaga</button>
-                <span class="gp-sheet-title" id="gm-sheet-title">A'zolar</span>
+                <button class="gp-back-btn" onclick="document.getElementById('group-member-sheet').classList.add('hidden');document.getElementById('group-picker-sheet').classList.remove('hidden')" data-i18n="app.back">‹ Orqaga</button>
+                <span class="gp-sheet-title" id="gm-sheet-title" data-i18n="app.members">A'zolar</span>
                 <button class="gp-close-btn" onclick="document.getElementById('group-member-sheet').classList.add('hidden')">✕</button>
             </div>
             <div class="gp-sheet-body" id="gm-sheet-list">
@@ -609,7 +875,7 @@
                 <!-- Selected date preview -->
                 <div class="dl-sel-preview" id="dl-sel-preview">
                     <span class="dl-sel-icon">📅</span>
-                    <span class="dl-sel-text" id="dl-sel-text">Sana tanlanmagan</span>
+                    <span class="dl-sel-text" id="dl-sel-text" data-i18n="app.dl.none">Sana tanlanmagan</span>
                 </div>
                 <!-- Calendar -->
                 <div class="dl-cal-wrap">
@@ -618,12 +884,12 @@
                         <span class="dl-cal-month" id="dl-cal-month">April 2026</span>
                         <button class="dl-cal-nav" onclick="dlCalNav(1)">›</button>
                     </div>
-                    <div class="dl-cal-days-h"><span>Du</span><span>Se</span><span>Ch</span><span>Pa</span><span>Ju</span><span>Sh</span><span>Ya</span></div>
+                    <div class="dl-cal-days-h"><span data-i18n="app.day.mon">Du</span><span data-i18n="app.day.tue">Se</span><span data-i18n="app.day.wed">Ch</span><span data-i18n="app.day.thu">Pa</span><span data-i18n="app.day.fri">Ju</span><span data-i18n="app.day.sat">Sh</span><span data-i18n="app.day.sun">Ya</span></div>
                     <div class="dl-cal-grid" id="dl-cal-grid"></div>
                 </div>
                 <!-- Time wheel -->
                 <div class="dl-time-wrap">
-                    <div class="dl-time-label">⏰ Vaqt</div>
+                    <div class="dl-time-label"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Vaqt</div>
                     <div class="dl-time-row">
                         <div class="dl-time-col">
                             <button class="dl-time-arrow" onclick="dlTimeNudge('h',1)">▲</button>
@@ -646,7 +912,7 @@
                     </div>
                 </div>
                 <div class="dl-foot">
-                    <button class="dl-btn-cancel" onclick="document.getElementById('dl-sheet').classList.add('hidden')">Bekor</button>
+                    <button class="dl-btn-cancel" onclick="document.getElementById('dl-sheet').classList.add('hidden')" data-i18n="app.cancel">Bekor</button>
                     <button class="dl-btn-ok" onclick="confirmDeadlinePicker()">✅ Tasdiqlash</button>
                 </div>
             </div>
@@ -675,6 +941,7 @@
         </div>
     </div>
 
-    <script src="/js/app.js?v=v80&t=1779300000"></script>
+    <script src="/js/app.js?v=v162&t=1781800053"></script>
+    <script src="/js/employee.js?v=3"></script>
 </body>
 </html>

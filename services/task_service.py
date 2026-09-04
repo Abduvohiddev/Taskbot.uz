@@ -58,7 +58,12 @@ class TaskService:
         await session.flush()
 
         if assignee_ids:
+            # Defensive dedupe — uq_task_user constraint buzilmasligi uchun
+            seen_ids = set()
             for user_id in assignee_ids:
+                if user_id in seen_ids:
+                    continue
+                seen_ids.add(user_id)
                 is_resp = user_id in resp_set
                 assignment = TaskAssignment(
                     task_id=task.id, user_id=user_id, is_responsible=is_resp
@@ -343,11 +348,32 @@ class TaskService:
         if not assignment or not assignment.is_responsible:
             return None
 
+        _TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
+        now = datetime.now(_TZ)
+
         assignment.status = new_status
-        if new_status == "done":
-            _TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
-            assignment.completed_at = datetime.now(_TZ)
+
+        # Vaqt kuzatuvi — reyting hisoblash uchun:
+        # in_progress → started_at (birinchi marta) qo'yiladi
+        # done       → completed_at qo'yiladi + duration_seconds hisoblanadi
+        if new_status == "in_progress":
+            if not assignment.started_at:
+                assignment.started_at = now
+            # Agar oldin done bo'lib qaytarilgan bo'lsa, completed/duration ni tozalaymiz
+            assignment.completed_at = None
+        elif new_status == "done":
+            assignment.completed_at = now
+            if assignment.started_at:
+                started = assignment.started_at
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=_TZ)
+                else:
+                    started = started.astimezone(_TZ)
+                delta = (now - started).total_seconds()
+                if delta > 0:
+                    assignment.duration_seconds = int(delta)
         else:
+            # Boshqa holat (kelajakda kerak bo'lsa) — vaqtlarni tozalaymiz
             assignment.completed_at = None
 
         # Tarix yozuvi

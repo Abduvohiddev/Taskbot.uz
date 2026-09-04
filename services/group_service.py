@@ -87,8 +87,8 @@ class GroupService:
             )
             .options(selectinload(Group.members))
         )
-        return list(result.scalars().all())
-    
+        return list(result.scalars().unique().all())
+
     @staticmethod
     async def add_member(
         session: AsyncSession,

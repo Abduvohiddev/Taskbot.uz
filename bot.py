@@ -20,7 +20,7 @@ from aiogram.types import (
 
 from config import settings
 from database.db import init_db, close_db
-from handlers import start, tasks, groups, stats, admin, common, company, workflow
+from handlers import start, tasks, groups, stats, admin, common, company, workflow, hr, feedback, ai_handler
 from middlewares.auth import AuthMiddleware
 from middlewares.throttling import ThrottlingMiddleware
 from utils.scheduler import setup_scheduler, shutdown_scheduler
@@ -57,6 +57,7 @@ async def on_startup(bot: Bot) -> None:
         BotCommand(command="overdue", description="⏰ Kechikkan vazifalar"),
         BotCommand(command="companies", description="🏢 Kompaniyalarim"),
         BotCommand(command="groups", description="👥 Guruhlarim"),
+        BotCommand(command="murojaat", description="📨 Taklif yoki shikoyat"),
         BotCommand(command="settings", description="⚙️ Sozlamalar"),
         BotCommand(command="language", description="🌐 Til"),
         BotCommand(command="help", description="❓ Yordam"),
@@ -88,7 +89,7 @@ async def on_startup(bot: Bot) -> None:
         try:
             await bot.set_chat_menu_button(
                 menu_button=MenuButtonWebApp(
-                    text="🚀 Ochish",
+                    text="📊 Dashboard",
                     web_app=WebAppInfo(url=f"{settings.WEBAPP_URL.rstrip('/')}/?v=67"),
                 )
             )
@@ -165,7 +166,10 @@ async def main() -> None:
     dp.include_router(groups.router)
     dp.include_router(stats.router)
     dp.include_router(admin.router)
+    dp.include_router(hr.router)          # 📄 HR hujjat tasdiqlash/rad etish
+    dp.include_router(feedback.router)    # 📨 Murojaat (taklif/shikoyat)
     dp.include_router(common.router)      # ⚙️ Sozlamalar va boshqa aniq matnlar
+    dp.include_router(ai_handler.router)  # 🤖 AI Yordamchi (/ai, ovoz). Matn — common fallback orqali
     
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)

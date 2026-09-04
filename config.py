@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     API_PORT: int = 8080
     WEBAPP_URL: str = ""
     DEBUG: bool = True
+
+    HR_NOTIFY_CHAT_ID: int = 0   # HR javoblarini qabul qiladigan chat/user ID
     
     @property
     def admin_ids_list(self) -> List[int]:

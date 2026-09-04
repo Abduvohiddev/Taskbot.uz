@@ -3,6 +3,7 @@ Chart generator - premium matplotlib charts (individual, sent as media group)
 """
 import io
 import logging
+import math
 from typing import Dict, List, Optional
 
 import matplotlib
@@ -10,6 +11,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import Rectangle
+from matplotlib.gridspec import GridSpec
 
 from config import settings
 
@@ -457,6 +459,221 @@ def generate_team_comparison_chart(member_stats: List[dict]) -> bytes:
                  color=T_DARK, y=1.00)
     plt.tight_layout(pad=2.5)
     return _save(fig)
+
+
+# ── Chart: Personal daily report ──────────────────────────────────────────────
+
+def generate_personal_daily_chart(
+    user_name: str,
+    report_data: List[Dict],
+    date_str: str,
+) -> bytes:
+    """
+    Premium dark-theme shaxsiy kunlik hisobot.
+    Yuqorida umumiy summary header, pastda har bir kompaniya uchun donut pie.
+    """
+    # ── Dark palette ───────────────────────────────────────────────────────
+    DARK_BG    = "#0D1117"
+    DARK_PANEL = "#161B22"
+    CARD_BG    = "#1C2128"
+    ACCENT     = "#58A6FF"
+    GOLD       = "#FFD700"
+    DONE_C     = "#3FB950"
+    PROG_C     = "#FF9500"
+    NEW_C      = "#388BFD"
+    OVER_C     = "#F85149"
+    DIM        = "#8B949E"
+    WHITE      = "#E6EDF3"
+
+    pie_palette = {
+        "done":        DONE_C,
+        "in_progress": PROG_C,
+        "new":         NEW_C,
+        "overdue":     OVER_C,
+    }
+    pie_labels = {
+        "done":        "Bajarildi",
+        "in_progress": "Jarayonda",
+        "new":         "Yangi",
+        "overdue":     "Kechikdi",
+    }
+
+    data = (report_data or [])[:6]
+    n    = len(data)
+
+    # ── Empty state ────────────────────────────────────────────────────────
+    if n == 0:
+        fig = plt.figure(figsize=(10, 5), dpi=settings.CHART_DPI)
+        fig.patch.set_facecolor(DARK_BG)
+        ax = fig.add_subplot(111)
+        ax.set_facecolor(DARK_BG)
+        ax.axis("off")
+        ax.text(0.5, 0.55, "Bugun vazifalar yo'q",
+                ha="center", va="center", fontsize=18, color=DIM,
+                transform=ax.transAxes)
+        ax.text(0.5, 0.42, user_name,
+                ha="center", va="center", fontsize=13, color=ACCENT,
+                fontweight="bold", transform=ax.transAxes)
+        ax.text(0.5, 0.32, date_str,
+                ha="center", va="center", fontsize=10, color=DIM,
+                transform=ax.transAxes)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=settings.CHART_DPI,
+                    bbox_inches="tight", facecolor=DARK_BG, edgecolor="none")
+        plt.close(fig)
+        buf.seek(0)
+        return buf.read()
+
+    # ── Grid geometry ──────────────────────────────────────────────────────
+    if n <= 2:
+        ncols, nrows = max(n, 1), 1
+    elif n <= 4:
+        ncols, nrows = 2, math.ceil(n / 2)
+    else:
+        ncols, nrows = 3, math.ceil(n / 3)
+
+    fig_w = max(8, ncols * 5.6)
+    fig_h = max(5, nrows * 5.0) + 3.2        # +3.2 for header row
+
+    fig = plt.figure(figsize=(fig_w, fig_h), dpi=settings.CHART_DPI)
+    fig.patch.set_facecolor(DARK_BG)
+
+    # height_ratios: header + pie rows
+    gs = GridSpec(
+        nrows + 1, ncols,
+        figure=fig,
+        height_ratios=[1.15] + [2.6] * nrows,
+        hspace=0.60,
+        wspace=0.30,
+    )
+
+    # ── Overall stats ──────────────────────────────────────────────────────
+    total_all = sum(d["total"]       for d in data)
+    done_all  = sum(d["done"]        for d in data)
+    prog_all  = sum(d["in_progress"] for d in data)
+    new_all   = sum(d["new"]         for d in data)
+    over_all  = sum(d["overdue"]     for d in data)
+    rate_all  = round(done_all / total_all * 100) if total_all else 0
+
+    # ── Header axes ────────────────────────────────────────────────────────
+    ax_h = fig.add_subplot(gs[0, :])
+    ax_h.set_facecolor(DARK_PANEL)
+    ax_h.axis("off")
+    ax_h.set_xlim(0, 1)
+    ax_h.set_ylim(0, 1)
+
+    # Separator line at very bottom of header
+    # MUHIM: axhline transform= ni qabul qilmaydi. ylim allaqachon (0,1) qilingani
+    # uchun y=0.01 to'g'ridan-to'g'ri axes pastida bo'ladi.
+    ax_h.axhline(y=0.01, color="#21262D", linewidth=1.5)
+
+    ax_h.text(0.5, 0.94, "Kunlik shaxsiy hisobot",
+              ha="center", va="top", fontsize=14, color=WHITE,
+              fontweight="bold", transform=ax_h.transAxes)
+    ax_h.text(0.5, 0.73, user_name,
+              ha="center", va="top", fontsize=12, color=ACCENT,
+              fontweight="bold", transform=ax_h.transAxes)
+    ax_h.text(0.5, 0.54, date_str,
+              ha="center", va="top", fontsize=9, color=DIM,
+              transform=ax_h.transAxes)
+
+    metrics = [
+        (str(total_all), "Jami",      WHITE),
+        (str(done_all),  "Bajarildi", DONE_C),
+        (str(prog_all),  "Jarayonda", PROG_C),
+        (str(over_all),  "Kechikdi",  OVER_C),
+        (f"{rate_all}%", "Faollik",   GOLD),
+    ]
+    for i, (val, label, color) in enumerate(metrics):
+        xc = 0.07 + i * 0.215
+        ax_h.text(xc, 0.30, val, ha="center", va="center",
+                  fontsize=18, color=color, fontweight="bold",
+                  transform=ax_h.transAxes)
+        ax_h.text(xc, 0.10, label, ha="center", va="center",
+                  fontsize=8, color=DIM, transform=ax_h.transAxes)
+
+    # ── Pie subplots ───────────────────────────────────────────────────────
+    for idx, cd in enumerate(data):
+        row = idx // ncols + 1
+        col = idx % ncols
+
+        ax = fig.add_subplot(gs[row, col])
+        ax.set_facecolor(CARD_BG)
+
+        sc    = cd["status_counts"]
+        valid = {k: v for k, v in sc.items() if v > 0}
+        total = cd["total"]
+
+        if valid:
+            sizes  = list(valid.values())
+            clrs   = [pie_palette.get(k, "#888") for k in valid]
+            expl   = [0.06 if k == "overdue" else 0.015 for k in valid]
+
+            _, _, autotexts = ax.pie(
+                sizes,
+                colors=clrs,
+                autopct="%1.0f%%",
+                explode=expl,
+                startangle=90,
+                textprops={"fontsize": 8.5, "color": "white"},
+                wedgeprops={"edgecolor": CARD_BG, "linewidth": 2.5, "width": 0.44},
+                pctdistance=0.77,
+            )
+            for at in autotexts:
+                at.set_fontweight("bold")
+
+            # Center donut hole
+            ax.add_artist(plt.Circle((0, 0), 0.53, fc=CARD_BG, linewidth=0, zorder=10))
+            rate = cd["completion_rate"]
+            ax.text(0,  0.13, f"{rate}%",  ha="center", va="center",
+                    fontsize=16, fontweight="bold", color=DONE_C, zorder=11)
+            ax.text(0, -0.16, f"{total} ta", ha="center", va="center",
+                    fontsize=9, color=DIM, zorder=11)
+        else:
+            ax.text(0, 0, "Bo'sh", ha="center", va="center",
+                    fontsize=13, color=DIM)
+
+        ax.axis("equal")
+
+        name = cd["company_name"]
+        if len(name) > 22:
+            name = name[:20] + "…"
+        ax.set_title(name, fontsize=10, fontweight="bold", color=WHITE,
+                     pad=8, loc="center")
+
+        # Compact legend
+        if valid:
+            patches = [
+                mpatches.Patch(
+                    color=pie_palette.get(k, "#888"),
+                    label=f"{pie_labels.get(k, k)}: {v}",
+                )
+                for k, v in valid.items()
+            ]
+            ax.legend(
+                handles=patches,
+                loc="lower center",
+                bbox_to_anchor=(0.5, -0.32),
+                ncol=2,
+                fontsize=7.5,
+                framealpha=0.0,
+                labelcolor=DIM,
+            )
+
+    # Hide unused grid slots
+    for idx in range(n, nrows * ncols):
+        row = idx // ncols + 1
+        col = idx % ncols
+        ax_e = fig.add_subplot(gs[row, col])
+        ax_e.axis("off")
+        ax_e.set_facecolor(DARK_BG)
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=settings.CHART_DPI,
+                bbox_inches="tight", facecolor=DARK_BG, edgecolor="none")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.read()
 
 
 # ── Legacy wrappers (used by group stats) ─────────────────────────────────────

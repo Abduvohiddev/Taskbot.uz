@@ -4,8 +4,9 @@ Statistics service - statistika va hisobotlar
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import (
@@ -13,6 +14,9 @@ from database.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_TZ = ZoneInfo("Asia/Tashkent")
+_UTC = ZoneInfo("UTC")
 
 
 class StatsService:
@@ -22,23 +26,32 @@ class StatsService:
     async def get_user_stats(
         session: AsyncSession,
         user_id: int,
-        days: int = 30,
+        days: int = 30,  # orqaga mos kelish uchun saqlanadi, lekin ishlatilmaydi
     ) -> Dict:
-        """Foydalanuvchi statistikasi — per-user assignment status asosida"""
-        since = datetime.utcnow() - timedelta(days=days)
-        now = datetime.utcnow()
+        """Foydalanuvchi statistikasi — joriy oy asosida"""
+        import calendar
+        now_tz = datetime.now(_TZ)
+        # Joriy oyning boshidan hisoblash
+        since = datetime(now_tz.year, now_tz.month, 1, tzinfo=_TZ).astimezone(_UTC)
+        now = datetime.now(_UTC)
 
-        # Per-user assignment status bo'yicha sanash
+        # Per-user assignment status bo'yicha sanash —
+        # FAQAT mas'ul + Task.status DONE bo'lsa hisobga olinadi (TaskAssignment yangilanmasa ham)
+        eff_status = case(
+            (Task.status == TaskStatus.DONE, "done"),
+            else_=TaskAssignment.status,
+        )
         result = await session.execute(
-            select(TaskAssignment.status, func.count(TaskAssignment.id))
+            select(eff_status.label("st"), func.count(TaskAssignment.id))
             .join(Task, TaskAssignment.task_id == Task.id)
             .where(
                 and_(
                     TaskAssignment.user_id == user_id,
+                    TaskAssignment.is_responsible.is_(True),
                     Task.created_at >= since,
                 )
             )
-            .group_by(TaskAssignment.status)
+            .group_by(eff_status)
         )
         asg_counts = {row[0]: row[1] for row in result.all()}
 
@@ -46,13 +59,14 @@ class StatsService:
         in_progress = asg_counts.get("in_progress", 0) + asg_counts.get("review", 0)
         new_cnt = asg_counts.get("new", 0)
 
-        # Overdue: foydalanuvchining o'zi bajarmagan va deadline o'tgan
+        # Overdue: foydalanuvchining o'zi bajarmagan va deadline o'tgan — faqat mas'ul
         overdue_res = await session.execute(
             select(func.count(TaskAssignment.id))
             .join(Task, TaskAssignment.task_id == Task.id)
             .where(
                 and_(
                     TaskAssignment.user_id == user_id,
+                    TaskAssignment.is_responsible.is_(True),
                     TaskAssignment.status != "done",
                     Task.deadline.isnot(None),
                     Task.deadline < now,
@@ -82,7 +96,7 @@ class StatsService:
         days: int = 30,
     ) -> List[Dict]:
         """Guruh a'zolari bo'yicha statistika"""
-        since = datetime.utcnow() - timedelta(days=days)
+        since = datetime.now(_UTC) - timedelta(days=days)
         
         members_result = await session.execute(
             select(User)
@@ -135,7 +149,7 @@ class StatsService:
         )
         members = list(members_res.all())
 
-        now = datetime.utcnow()
+        now = datetime.now(_UTC)
         stats = []
         for user, member in members:
             # Per-user TaskAssignment statusi bo'yicha
@@ -213,28 +227,35 @@ class StatsService:
         session: AsyncSession,
         group_id: Optional[int] = None,
         user_id: Optional[int] = None,
+        company_id: Optional[int] = None,
     ) -> List[Dict]:
-        """Haftalik dinamika - har kun yaratilgan va bajarilgan"""
-        now = datetime.utcnow()
+        """Oylik dinamika - joriy oyning har kuni yaratilgan va bajarilgan"""
+        import calendar
+        now_tz = datetime.now(_TZ)
         days_data = []
-        
-        day_names_uz = ["Dush", "Sesh", "Chor", "Pay", "Jum", "Shan", "Yak"]
-        
-        for i in range(6, -1, -1):
-            day_start = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
-            day_end = day_start + timedelta(days=1)
-            
+
+        # Joriy oyning 1-sanasidan bugungi kungacha
+        for day_num in range(1, now_tz.day + 1):
+            from datetime import date as _date
+            local_day = _date(now_tz.year, now_tz.month, day_num)
+            day_start = datetime.combine(local_day, datetime.min.time(), tzinfo=_TZ).astimezone(_UTC)
+            day_end = datetime.combine(local_day, datetime.max.time(), tzinfo=_TZ).astimezone(_UTC)
+
             created_query = select(func.count(Task.id)).where(
                 Task.created_at.between(day_start, day_end)
             )
             completed_query = select(func.count(Task.id)).where(
                 Task.completed_at.between(day_start, day_end)
             )
-            
+
+            if company_id:
+                created_query = created_query.where(Task.company_id == company_id)
+                completed_query = completed_query.where(Task.company_id == company_id)
+
             if group_id:
                 created_query = created_query.where(Task.group_id == group_id)
                 completed_query = completed_query.where(Task.group_id == group_id)
-            
+
             if user_id:
                 created_query = created_query.join(
                     TaskAssignment, TaskAssignment.task_id == Task.id
@@ -247,8 +268,8 @@ class StatsService:
             completed_count = (await session.execute(completed_query)).scalar() or 0
             
             days_data.append({
-                "date": day_start.strftime("%d.%m"),
-                "day": day_names_uz[day_start.weekday()],
+                "date": local_day.strftime("%d.%m"),
+                "day": str(day_num),
                 "created": created_count,
                 "done": completed_count,
             })
@@ -256,13 +277,116 @@ class StatsService:
         return days_data
     
     @staticmethod
+    async def get_user_daily_report_data(
+        session: AsyncSession,
+        user_id: int,
+    ) -> List[Dict]:
+        """
+        Foydalanuvchining barcha kompaniyalari bo'yicha hisobot:
+        har bir kompaniya uchun status taqsimoti qaytaradi.
+        """
+        from database.models import Company, CompanyMember, Group, GroupMember
+        from sqlalchemy import or_
+
+        now = datetime.now(_UTC)
+
+        # Barcha kompaniyalarni topish (to'g'ridan-to'g'ri + guruh orqali)
+        direct_subq = (
+            select(CompanyMember.company_id)
+            .where(CompanyMember.user_id == user_id)
+            .scalar_subquery()
+        )
+        via_group_subq = (
+            select(Group.company_id)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .where(
+                GroupMember.user_id == user_id,
+                Group.company_id.isnot(None),
+            )
+            .scalar_subquery()
+        )
+        companies_res = await session.execute(
+            select(Company)
+            .where(or_(Company.id.in_(direct_subq), Company.id.in_(via_group_subq)))
+            .order_by(Company.name)
+        )
+        companies = list(companies_res.scalars().all())
+
+        report = []
+        for company in companies:
+            # Effective status — Task.status DONE bo'lsa har holda done deb hisoblanadi
+            # (chunki ba'zan TaskAssignment.status yangilanmasdan qoladi)
+            eff_status = case(
+                (Task.status == TaskStatus.DONE, "done"),
+                else_=TaskAssignment.status,
+            )
+            sc_res = await session.execute(
+                select(eff_status.label("st"), func.count(TaskAssignment.id))
+                .join(Task, TaskAssignment.task_id == Task.id)
+                .where(
+                    and_(
+                        TaskAssignment.user_id == user_id,
+                        TaskAssignment.is_responsible.is_(True),
+                        Task.company_id == company.id,
+                    )
+                )
+                .group_by(eff_status)
+            )
+            sc = {row[0]: row[1] for row in sc_res.all()}
+
+            done        = sc.get("done", 0)
+            in_progress = sc.get("in_progress", 0) + sc.get("review", 0)
+            new_cnt     = sc.get("new", 0)
+            total       = sum(sc.values())
+
+            if total == 0:
+                continue
+
+            # Kechikkan: Task.status DONE emas + deadline o'tgan + mas'ul
+            ov_res = await session.execute(
+                select(func.count(TaskAssignment.id))
+                .join(Task, TaskAssignment.task_id == Task.id)
+                .where(
+                    and_(
+                        TaskAssignment.user_id == user_id,
+                        TaskAssignment.is_responsible.is_(True),
+                        Task.company_id == company.id,
+                        Task.status != TaskStatus.DONE,
+                        TaskAssignment.status != "done",
+                        Task.deadline.isnot(None),
+                        Task.deadline < now,
+                    )
+                )
+            )
+            overdue = ov_res.scalar() or 0
+
+            report.append({
+                "company_id":       company.id,
+                "company_name":     company.name,
+                "total":            total,
+                "done":             done,
+                "in_progress":      in_progress,
+                "new":              new_cnt,
+                "overdue":          overdue,
+                "completion_rate":  round(done / total * 100) if total else 0,
+                "status_counts": {
+                    "done":        done,
+                    "in_progress": in_progress,
+                    "new":         new_cnt,
+                    "overdue":     overdue,
+                },
+            })
+
+        return report
+
+    @staticmethod
     async def get_completion_report(
         session: AsyncSession,
         group_id: Optional[int] = None,
         days: int = 7,
     ) -> Dict:
         """Bajarilish hisoboti"""
-        since = datetime.utcnow() - timedelta(days=days)
+        since = datetime.now(_UTC) - timedelta(days=days)
         
         query = select(func.count(Task.id)).where(Task.created_at >= since)
         if group_id:

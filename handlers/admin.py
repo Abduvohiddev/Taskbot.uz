@@ -3,6 +3,8 @@ Admin handler - super admin (tizim egasi) uchun
 """
 import asyncio
 import logging
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -14,6 +16,8 @@ from config import settings
 from database.db import get_session
 from database.models import User, Group, Task, TaskStatus
 from keyboards.inline import back_to_menu_keyboard
+
+_UTC = ZoneInfo("UTC")
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -68,7 +72,8 @@ async def cmd_admin(message: Message, user: User) -> None:
     builder.button(text="🚫 Bloklash", callback_data="admin:ban")
     builder.button(text="✅ Blokdan chiqarish", callback_data="admin:unban")
     builder.button(text="📊 Batafsil stats", callback_data="admin:stats")
-    builder.adjust(2)
+    builder.button(text="📨 Murojaat adminlari", callback_data="admin:fbadmins")
+    builder.adjust(2, 2, 1)
     
     await message.answer(text, reply_markup=builder.as_markup())
 
@@ -134,16 +139,15 @@ async def callback_admin_stats(callback: CallbackQuery, user: User) -> None:
         )
         status_counts = {row[0].value: row[1] for row in result.all()}
         
-        from datetime import datetime, timedelta
-        last_week = datetime.utcnow() - timedelta(days=7)
+        last_week = datetime.now(_UTC) - timedelta(days=7)
         new_users = (await session.execute(
             select(func.count(User.id)).where(User.created_at >= last_week)
         )).scalar()
-        
+
         new_tasks = (await session.execute(
             select(func.count(Task.id)).where(Task.created_at >= last_week)
         )).scalar()
-    
+
     text = (
         f"👑 <b>Batafsil admin statistikasi</b>\n\n"
         f"<b>👥 Foydalanuvchilar:</b>\n"
@@ -321,16 +325,15 @@ async def cmd_admin_stats(message: Message, user: User) -> None:
         )
         status_counts = {row[0].value: row[1] for row in result.all()}
         
-        from datetime import datetime, timedelta
-        last_week = datetime.utcnow() - timedelta(days=7)
+        last_week = datetime.now(_UTC) - timedelta(days=7)
         new_users = (await session.execute(
             select(func.count(User.id)).where(User.created_at >= last_week)
         )).scalar()
-        
+
         new_tasks = (await session.execute(
             select(func.count(Task.id)).where(Task.created_at >= last_week)
         )).scalar()
-    
+
     status_names = {
         "new": "🆕 Yangi",
         "in_progress": "⚙️ Jarayonda",

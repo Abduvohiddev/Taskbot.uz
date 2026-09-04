@@ -3,6 +3,7 @@ SQLAlchemy modellari - barcha jadvallar
 """
 import enum
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import List, Optional
 
 from sqlalchemy import (
@@ -11,6 +12,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
+from config import settings
 
 
 class Base(DeclarativeBase):
@@ -72,7 +74,10 @@ class User(Base):
     language: Mapped[str] = mapped_column(String(5), default="uz")
     timezone: Mapped[str] = mapped_column(String(50), default="Asia/Tashkent")
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_hr: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_feedback_admin: Mapped[bool] = mapped_column(Boolean, default=False)  # Murojaat admini
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    ai_enabled: Mapped[bool] = mapped_column(Boolean, default=False)  # AI maslahatchi (admin yoqadi)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -164,8 +169,9 @@ class Group(Base):
     owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
     timezone: Mapped[str] = mapped_column(String(50), default="Asia/Tashkent")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_blocked_by_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    
+
     company: Mapped[Optional["Company"]] = relationship(back_populates="groups")
     owner: Mapped["User"] = relationship(foreign_keys=[owner_id])
     members: Mapped[List["GroupMember"]] = relationship(
@@ -280,7 +286,16 @@ class Task(Base):
         """Vazifa kechikdimi?"""
         if not self.deadline or self.status in (TaskStatus.DONE, TaskStatus.CANCELLED):
             return False
-        return datetime.utcnow() > self.deadline.replace(tzinfo=None)
+        
+        _TZ = ZoneInfo(settings.DEFAULT_TIMEZONE)
+        now = datetime.now(_TZ)
+        deadline = self.deadline
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=_TZ)
+        else:
+            deadline = deadline.astimezone(_TZ)
+            
+        return now > deadline
     
     def __repr__(self) -> str:
         return f"<Task id={self.id} title={self.title[:30]} status={self.status}>"
@@ -297,8 +312,12 @@ class TaskAssignment(Base):
     task_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tasks.id", ondelete="CASCADE"))
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     status: Mapped[str] = mapped_column(String(20), default="new")
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    is_responsible: Mapped[bool] = mapped_column(Boolean, default=False)
     assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Vaqt kuzatuvi: jarayonga tushganda boshlanadi, bajarilganda to'xtaydi
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer)  # started→done sekundlarda
 
     task: Mapped["Task"] = relationship(back_populates="assignments")
     user: Mapped["User"] = relationship(back_populates="assignments")
@@ -360,6 +379,9 @@ class TaskStep(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     note: Mapped[Optional[str]] = mapped_column(Text)  # bajarilganda izoh
     deadline: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # NISBIY MUDDAT: qadam aktivlashganda deadline = aktivlashgan vaqt + duration_days.
+    # Shu tufayli oldingi qadam kechiksa ham, bu odam o'z to'liq muddatini oladi.
+    duration_days: Mapped[Optional[int]] = mapped_column(Integer)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -408,6 +430,7 @@ class TaskStepAttachment(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
     file_type: Mapped[str] = mapped_column(String(20), default="document")
     file_id: Mapped[Optional[str]] = mapped_column(String(500))
+    file_url: Mapped[Optional[str]] = mapped_column(String(500))   # Mini App orqali yuklangan fayl
     file_name: Mapped[Optional[str]] = mapped_column(String(500))
     file_size: Mapped[Optional[int]] = mapped_column(BigInteger)
     mime_type: Mapped[Optional[str]] = mapped_column(String(100))
@@ -452,3 +475,188 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     
     user: Mapped["User"] = relationship(back_populates="notifications")
+
+
+class HRDocument(Base):
+    """HR hujjatlari — lavozim yo'riqnomalari"""
+    __tablename__ = "hr_documents"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(300))
+    image_path: Mapped[Optional[str]] = mapped_column(String(500))          # birinchi rasm (backward compat)
+    images_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True) # JSON array of all image paths
+    extracted_text: Mapped[Optional[str]] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(100), default="hradmin")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Eslatma — javob bermaganlarga har kuni belgilangan soatda so'raladi;
+    # har N kunda esa hamma (tasdiqlagan/rad etgan) qaytadan tasdiqlaydi.
+    remind_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    remind_time: Mapped[Optional[str]] = mapped_column(String(5))   # "HH:MM" (Asia/Tashkent)
+    remind_reopen: Mapped[bool] = mapped_column(Boolean, default=False)  # (eski, ishlatilmaydi)
+    remind_interval_days: Mapped[int] = mapped_column(Integer, default=0)  # 0 = qayta ochilmaydi
+    last_reopen_on: Mapped[Optional[str]] = mapped_column(String(10))      # "YYYY-MM-DD"
+
+    assignments: Mapped[List["HRAssignment"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+
+
+class HRAssignmentStatus(str, enum.Enum):
+    PENDING   = "pending"
+    CONFIRMED = "confirmed"
+    REJECTED  = "rejected"
+
+
+class HRAssignment(Base):
+    """HR hujjatlarini foydalanuvchilarga biriktirish"""
+    __tablename__ = "hr_assignments"
+    __table_args__ = (
+        UniqueConstraint("document_id", "user_id", name="uq_hr_doc_user"),
+        Index("ix_hr_assignments_user_id", "user_id"),
+        Index("ix_hr_assignments_document_id", "document_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("hr_documents.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default=HRAssignmentStatus.PENDING.value,
+    )
+    comment: Mapped[Optional[str]] = mapped_column(Text)
+    telegram_message_id: Mapped[Optional[int]] = mapped_column(BigInteger)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_reminded_on: Mapped[Optional[str]] = mapped_column(String(10))  # "YYYY-MM-DD" — kunlik takrorni oldini oladi
+
+    document: Mapped["HRDocument"] = relationship(back_populates="assignments")
+    user: Mapped["User"] = relationship()
+
+
+# ═══════════════════════════════════════════════════════════════
+#  MUROJAAT (taklif / shikoyat) moduli
+# ═══════════════════════════════════════════════════════════════
+
+class FeedbackType(str, enum.Enum):
+    """Murojaat turi"""
+    COMPLAINT = "complaint"     # Shikoyat
+    SUGGESTION = "suggestion"   # Taklif
+
+
+class FeedbackStatus(str, enum.Enum):
+    """Murojaat holati"""
+    PENDING = "pending"       # Yangi — ko'rib chiqilmoqda
+    IN_REVIEW = "in_review"   # Ko'rib chiqilmoqda (admin ochgan)
+    RESOLVED = "resolved"     # Yechim berildi
+
+
+class Feedback(Base):
+    """Foydalanuvchi murojaatlari — taklif yoki shikoyat (anonim/oshkora)"""
+    __tablename__ = "feedbacks"
+    __table_args__ = (
+        Index("ix_feedbacks_user_id", "user_id"),
+        Index("ix_feedbacks_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    type: Mapped[str] = mapped_column(String(20), default=FeedbackType.SUGGESTION.value)
+    is_anonymous: Mapped[bool] = mapped_column(Boolean, default=False)
+    content: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default=FeedbackStatus.PENDING.value)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped["User"] = relationship(foreign_keys=[user_id])
+    attachments: Mapped[List["FeedbackAttachment"]] = relationship(
+        back_populates="feedback", cascade="all, delete-orphan"
+    )
+    replies: Mapped[List["FeedbackReply"]] = relationship(
+        back_populates="feedback", cascade="all, delete-orphan",
+        order_by="FeedbackReply.created_at",
+    )
+    discussions: Mapped[List["FeedbackDiscussion"]] = relationship(
+        back_populates="feedback", cascade="all, delete-orphan",
+        order_by="FeedbackDiscussion.created_at",
+    )
+
+
+class FeedbackAttachment(Base):
+    """Murojaatga biriktirilgan mediya (rasm/video/fayl)"""
+    __tablename__ = "feedback_attachments"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    feedback_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("feedbacks.id", ondelete="CASCADE"))
+    file_id: Mapped[Optional[str]] = mapped_column(String(300))   # Telegram file_id (bot oqimi)
+    file_url: Mapped[Optional[str]] = mapped_column(String(500))  # Server fayl URL (Mini App oqimi)
+    file_type: Mapped[str] = mapped_column(String(20), default="document")
+    file_name: Mapped[Optional[str]] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    feedback: Mapped["Feedback"] = relationship(back_populates="attachments")
+
+
+class FeedbackReply(Base):
+    """Murojaatga admin javobi"""
+    __tablename__ = "feedback_replies"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    feedback_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("feedbacks.id", ondelete="CASCADE"))
+    admin_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("users.id"))  # HR panel uchun null bo'lishi mumkin
+    admin_name: Mapped[Optional[str]] = mapped_column(String(200))  # javob bergan (ko'rsatish uchun)
+    source: Mapped[Optional[str]] = mapped_column(String(20), default="admin")  # admin | hr
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    feedback: Mapped["Feedback"] = relationship(back_populates="replies")
+    admin: Mapped["User"] = relationship(foreign_keys=[admin_id])
+
+
+class FeedbackDiscussion(Base):
+    """Murojaatni muhokamaga yo'naltirish — HR tomonidan biror userga.
+
+    HR shikoyat/taklifni bir yoki bir nechta odamga muhokama uchun yuboradi
+    (izoh bilan). O'sha odam javob beradi yoki rad etadi.
+    """
+    __tablename__ = "feedback_discussions"
+    __table_args__ = (
+        Index("ix_feedback_discussions_feedback_id", "feedback_id"),
+        Index("ix_feedback_discussions_target", "target_user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    feedback_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("feedbacks.id", ondelete="CASCADE"))
+    target_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    hr_comment: Mapped[Optional[str]] = mapped_column(Text)          # HR ning yo'naltirishdagi izohi
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | answered | rejected
+    response: Mapped[Optional[str]] = mapped_column(Text)            # userning javobi yoki rad sababi
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    responded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    feedback: Mapped["Feedback"] = relationship(back_populates="discussions")
+    target_user: Mapped["User"] = relationship(foreign_keys=[target_user_id])
+
+
+class Reminder(Base):
+    """AI maslahatchi tomonidan qo'yilgan eslatmalar.
+
+    Foydalanuvchi AI bilan "bu vazifani palon vaqtda eslat" desa, AI shu yozuvni
+    yaratadi. Scheduler belgilangan vaqtda motivatsion xabar bilan eslatadi.
+    """
+    __tablename__ = "reminders"
+    __table_args__ = (
+        Index("ix_reminders_due", "remind_at", "is_sent"),
+        Index("ix_reminders_user", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    task_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("tasks.id", ondelete="CASCADE"))
+    remind_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    text: Mapped[str] = mapped_column(Text)              # nimani eslatish
+    is_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped["User"] = relationship(foreign_keys=[user_id])
+    task: Mapped[Optional["Task"]] = relationship(foreign_keys=[task_id])
