@@ -16,10 +16,26 @@ Kod formati o'zgarmaydi: `844088` + `CA` + `0310` (kun, oy) + `10002897` = `8440
 
 | Buyruq | Nima qiladi |
 |---|---|
-| `/kod 844088 5` | 844088 ga 5 ta kod. Izoh bilan: `/kod 844088 5 T535` |
+| `/kod` | Seriya: artikul, soni, konveyr, mashina so'raladi; ➕ Qo'shish / ✅ Tayyor. Natija: seriya Excel + RFID `.xls` |
+| `/kod 844088 5` yoki `844088 5` | Tez: 844088 ga 5 ta kod. Izoh bilan: `844088 5 T535` |
 | `/oxirgi 844088` | Oxirgi band raqam va oxirgi 5 ta kod |
 | `/holat` | Bazadagi kodlar soni, Google Sheets'ga yuklanishi kutilayotganlar |
 | `/import` | (admin) Eski bazani xlsx fayldan ko'chirish |
+| `/katalog` | (admin) Mahsulot katalogini yuklash: `Артикул`, `Номенклатура` (ixtiyoriy `Марка`) |
+| `/bekor` | Joriy so'rovni bekor qilish |
+
+## Seriya (`/kod`)
+
+1. Artikul yoziladi, bot katalogdan nomini ko'rsatadi.
+2. Soni: tugma (10, 20, 30, 50, 100, 200) yoki son yoziladi.
+3. Konveyr (masalan `F-1795`): oxirgi ishlatilganlar tugma bo'lib chiqadi yoki yoziladi.
+4. Mashinasi (masalan `COB`): katalogdagi marka va oxirgi ishlatilganlar tugma bo'lib chiqadi yoki yoziladi.
+5. **➕ Qo'shish** — keyingi artikul, **✅ Tayyor** — kodlar yasaladi va ikkita fayl keladi:
+   - `seria_....xlsx`: artikul, nomeklatura, konveyr, mashinasi, ummumiy nomi (konveyr-mashina),
+     unic code, unic code full, sana;
+   - `rfid_....xls`: `STA` varag'i — Artikul, EPC (to'liq kod), Nomi, ummumiy nomi.
+
+Konveyr Датабаза'ning izoh ustuniga yoziladi, mashina Google Sheet'dagi "Mashina" ustuniga tushadi.
 
 ## Excel fayl yuborish
 

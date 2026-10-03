@@ -48,7 +48,8 @@ class UCCode(UCBase):
     note: Mapped[str | None] = mapped_column(String(255))       # Датабаза E ustuni (adres, partiya...)
     address: Mapped[str | None] = mapped_column(String(64))
     name: Mapped[str | None] = mapped_column(String(255))
-    series: Mapped[str | None] = mapped_column(String(128))
+    series: Mapped[str | None] = mapped_column(String(128))     # konveyr / partiya
+    machine: Mapped[str | None] = mapped_column(String(64))     # mashina (seriya fayli uchun)
     batch_id: Mapped[int | None] = mapped_column(ForeignKey("uc_batches.id", ondelete="SET NULL"))
     source: Mapped[str] = mapped_column(String(16), default="bot")  # bot | import
     synced: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -56,4 +57,16 @@ class UCCode(UCBase):
     __table_args__ = (
         Index("ix_uc_codes_article_seq", "article", "seq"),
         Index("ix_uc_codes_unsynced", "synced", "id"),
+    )
+
+
+class UCProduct(UCBase):
+    """Mahsulot katalogi: artikul -> nomenklatura (seriya va RFID fayllari uchun)."""
+    __tablename__ = "uc_products"
+
+    article: Mapped[str] = mapped_column(String(16), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    marka: Mapped[str | None] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

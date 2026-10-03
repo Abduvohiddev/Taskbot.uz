@@ -16,7 +16,7 @@ from aiogram.types import (
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from uniccode import excel_out, generator, importer, parsers
+from uniccode import catalog, excel_out, generator, importer, parsers
 from uniccode.config import UnicSettings
 from uniccode.models import UCCode, UCCounter
 from uniccode.sheets_sync import SheetSync
@@ -25,7 +25,9 @@ log = logging.getLogger("uniccode.bot")
 
 HELP = (
     "<b>Unikal kod bot</b>\n\n"
-    "<b>/kod 844088 5</b> yoki shunchaki <b>844088 5</b> — artikulga 5 ta kod. "
+    "<b>/kod</b> — seriya: artikul, soni, konveyr, mashina so'raladi; ➕ Qo'shish, ✅ Tayyor → "
+    "seriya Excel + RFID .xls\n"
+    "<b>/kod 844088 5</b> yoki shunchaki <b>844088 5</b> — tez: artikulga 5 ta kod. "
     "Oxiriga izoh yozsa bo'ladi: <code>844088 5 T535</code>\n"
     "<b>/oxirgi 844088</b> — artikulning oxirgi kodlari\n"
     "<b>/holat</b> — baza va Google Sheets holati\n\n"
@@ -33,12 +35,14 @@ HELP = (
     "• 1C sklad hisoboti (Движения товаров) — qaysi qatorlar kerakligini so'rayman\n"
     "• Ro'yxat: <i>Артикул</i>, <i>Кол-во</i> ustunlari (ixtiyoriy: <i>Seria</i>, <i>Адрес</i>, "
     "<i>Наименование</i>, <i>Izoh</i>)\n\n"
-    "Admin: <b>/import</b> — Google Sheets'dan yuklab olingan eski bazani (xlsx) SQL ga ko'chirish"
+    "Admin: <b>/import</b> — eski bazani (xlsx) SQL ga ko'chirish; <b>/katalog</b> — mahsulot nomlari faylini yuklash\n"
+    "<b>/bekor</b> — joriy amalni bekor qilish"
 )
 
 
 class St(StatesGroup):
     import_wait = State()
+    catalog_wait = State()
     stock_selector = State()
     stock_mode = State()
     list_confirm = State()
@@ -46,6 +50,32 @@ class St(StatesGroup):
 
 def kb(*buttons):
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t, callback_data=d)] for t, d in buttons])
+
+
+def kb_grid(buttons, per_row=3, extra=()):
+    rows, row = [], []
+    for t, d in buttons:
+        row.append(InlineKeyboardButton(text=t, callback_data=d))
+        if len(row) == per_row:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    for t, d in extra:
+        rows.append([InlineKeyboardButton(text=t, callback_data=d)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+class Wz(StatesGroup):
+    """/kod seriya so'rovi: artikul -> soni -> konveyr -> mashina -> savat."""
+    article = State()
+    qty = State()
+    konveyr = State()
+    machine = State()
+    cart = State()
+
+
+CANCEL_BTN = ("✖️ Bekor qilish", "cancel")
 
 
 def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[SheetSync]) -> Router:
@@ -105,8 +135,12 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
     async def kod(m: Message, command: CommandObject, state: FSMContext):
         await state.clear()
         parts = (command.args or "").split(maxsplit=2)
+        if not parts:
+            await state.update_data(cart=[], cur={}, opts=[])
+            await wz_ask_article(m, state)
+            return
         if len(parts) < 2 or not parts[1].isdigit():
-            await m.answer("Masalan: <code>/kod 844088 5</code> yoki <code>/kod 844088 5 T535</code>")
+            await m.answer("Masalan: <code>/kod</code> (seriya) yoki <code>/kod 844088 5</code> (tez)")
             return
         art = generator.normalize_article(parts[0])
         if not generator.ARTICLE_RE.match(art):
@@ -122,6 +156,200 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         art = generator.normalize_article(parts[0])
         note = parts[2].strip() if len(parts) > 2 else None
         await run_generate(m, [generator.Item(article=art, qty=int(parts[1]), note=note)], "kod", note=note)
+
+    # ------------------------------------------------------------------ /kod seriya so'rovi
+    async def recent(column, limit=6):
+        async with sm() as session:
+            q = (select(column, func.max(UCCode.id).label("mx")).where(column.isnot(None), column != "")
+                 .group_by(column).order_by(func.max(UCCode.id).desc()).limit(limit))
+            return [r[0] for r in (await session.execute(q)).all()]
+
+    def uniq(values):
+        out = []
+        for v in values:
+            if v and v not in out:
+                out.append(v)
+        return out[:9]
+
+    def cart_text(cart):
+        lines = ["🧾 <b>Seriya</b>"]
+        for i, c in enumerate(cart, 1):
+            un = excel_out.umumiy_nomi(c["konveyr"], c["machine"])
+            lines.append(f"{i}) <b>{c['article']}</b> × {c['qty']} — {un}\n    <i>{c.get('name') or 'nomi katalogda yo`q'}</i>")
+        lines.append(f"\nJami: <b>{sum(c['qty'] for c in cart)}</b> ta kod")
+        return "\n".join(lines)
+
+    async def show_cart(target: Message, state: FSMContext):
+        data = await state.get_data()
+        await state.set_state(Wz.cart)
+        btns = [("➕ Qo'shish", "wz:add"), ("✅ Tayyor", "wz:done")]
+        extra = [("↩️ Oxirgisini o'chirish", "wz:undo"), CANCEL_BTN]
+        await target.answer(cart_text(data["cart"]), reply_markup=kb_grid(btns, 2, extra))
+
+    async def wz_ask_article(target: Message, state: FSMContext):
+        data = await state.get_data()
+        await state.set_state(Wz.article)
+        n = len(data.get("cart", [])) + 1
+        await target.answer(f"<b>{n}-qator.</b> 1/4. Artikulni yozing (6 xonali), masalan <code>814292</code>",
+                            reply_markup=kb(CANCEL_BTN))
+
+    async def wz_ask_qty(target: Message, state: FSMContext):
+        await state.set_state(Wz.qty)
+        btns = [(str(n), f"qty:{n}") for n in (10, 20, 30, 50, 100, 200)]
+        await target.answer("2/4. Nechta kod kerak? Tugmani bosing yoki sonni yozing.",
+                            reply_markup=kb_grid(btns, 3, [CANCEL_BTN]))
+
+    async def wz_ask_konveyr(target: Message, state: FSMContext):
+        data = await state.get_data()
+        last = [c["konveyr"] for c in reversed(data.get("cart", []))]
+        opts = uniq(last + await recent(UCCode.series))
+        await state.update_data(opts=opts)
+        await state.set_state(Wz.konveyr)
+        await target.answer("3/4. Konveyr? Tanlang yoki yozing (masalan <code>F-1795</code>).",
+                            reply_markup=kb_grid([(o, f"opt:{i}") for i, o in enumerate(opts)], 3, [CANCEL_BTN]))
+
+    async def wz_ask_machine(target: Message, state: FSMContext):
+        data = await state.get_data()
+        last = [c["machine"] for c in reversed(data.get("cart", []))]
+        opts = uniq([data["cur"].get("marka")] + last + await recent(UCCode.machine))
+        await state.update_data(opts=opts)
+        await state.set_state(Wz.machine)
+        await target.answer("4/4. Mashinasi? Tanlang yoki yozing (masalan <code>COB</code>).",
+                            reply_markup=kb_grid([(o, f"opt:{i}") for i, o in enumerate(opts)], 3, [CANCEL_BTN]))
+
+    @r.message(Command("bekor"))
+    async def bekor(m: Message, state: FSMContext):
+        await state.clear()
+        await m.answer("Bekor qilindi.")
+
+    @r.message(Wz.article, F.text, ~F.text.startswith("/"))
+    async def wz_article(m: Message, state: FSMContext):
+        art = generator.normalize_article(m.text.strip())
+        if not generator.ARTICLE_RE.match(art):
+            await m.answer("Artikul 6 xonali raqam bo'lishi kerak. Qaytadan yozing.")
+            return
+        async with sm() as session:
+            prods = await catalog.get_products(session, [art])
+        p = prods.get(art)
+        await state.update_data(cur={"article": art, "name": p.name if p else None, "marka": p.marka if p else None})
+        await m.answer(f"<b>{art}</b> — {p.name}" if p else f"<b>{art}</b> — ⚠️ katalogda topilmadi, nomi bo'sh qoladi.")
+        await wz_ask_qty(m, state)
+
+    async def wz_set_qty(target: Message, state: FSMContext, qty: int):
+        if qty <= 0 or qty > cfg.UNIC_MAX_PER_REQUEST:
+            await target.answer(f"Soni 1 dan {cfg.UNIC_MAX_PER_REQUEST} gacha bo'lishi kerak.")
+            return
+        data = await state.get_data()
+        cur = data["cur"]
+        cur["qty"] = qty
+        await state.update_data(cur=cur)
+        await wz_ask_konveyr(target, state)
+
+    @r.message(Wz.qty, F.text, ~F.text.startswith("/"))
+    async def wz_qty_text(m: Message, state: FSMContext):
+        t = m.text.strip().replace(" ", "")
+        if not t.isdigit():
+            await m.answer("Faqat son yozing, masalan <code>50</code>.")
+            return
+        await wz_set_qty(m, state, int(t))
+
+    @r.callback_query(Wz.qty, F.data.startswith("qty:"))
+    async def wz_qty_btn(c: CallbackQuery, state: FSMContext):
+        await c.message.edit_reply_markup()
+        await c.answer()
+        await wz_set_qty(c.message, state, int(c.data.split(":")[1]))
+
+    async def wz_value(target: Message, state: FSMContext, value: str):
+        value = value.strip()[:64]
+        if not value:
+            return
+        data = await state.get_data()
+        cur = data["cur"]
+        if await state.get_state() == Wz.konveyr.state:
+            cur["konveyr"] = value
+            await state.update_data(cur=cur)
+            await wz_ask_machine(target, state)
+        else:
+            cur["machine"] = value
+            cart = data.get("cart", []) + [cur]
+            await state.update_data(cart=cart, cur={})
+            await show_cart(target, state)
+
+    @r.message(StateFilter(Wz.konveyr, Wz.machine), F.text, ~F.text.startswith("/"))
+    async def wz_value_text(m: Message, state: FSMContext):
+        await wz_value(m, state, m.text)
+
+    @r.callback_query(StateFilter(Wz.konveyr, Wz.machine), F.data.startswith("opt:"))
+    async def wz_value_btn(c: CallbackQuery, state: FSMContext):
+        opts = (await state.get_data()).get("opts", [])
+        i = int(c.data.split(":")[1])
+        await c.message.edit_reply_markup()
+        await c.answer()
+        if i < len(opts):
+            await wz_value(c.message, state, opts[i])
+
+    @r.message(Wz.cart, F.text, ~F.text.startswith("/"))
+    async def wz_cart_text(m: Message, state: FSMContext):
+        await m.answer("Tugmalardan birini bosing: ➕ Qo'shish yoki ✅ Tayyor.")
+
+    @r.callback_query(Wz.cart, F.data.startswith("wz:"))
+    async def wz_cart_btn(c: CallbackQuery, state: FSMContext):
+        await c.message.edit_reply_markup()
+        await c.answer()
+        data = await state.get_data()
+        cart = data.get("cart", [])
+        if c.data == "wz:add":
+            await wz_ask_article(c.message, state)
+        elif c.data == "wz:undo":
+            cart = cart[:-1]
+            await state.update_data(cart=cart)
+            if cart:
+                await show_cart(c.message, state)
+            else:
+                await wz_ask_article(c.message, state)
+        elif c.data == "wz:done" and cart:
+            await state.clear()
+            items = [generator.Item(article=x["article"], qty=x["qty"], name=x.get("name"), series=x["konveyr"],
+                                    machine=x["machine"], note=x["konveyr"]) for x in cart]
+            await run_seria(c.message, items)
+
+    async def run_seria(message: Message, items):
+        total = sum(i.qty for i in items)
+        if total > cfg.UNIC_MAX_PER_REQUEST:
+            await message.answer(f"Juda ko'p: {total} ta kod. Chegara {cfg.UNIC_MAX_PER_REQUEST}.")
+            return
+        u = message.chat
+        try:
+            async with sm() as session:
+                res = await generator.generate(
+                    session, items, type_code=cfg.UNIC_TYPE_CODE, start_seq=cfg.UNIC_START_SEQ, tz=cfg.UNIC_TZ,
+                    source="seriya", user_id=u.id, username=getattr(u, "username", None),
+                )
+        except ValueError as e:
+            await message.answer(f"❌ {e}")
+            return
+        seria = await asyncio.to_thread(excel_out.build_seria, res)
+        stamp = f"{res.created_at:%d-%m-%Y}_{res.batch_id}"
+        lines = [f"✅ {res.total} ta kod yasaldi."]
+        for ir in res.items:
+            lines.append(f"{ir.item.article} ×{len(ir.codes)} ({excel_out.umumiy_nomi(ir.item.series, ir.item.machine)}): "
+                         f"{ir.codes[0]} … {ir.codes[-1]}")
+        await message.answer("\n".join(lines[:25]))
+        await message.answer_document(BufferedInputFile(seria, filename=f"seria_{stamp}.xlsx"))
+        try:
+            rfid = await asyncio.to_thread(excel_out.build_rfid_xls, res)
+            await message.answer_document(BufferedInputFile(rfid, filename=f"rfid_{stamp}.xls"))
+        except ValueError as e:
+            await message.answer(f"⚠️ RFID fayl yasalmadi: {e}")
+
+    @r.message(Command("katalog"))
+    async def katalog_cmd(m: Message, state: FSMContext):
+        if not is_admin(m.from_user.id):
+            await m.answer("Bu buyruq faqat admin uchun.")
+            return
+        await state.set_state(St.catalog_wait)
+        await m.answer("Mahsulot katalogi faylini yuboring (xlsx/xls): <i>Артикул</i> va <i>Номенклатура</i> ustunlari. "
+                       "Bor artikullarning nomi yangilanadi.")
 
     @r.message(Command("oxirgi"))
     async def oxirgi(m: Message, command: CommandObject):
@@ -172,6 +400,14 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, name)
             await bot.download(m.document, destination=path)
+            if await state.get_state() == St.catalog_wait.state:
+                items = await asyncio.to_thread(catalog.parse_catalog, path)
+                async with sm() as session:
+                    n = await catalog.save_catalog(session, items)
+                await state.clear()
+                await m.answer(f"✅ Katalog yangilandi: {n} ta artikul." if n else
+                               "Faylda artikul va nomli qator topilmadi.")
+                return
             if await state.get_state() == St.import_wait.state:
                 await m.answer("Import boshlandi, katta baza bo'lsa 1-2 daqiqa ketadi…")
                 rows, max_seq, stats = await asyncio.to_thread(importer.read_legacy, path, cfg.UNIC_TZ)
@@ -225,7 +461,7 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
             return
         await m.answer("Faylni tushunmadim. 1C sklad hisoboti yoki <i>Артикул</i> va <i>Кол-во</i> ustunli ro'yxat yuboring.")
 
-    @r.message(St.stock_selector, F.text)
+    @r.message(St.stock_selector, F.text, ~F.text.startswith("/"))
     async def stock_selector(m: Message, state: FSMContext):
         data = await state.get_data()
         report = parsers.StockReport(lines=[parsers.StockLine(*t) for t in data["stock"]])

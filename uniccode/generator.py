@@ -55,6 +55,7 @@ class Item:
     name: Optional[str] = None
     series: Optional[str] = None
     note: Optional[str] = None
+    machine: Optional[str] = None
 
 
 @dataclass
@@ -144,7 +145,7 @@ async def generate(
             rows.append(dict(
                 code=code, article=it.article, seq=seq, created_at=now,
                 note=it.note if it.note is not None else (it.address or it.series),
-                address=it.address, name=it.name, series=it.series,
+                address=it.address, name=it.name, series=it.series, machine=it.machine,
                 batch_id=batch.id, source="bot", synced=False,
             ))
         results.append(res)

@@ -58,3 +58,70 @@ def build_excel(result: BatchResult, title: str = "") -> bytes:
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+# ------------------------------------------------------------- seriya va RFID fayllari
+YELLOW = PatternFill("solid", fgColor="FFFF00")
+SERIA_HEADER = ["artikul", "nomeklatura ", "konveyr", "mashinasi", "ummumiy nomi ", "unic code", "unic code full", "sana"]
+
+
+def umumiy_nomi(konveyr, mashina) -> str:
+    return "-".join(x for x in (konveyr or "", mashina or "") if x)
+
+
+def build_seria(result: BatchResult) -> bytes:
+    """Seriya fayli (seria_1.xlsx shabloni bo'yicha). Sariq ustunlar: artikul, konveyr, mashinasi."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Лист1"
+    ws.append(SERIA_HEADER)
+    for i, c in enumerate(ws[1]):
+        c.font = HF
+        if i in (0, 2, 3):
+            c.fill = YELLOW
+    day = result.created_at.replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
+    for ir in result.items:
+        it = ir.item
+        for i, code in enumerate(ir.codes):
+            ws.append([int(it.article), it.name or "", it.series or "", it.machine or "",
+                       umumiy_nomi(it.series, it.machine), ir.first_seq + i, code, day])
+    for row in ws.iter_rows(min_row=2):
+        for c in row:
+            c.font = BF
+        row[7].number_format = "dd/mm/yyyy"
+    for col, w in zip("ABCDEFGH", [9, 60, 12, 13, 18, 12, 24, 12]):
+        ws.column_dimensions[col].width = w
+    ws.freeze_panes = "A2"
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def build_rfid_xls(result: BatchResult) -> bytes:
+    """RFID ilovasi uchun .xls ('STA' varag'i): Artikul | EPC | Nomi | ummumiy nomi + 8 bo'sh ustun."""
+    import xlwt
+    total = sum(len(ir.codes) for ir in result.items)
+    if total > 65000:
+        raise ValueError(f"RFID .xls fayliga {total} qator sig'maydi (chegara 65000). Bo'lib yuboring.")
+    wb = xlwt.Workbook(encoding="utf-8")
+    ws = wb.add_sheet("STA")
+    red = xlwt.easyxf("pattern: pattern solid, fore_colour red; font: bold on")
+    gray = xlwt.easyxf("pattern: pattern solid, fore_colour gray25; font: bold on")
+    header = ["Artikul", "EPC", "Nomi", "ummumiy  nomi "] + [""] * 8
+    for j, h in enumerate(header):
+        ws.write(0, j, h, red if j < 2 else gray)
+    r = 1
+    for ir in result.items:
+        it = ir.item
+        un = umumiy_nomi(it.series, it.machine)
+        for code in ir.codes:
+            ws.write(r, 0, int(it.article))
+            ws.write(r, 1, code)
+            ws.write(r, 2, it.name or "")
+            ws.write(r, 3, un)
+            r += 1
+    for j, w in enumerate([10, 24, 60, 18]):
+        ws.col(j).width = 256 * w
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

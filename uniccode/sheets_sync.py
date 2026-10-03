@@ -19,7 +19,7 @@ from uniccode.models import UCCode
 
 log = logging.getLogger("uniccode.sheets")
 
-HEADER = ["Дата", "Артикул", "Уникальный код", "Уникальный код", "Izoh", "Адрес", "Наименование", "Seria"]
+HEADER = ["Дата", "Артикул", "Уникальный код", "Уникальный код", "Izoh", "Адрес", "Наименование", "Seria", "Mashina"]
 
 
 class SheetSync:
@@ -43,6 +43,10 @@ class SheetSync:
         except gspread.WorksheetNotFound:
             ws = sh.add_worksheet(self.s.GSHEET_WORKSHEET, rows=1000, cols=len(HEADER))
             ws.append_row(HEADER, value_input_option="RAW")
+        if ws.col_count < len(HEADER):           # eski varaqqa keyin qo'shilgan ustunlar
+            ws.add_cols(len(HEADER) - ws.col_count)
+        if ws.row_values(1) != HEADER:
+            ws.update(range_name="A1", values=[HEADER], value_input_option="RAW")
         self._ws = ws
         return ws
 
@@ -58,7 +62,7 @@ class SheetSync:
                 return 0
             values = [[
                 to_local(r.created_at, self.s.UNIC_TZ).strftime("%d/%m/%Y %H:%M:%S"), int(r.article), int(r.seq), r.code,
-                r.note or "", r.address or "", r.name or "", r.series or "",
+                r.note or "", r.address or "", r.name or "", r.series or "", r.machine or "",
             ] for r in rows]
             await asyncio.to_thread(self._append, values)
             await session.execute(update(UCCode).where(UCCode.id.in_([r.id for r in rows])).values(synced=True))

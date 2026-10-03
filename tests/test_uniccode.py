@@ -209,3 +209,56 @@ def test_sheet_sync_uploads_once_and_retries(tmp_path):
     up = run(go())
     assert [v[3] for v in up] == ["844088CA031010000000", "844088CA031010000001", "844088CA031010000002"]
     assert up[0][0] == "03/10/2026 12:00:00" and up[0][4] == "TM_6B1"
+
+
+def test_catalog_and_series_files(tmp_path):
+    import xlrd
+    from uniccode import catalog
+    from uniccode.excel_out import build_rfid_xls, build_seria
+
+    src = tmp_path / "kat.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Артикул ", "Номенклатура", "Номенклатура.Avto Marka"])
+    ws.append([814292, "C-Cobalt-229/Matrix", "COB"])
+    ws.append(["x-844088", "CY-Co-152/Alfa", None])
+    ws.append([12345, "buzuq", None])
+    ws.append([899000, 0, None])  # nomi yo'q - o'tkaziladi
+    ws2 = wb.create_sheet("DATABASE")  # sarlavhasiz varaq
+    ws2.append([846088, "CY-L3-152/Alfa"])
+    ws2.append([814292, "boshqa nom"])   # birinchi varaq ustun turadi
+    wb.save(src)
+    found = catalog.parse_catalog(str(src))
+    assert found == {"814292": ("C-Cobalt-229/Matrix", "COB"), "844088": ("CY-Co-152/Alfa", None),
+                     "846088": ("CY-L3-152/Alfa", None)}
+
+    async def go():
+        engine, sm = await _sm(tmp_path)
+        async with sm() as s:
+            assert await catalog.save_catalog(s, found) == 3
+        async with sm() as s:
+            prods = await catalog.get_products(s, ["814292", "999999"])
+        async with sm() as s:
+            res = await generator.generate(s, [
+                Item("814292", 2, name=prods["814292"].name, series="F-1795", machine="COB", note="F-1795"),
+                Item("844088", 1, name="CY-Co-152/Alfa", series="F-1795", machine="NEX", note="F-1795"),
+            ], now=NOW)
+        await engine.dispose()
+        return prods, res
+    prods, res = run(go())
+    assert set(prods) == {"814292"} and prods["814292"].marka == "COB"
+
+    p = tmp_path / "s.xlsx"
+    p.write_bytes(build_seria(res))
+    ws = openpyxl.load_workbook(p).active
+    assert [c.value for c in ws[1]][:3] == ["artikul", "nomeklatura ", "konveyr"]
+    assert [c.value for c in ws[2]][:7] == [814292, "C-Cobalt-229/Matrix", "F-1795", "COB", "F-1795-COB",
+                                            10000000, "814292CA031010000000"]
+    assert ws.cell(4, 5).value == "F-1795-NEX" and ws.max_row == 4
+
+    x = tmp_path / "r.xls"
+    x.write_bytes(build_rfid_xls(res))
+    sh = xlrd.open_workbook(str(x)).sheet_by_name("STA")
+    assert sh.row_values(0)[:4] == ["Artikul", "EPC", "Nomi", "ummumiy  nomi "]
+    assert sh.row_values(1)[:4] == [814292.0, "814292CA031010000000", "C-Cobalt-229/Matrix", "F-1795-COB"]
+    assert sh.nrows == 4
