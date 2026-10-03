@@ -141,7 +141,8 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
             if sync.last_error:
                 txt.append(f"Oxirgi xato: <code>{sync.last_error[:300]}</code>")
         else:
-            txt.append("Google Sheets sinxronlash o'chiq (GSHEET_ID va kalit berilmagan).")
+            txt.append("Google Sheets sinxronlash o'chiq: GSHEET_ID yoki service account kaliti "
+                       "(secrets/google.json) yo'q. Kalit qo'yilgach botni qayta ishga tushiring.")
         await m.answer("\n".join(txt))
 
     @r.message(Command("import"))

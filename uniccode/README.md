@@ -46,6 +46,23 @@ Bot har safar Excel qaytaradi: "Kodlar" varag'ining A:E ustunlari eski Дата�
 3. Jadvallar (`uc_counters`, `uc_codes`, `uc_batches`) birinchi ishga tushishda o'zi yaratiladi.
    Asosiy Taskbot jadvallariga tegmaydi.
 
+## Serverga o'rnatish (Ubuntu/Debian, bitta buyruq)
+
+Serverga root bilan kirib, shu buyruqni bering:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Abduvohiddev/Taskbot.uz/claude/gifted-knuth-095ih4/uniccode/deploy/install.sh | bash
+```
+
+Skript Docker'ni o'rnatadi, kodni `/opt/uniccode/src` ga yuklaydi, bot tokeni va admin ID'ni so'raydi,
+`/opt/uniccode/.env` ni yaratadi (PostgreSQL paroli tasodifiy) va botni o'z bazasi bilan ishga tushiradi.
+Bot va baza server qayta yonganda o'zi ko'tariladi. Shu buyruqni qayta bersangiz kod yangilanadi,
+`.env` va baza saqlanadi.
+
+- Loglar: `cd /opt/uniccode/src/uniccode/deploy && docker compose --env-file /opt/uniccode/.env logs -f bot`
+- Sozlamani o'zgartirish: `/opt/uniccode/.env` ni tahrirlab, skriptni qayta ishga tushiring.
+- Google kaliti: `/opt/uniccode/secrets/google.json` ga qo'yib, skriptni qayta ishga tushiring.
+
 ## Eski bazadan o'tish (bir marta)
 
 1. Google Sheets'da hamma "Уник код" orqali kod yasashni to'xtatadi.

@@ -1,4 +1,5 @@
 """@uniccodebot sozlamalari (.env dan o'qiladi)."""
+import os
 from typing import List, Set
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -50,7 +51,12 @@ class UnicSettings(BaseSettings):
 
     @property
     def gsheet_enabled(self) -> bool:
-        return bool(self.GSHEET_ID and (self.GOOGLE_CREDENTIALS_FILE or self.GOOGLE_CREDENTIALS_JSON))
+        """Jadval ID va kalit bo'lsa yoqiladi. Kalit fayli hali qo'yilmagan bo'lsa o'chiq turadi."""
+        if not self.GSHEET_ID:
+            return False
+        if self.GOOGLE_CREDENTIALS_JSON:
+            return True
+        return bool(self.GOOGLE_CREDENTIALS_FILE) and os.path.isfile(self.GOOGLE_CREDENTIALS_FILE)
 
 
 unic_settings = UnicSettings()
