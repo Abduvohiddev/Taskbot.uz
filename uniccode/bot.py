@@ -26,9 +26,10 @@ log = logging.getLogger("uniccode.bot")
 HELP = (
     "<b>Unikal kod bot</b>\n\n"
     "<b>/kod</b> — seriya: artikul, soni, konveyr, mashina so'raladi; ➕ Qo'shish, ✅ Tayyor → "
-    "seriya Excel + RFID .xls\n"
-    "<b>/kod 844088 5</b> yoki shunchaki <b>844088 5</b> — tez: artikulga 5 ta kod. "
-    "Oxiriga izoh yozsa bo'ladi: <code>844088 5 T535</code>\n"
+    "seriya Excel + RFID .xls. Oldindan yozsa ham bo'ladi: <code>/kod 814292 50</code> "
+    "(keyin konveyr va mashina so'raladi)\n"
+    "<b>844088 5</b> (slesh'siz) — tez: savolsiz 5 ta kod, Датабаза formatida. "
+    "Izoh bilan: <code>844088 5 T535</code>\n"
     "<b>/oxirgi 844088</b> — artikulning oxirgi kodlari\n"
     "<b>/holat</b> — baza va Google Sheets holati\n\n"
     "<b>Excel fayl yuboring:</b>\n"
@@ -133,21 +134,39 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
 
     @r.message(Command("kod"))
     async def kod(m: Message, command: CommandObject, state: FSMContext):
+        """/kod -> seriya so'rovi. Argumentlar oldindan to'ldiradi va qolganini so'raydi:
+        /kod 814292 -> soni so'raladi; /kod 814292 50 -> konveyr; /kod 814292 50 F-1795 -> mashina."""
         await state.clear()
-        parts = (command.args or "").split(maxsplit=2)
+        parts = (command.args or "").split()
+        await state.update_data(cart=[], cur={}, opts=[])
         if not parts:
-            await state.update_data(cart=[], cur={}, opts=[])
             await wz_ask_article(m, state)
-            return
-        if len(parts) < 2 or not parts[1].isdigit():
-            await m.answer("Masalan: <code>/kod</code> (seriya) yoki <code>/kod 844088 5</code> (tez)")
             return
         art = generator.normalize_article(parts[0])
         if not generator.ARTICLE_RE.match(art):
             await m.answer("Artikul 6 xonali raqam bo'lishi kerak.")
+            await wz_ask_article(m, state)
             return
-        note = parts[2] if len(parts) > 2 else None
-        await run_generate(m, [generator.Item(article=art, qty=int(parts[1]), note=note)], "kod", note=note)
+        await wz_set_article(m, state, art, ask_next=len(parts) < 2)
+        if len(parts) < 2:
+            return
+        if not parts[1].isdigit():
+            await m.answer("Soni raqam bo'lishi kerak.")
+            await wz_ask_qty(m, state)
+            return
+        if len(parts) < 3:
+            await wz_set_qty(m, state, int(parts[1]))
+            return
+        data = await state.get_data()
+        cur = data["cur"]
+        cur["qty"] = int(parts[1])
+        cur["konveyr"] = parts[2][:64]
+        await state.update_data(cur=cur)
+        if len(parts) >= 4:
+            await state.set_state(Wz.machine)
+            await wz_value(m, state, parts[3])
+        else:
+            await wz_ask_machine(m, state)
 
     @r.message(StateFilter(None), F.text.regexp(r"^\s*(x-)?\d{6}\s+\d+(\s+.*)?$"))
     async def kod_plain(m: Message, state: FSMContext):
@@ -222,18 +241,22 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         await state.clear()
         await m.answer("Bekor qilindi.")
 
+    async def wz_set_article(m: Message, state: FSMContext, art: str, ask_next: bool = True):
+        async with sm() as session:
+            prods = await catalog.get_products(session, [art])
+        p = prods.get(art)
+        await state.update_data(cur={"article": art, "name": p.name if p else None, "marka": p.marka if p else None})
+        await m.answer(f"<b>{art}</b> — {p.name}" if p else f"<b>{art}</b> — ⚠️ katalogda topilmadi, nomi bo'sh qoladi.")
+        if ask_next:
+            await wz_ask_qty(m, state)
+
     @r.message(Wz.article, F.text, ~F.text.startswith("/"))
     async def wz_article(m: Message, state: FSMContext):
         art = generator.normalize_article(m.text.strip())
         if not generator.ARTICLE_RE.match(art):
             await m.answer("Artikul 6 xonali raqam bo'lishi kerak. Qaytadan yozing.")
             return
-        async with sm() as session:
-            prods = await catalog.get_products(session, [art])
-        p = prods.get(art)
-        await state.update_data(cur={"article": art, "name": p.name if p else None, "marka": p.marka if p else None})
-        await m.answer(f"<b>{art}</b> — {p.name}" if p else f"<b>{art}</b> — ⚠️ katalogda topilmadi, nomi bo'sh qoladi.")
-        await wz_ask_qty(m, state)
+        await wz_set_article(m, state, art)
 
     async def wz_set_qty(target: Message, state: FSMContext, qty: int):
         if qty <= 0 or qty > cfg.UNIC_MAX_PER_REQUEST:

@@ -17,7 +17,8 @@ Kod formati o'zgarmaydi: `844088` + `CA` + `0310` (kun, oy) + `10002897` = `8440
 | Buyruq | Nima qiladi |
 |---|---|
 | `/kod` | Seriya: artikul, soni, konveyr, mashina so'raladi; ➕ Qo'shish / ✅ Tayyor. Natija: seriya Excel + RFID `.xls` |
-| `/kod 844088 5` yoki `844088 5` | Tez: 844088 ga 5 ta kod. Izoh bilan: `844088 5 T535` |
+| `/kod 814292 50` | Seriya, artikul va soni oldindan: keyin konveyr va mashina so'raladi. `/kod 814292 50 F-1795 COB` darhol savatga qo'shadi |
+| `844088 5` (slesh'siz) | Tez: savolsiz 5 ta kod. Izoh bilan: `844088 5 T535` |
 | `/oxirgi 844088` | Oxirgi band raqam va oxirgi 5 ta kod |
 | `/holat` | Bazadagi kodlar soni, Google Sheets'ga yuklanishi kutilayotganlar |
 | `/import` | (admin) Eski bazani xlsx fayldan ko'chirish |
