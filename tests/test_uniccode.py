@@ -88,6 +88,8 @@ def _legacy_xlsx(path):
     ws.append([datetime(2026, 1, 3, 9, 55), 899209, 10000004, "899209CA03012610000004"])  # 6 xonali sana
     ws.append([datetime(2026, 9, 18, 22, 19), 844088, 10002896, "844088CA180910002896", "TM_7B1"])
     ws.append([datetime(2025, 8, 9, 12, 15), "x-899071", 10000000, "buzuq"])
+    uk = wb.create_sheet("Уник код", 0)  # yasalgan, lekin hali saqlanmagan kod
+    uk.append(["CA", "0310", None, 844088, 10002976, "844088CA031010002976", None, 20])
     wb.save(path)
 
 
@@ -110,7 +112,8 @@ def test_import_then_continue(tmp_path):
     st, st2, res = run(go())
     assert st.inserted == 5 and st.duplicates_in_file == 1 and st.irregular == 1 and st.invalid == 0
     assert st2.inserted == 0
-    assert res.items[0].codes == ["844088CA031010002897", "844088CA031010002898"]
+    assert st.pending_reserved == 1
+    assert res.items[0].codes == ["844088CA031010002977", "844088CA031010002978"]
     assert res.items[1].codes == ["899209CA031010000005"]
     assert res.items[2].codes == ["899071CA031010000001"]  # buzuq kod qatoridagi raqam ham hisobga olindi
 

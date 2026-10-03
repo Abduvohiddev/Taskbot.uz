@@ -29,6 +29,7 @@ class ImportStats:
     valid: int = 0
     invalid: int = 0
     irregular: int = 0
+    pending_reserved: int = 0
     duplicates_in_file: int = 0
     inserted: int = 0
     articles: int = 0
@@ -107,6 +108,16 @@ def read_legacy(path: str, tz_name: str = "Asia/Tashkent"):
             code=code[:32], article=art, seq=seq, created_at=_to_dt(date_v, tz),
             note=(note[:255] if note else None), source="import", synced=True,
         ))
+    # "Уник код" varag'ida yasalib, hali Датабаза'ga saqlanmagan kodlar: yozilmaydi,
+    # lekin raqamlari band qilinadi (bot ularni qayta bermasligi uchun).
+    if "Уник код" in wb.sheetnames:
+        for r in wb["Уник код"].iter_rows(values_only=True):
+            for v in r or ():
+                m = CODE_RE.match(str(v).strip()) if isinstance(v, str) else None
+                if m and m.group(0) not in seen:
+                    art, seq = m.group(1), int(m.group(4))
+                    max_seq[art] = max(max_seq.get(art, 0), seq)
+                    stats.pending_reserved += 1
     wb.close()
     stats.articles = len(max_seq)
     return rows, max_seq, stats

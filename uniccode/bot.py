@@ -181,7 +181,8 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
                 txt = (f"✅ Import tugadi.\nO'qildi: {stats.rows_read}\nYangi yozildi: {stats.inserted}\n"
                        f"Faylda takror kodlar: {stats.duplicates_in_file}\nNostandart (saqlandi): {stats.irregular}\n"
                        f"O'qib bo'lmadi: {stats.invalid}\n"
-                       f"Artikullar: {stats.articles}")
+                       f"Artikullar: {stats.articles}\n"
+                       f"'Уник код' varag'idagi saqlanmagan kodlar (band qilindi): {stats.pending_reserved}")
                 if stats.invalid_samples:
                     txt += "\nBuzuq kod misollari: " + ", ".join(stats.invalid_samples[:5])
                 await m.answer(txt)
