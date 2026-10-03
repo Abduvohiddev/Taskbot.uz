@@ -51,3 +51,6 @@ sessions/
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 .scratch/
+
+# Google service account kalitlari
+secrets/

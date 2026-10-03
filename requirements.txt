@@ -17,3 +17,7 @@ aiofiles==24.1.0
 openpyxl==3.1.5
 pytesseract==0.3.13
 Pillow==10.4.0
+# @uniccodebot (uniccode/)
+xlrd==2.0.1
+gspread==6.2.1
+google-auth==2.59.1
