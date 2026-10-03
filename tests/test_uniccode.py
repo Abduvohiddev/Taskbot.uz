@@ -281,6 +281,8 @@ def test_onec_fetch_paging_retry_and_auth():
         if auth != "Basic " + base64.b64encode(b"user:pass").decode():
             return web.Response(status=401)
         q = request.rel_url.query
+        raw = request.rel_url.raw_query_string
+        assert "+" not in raw and "IsFolder%20eq%20false" in raw and "$top=" in raw, raw  # 1C '+' ni tushunmaydi
         seen["params"].append(dict(q))
         if seen["fail_once"]:
             seen["fail_once"] = False

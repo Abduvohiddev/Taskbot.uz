@@ -10,9 +10,11 @@ Marka (qo'shimcha rekvizit) hozircha OData tarkibida yo'q - katalogdagi bor mark
 import asyncio
 import logging
 import re
+from urllib.parse import quote
 from typing import Dict, Optional, Tuple
 
 import aiohttp
+from yarl import URL
 
 from uniccode.generator import normalize_article
 
@@ -24,11 +26,19 @@ class OneCError(Exception):
     pass
 
 
+def build_url(base: str, params: dict) -> URL:
+    """OData so'rovi. Bo'sh joy %20 bo'lishi shart: 1C '+' ni bo'sh joy deb tushunmaydi va
+    '$filter=IsFolder+eq+false' bo'sh natija qaytaradi. '$' kalitlarda o'zgarishsiz qoladi."""
+    qs = "&".join(f"{k}={quote(str(v), safe=',')}" for k, v in params.items())
+    return URL(f"{base}?{qs}", encoded=True)
+
+
 async def _get_page(session: aiohttp.ClientSession, url: str, params: dict, retries: int, delay: float) -> list:
     last = None
+    full = build_url(url, params)
     for attempt in range(retries + 1):
         try:
-            async with session.get(url, params=params) as resp:
+            async with session.get(full) as resp:
                 text = await resp.text()
                 if resp.status == 401:
                     raise OneCError("1C: login yoki parol noto'g'ri (401)")
@@ -50,10 +60,12 @@ async def _get_page(session: aiohttp.ClientSession, url: str, params: dict, retr
 async def fetch_catalog(base_url: str, user: str, password: str, page: int = 1000,
                         retries: int = 4, delay: float = 5.0, timeout: float = 120.0) -> Dict[str, Tuple[str, Optional[str]]]:
     """{artikul: (nomi, None)} - papka va o'chirilganlarsiz, faqat 6 xonali artikullar."""
-    url = base_url.rstrip("/") + "/" + ENTITY
+    url = base_url.rstrip("/") + "/" + quote(ENTITY)
     auth = aiohttp.BasicAuth(user, password, encoding="utf-8") if user else None  # login'da o', g' bo'lishi mumkin
     out: Dict[str, Tuple[str, Optional[str]]] = {}
     skip = 0
+    received = 0
+    sample = None
     async with aiohttp.ClientSession(auth=auth, timeout=aiohttp.ClientTimeout(total=timeout)) as session:
         while True:
             params = {
@@ -65,6 +77,9 @@ async def fetch_catalog(base_url: str, user: str, password: str, page: int = 100
                 "$skip": str(skip),
             }
             rows = await _get_page(session, url, params, retries, delay)
+            received += len(rows)
+            if rows and sample is None:
+                sample = rows[0]
             for r in rows:
                 art = normalize_article(r.get("Артикул"))
                 name = (r.get("НаименованиеПолное") or r.get("Description") or "").strip()
@@ -73,4 +88,10 @@ async def fetch_catalog(base_url: str, user: str, password: str, page: int = 100
             if len(rows) < page:
                 break
             skip += page
+    if not out:
+        if received == 0:
+            raise OneCError("1C bo'sh ro'yxat qaytardi (Catalog_Номенклатура, papkasiz va o'chirilmagan).")
+        raise OneCError(f"1C {received} ta yozuv qaytardi, lekin 6 xonali artikul va nom topilmadi. "
+                        f"Birinchi yozuv maydonlari: {sorted(sample)[:10]}")
+    log.info("1C: %s ta yozuv olindi, %s ta artikul katalogga", received, len(out))
     return out
