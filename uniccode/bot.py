@@ -17,7 +17,7 @@ from aiogram.types import (
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from uniccode import catalog, excel_out, generator, importer, parsers
+from uniccode import catalog, excel_out, generator, importer, onec, parsers
 from uniccode.config import UnicSettings
 from uniccode.models import UCCode, UCCounter
 from uniccode.sheets_sync import SheetSync
@@ -37,7 +37,8 @@ HELP = (
     "• 1C sklad hisoboti (Движения товаров) — qaysi qatorlar kerakligini so'rayman\n"
     "• Ro'yxat: <i>Артикул</i>, <i>Кол-во</i> ustunlari (ixtiyoriy: <i>Seria</i>, <i>Адрес</i>, "
     "<i>Наименование</i>, <i>Izoh</i>)\n\n"
-    "Admin: <b>/import</b> — eski bazani (xlsx) SQL ga ko'chirish; <b>/katalog</b> — mahsulot nomlari faylini yuklash\n"
+    "Admin: <b>/import</b> — eski bazani (xlsx) SQL ga ko'chirish; <b>/katalog</b> — mahsulot nomlari faylini yuklash; "
+    "<b>/katalog_1c</b> — katalogni 1C dan hozir yangilash\n"
     "<b>/bekor</b> — joriy amalni bekor qilish"
 )
 
@@ -370,6 +371,22 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         except ValueError as e:
             await message.answer(f"⚠️ RFID fayl yasalmadi: {e}")
 
+    @r.message(Command("katalog_1c"))
+    async def katalog_1c(m: Message, state: FSMContext):
+        if not is_admin(m.from_user.id):
+            await m.answer("Bu buyruq faqat admin uchun.")
+            return
+        if not cfg.onec_enabled:
+            await m.answer("1C ulanmagan: serverdagi .env ga ONEC_BASE_URL, ONEC_USER, ONEC_PASSWORD yozilmagan.")
+            return
+        await m.answer("1C dan nomenklatura olinmoqda, 1-2 daqiqa…")
+        try:
+            n = await sync_catalog_from_1c(sm, cfg)
+        except onec.OneCError as e:
+            await m.answer(f"❌ {e}")
+            return
+        await m.answer(f"✅ Katalog 1C dan yangilandi: {n} ta artikul.")
+
     @r.message(Command("katalog"))
     async def katalog_cmd(m: Message, state: FSMContext):
         if not is_admin(m.from_user.id):
@@ -559,6 +576,28 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         await c.answer("Bekor qilindi")
 
     return r
+
+
+async def sync_catalog_from_1c(sm: async_sessionmaker, cfg: UnicSettings) -> int:
+    items = await onec.fetch_catalog(cfg.ONEC_BASE_URL, cfg.ONEC_USER, cfg.ONEC_PASSWORD)
+    if not items:
+        raise onec.OneCError("1C dan bitta ham artikul kelmadi - katalog o'zgartirilmadi.")
+    async with sm() as session:
+        return await catalog.save_catalog(session, items)
+
+
+async def onec_sync_forever(sm: async_sessionmaker, cfg: UnicSettings) -> None:
+    """Ishga tushgandan 1 daqiqa o'tib, keyin har ONEC_SYNC_INTERVAL_HOURS soatda katalogni 1C dan yangilaydi."""
+    await asyncio.sleep(60)
+    while True:
+        try:
+            n = await sync_catalog_from_1c(sm, cfg)
+            log.info("Katalog 1C dan yangilandi: %s ta artikul", n)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("1C katalog sinxronlash xatosi: %s", e)
+        await asyncio.sleep(max(cfg.ONEC_SYNC_INTERVAL_HOURS, 0.25) * 3600)
 
 
 def build_fallback_router(cfg: UnicSettings) -> Router:

@@ -23,6 +23,7 @@ Kod formati o'zgarmaydi: `844088` + `CA` + `0310` (kun, oy) + `10002897` = `8440
 | `/holat` | Bazadagi kodlar soni, Google Sheets'ga yuklanishi kutilayotganlar |
 | `/import` | (admin) Eski bazani xlsx fayldan ko'chirish |
 | `/katalog` | (admin) Mahsulot katalogini yuklash: `Артикул`, `Номенклатура` (ixtiyoriy `Марка`) |
+| `/katalog_1c` | (admin) Katalogni 1C dan hozir yangilash |
 | `/bekor` | Joriy so'rovni bekor qilish |
 
 ## Seriya (`/kod`)
@@ -92,6 +93,19 @@ Bot va baza server qayta yonganda o'zi ko'tariladi. Shu buyruqni qayta bersangiz
 
 Telegram botlar 20 MB dan katta faylni yuklab ololmaydi. Baza shundan oshsa, eski yillarni
 alohida faylga ajratib, bir necha marta import qiling.
+
+## 1C dan katalog (avtomatik)
+
+`.env` ga yozilsa, bot ishga tushgandan 1 daqiqa o'tib va keyin har 24 soatda nomenklaturani 1C OData dan oladi
+(`Catalog_Номенклатура`: papka va o'chirilganlarsiz, `Артикул` + `НаименованиеПолное`, `$orderby=Ref_Key` bilan
+1000 tadan). 1C vaqtincha javob bermasa, 5 marta qayta urinadi. Nomlar 1C dagidek yangilanadi, marka saqlanib qoladi.
+
+```
+ONEC_BASE_URL=http://185.203.239.37/ERP25/odata/standard.odata/
+ONEC_USER=...
+ONEC_PASSWORD=...
+ONEC_SYNC_INTERVAL_HOURS=24
+```
 
 ## Google Sheets'ga real vaqtda yuklash
 

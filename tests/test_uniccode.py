@@ -263,3 +263,51 @@ def test_catalog_and_series_files(tmp_path):
     assert sh.row_values(0)[:4] == ["Artikul", "EPC", "Nomi", "ummumiy  nomi "]
     assert sh.row_values(1)[:4] == [814292.0, "814292CA031010000000", "C-Cobalt-229/Matrix", "F-1795-COB"]
     assert sh.nrows == 4
+
+
+def test_onec_fetch_paging_retry_and_auth():
+    import base64
+    from aiohttp import web
+    from uniccode import onec
+
+    rows = [{"Ref_Key": f"k{i:04d}", "Артикул": str(810000 + i), "Description": f"qisqa {i}",
+             "НаименованиеПолное": f"To'liq nom {i}" if i % 2 else ""} for i in range(25)]
+    rows += [{"Ref_Key": "z1", "Артикул": "13072015", "Description": "x", "НаименованиеПолное": "x"},
+             {"Ref_Key": "z2", "Артикул": "x-899071", "Description": "Alkantaro", "НаименованиеПолное": ""}]
+    seen = {"fail_once": True, "params": []}
+
+    async def handler(request):
+        auth = request.headers.get("Authorization", "")
+        if auth != "Basic " + base64.b64encode(b"user:pass").decode():
+            return web.Response(status=401)
+        q = request.rel_url.query
+        seen["params"].append(dict(q))
+        if seen["fail_once"]:
+            seen["fail_once"] = False
+            return web.Response(status=500, text="Информационная база не обнаружена")
+        top, skip = int(q["$top"]), int(q["$skip"])
+        return web.json_response({"value": rows[skip:skip + top]})
+
+    async def go():
+        app = web.Application()
+        app.router.add_get("/ERP25/odata/standard.odata/Catalog_Номенклатура", handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        base = f"http://127.0.0.1:{port}/ERP25/odata/standard.odata/"
+        try:
+            got = await onec.fetch_catalog(base, "user", "pass", page=10, delay=0.01)
+            with pytest.raises(onec.OneCError):
+                await onec.fetch_catalog(base, "user", "xato", page=10, delay=0.01)
+        finally:
+            await runner.cleanup()
+        return got
+    got = run(go())
+    assert len(got) == 26                       # 25 + x-899071, 8 xonali artikul tashlandi
+    assert got["810001"] == ("To'liq nom 1", None) and got["810002"] == ("qisqa 2", None)
+    assert got["899071"] == ("Alkantaro", None)
+    p = seen["params"][-1]
+    assert p["$orderby"] == "Ref_Key" and p["$filter"] == "IsFolder eq false and DeletionMark eq false"
+    assert [x["$skip"] for x in seen["params"][1:4]] == ["0", "10", "20"]   # 500 dan keyin qayta urinish

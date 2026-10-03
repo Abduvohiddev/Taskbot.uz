@@ -31,6 +31,12 @@ class UnicSettings(BaseSettings):
     # Seriya faylidagi I ustuniga yoziladigan son (shablonda har qatorda 2).
     UNIC_SERIA_I: int = 2
 
+    # 1C OData dan katalogni avtomatik yangilash (ixtiyoriy). Parol faqat serverdagi .env da.
+    ONEC_BASE_URL: str = ""
+    ONEC_USER: str = ""
+    ONEC_PASSWORD: str = ""
+    ONEC_SYNC_INTERVAL_HOURS: float = 24
+
     # Google Sheets sinxronlash (ixtiyoriy). Service account JSON fayl yo'li yoki JSON matnning o'zi.
     GSHEET_ID: str = ""
     GSHEET_WORKSHEET: str = "Kodlar"
@@ -50,6 +56,10 @@ class UnicSettings(BaseSettings):
     @property
     def allowed_ids(self) -> Set[int]:
         return set(_ids(self.UNIC_ALLOWED_IDS)) | self.admin_ids
+
+    @property
+    def onec_enabled(self) -> bool:
+        return bool(self.ONEC_BASE_URL)
 
     @property
     def gsheet_enabled(self) -> bool:
