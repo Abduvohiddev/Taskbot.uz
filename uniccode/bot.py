@@ -579,7 +579,7 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
 
 
 async def sync_catalog_from_1c(sm: async_sessionmaker, cfg: UnicSettings) -> int:
-    items = await onec.fetch_catalog(cfg.ONEC_BASE_URL, cfg.ONEC_USER, cfg.ONEC_PASSWORD)
+    items = await onec.fetch_catalog(cfg.ONEC_BASE_URL, cfg.onec_user, cfg.onec_password)
     if not items:
         raise onec.OneCError("1C dan bitta ham artikul kelmadi - katalog o'zgartirilmadi.")
     async with sm() as session:

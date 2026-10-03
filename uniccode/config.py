@@ -1,4 +1,5 @@
 """@uniccodebot sozlamalari (.env dan o'qiladi)."""
+import base64
 import os
 from typing import List, Set
 
@@ -35,6 +36,9 @@ class UnicSettings(BaseSettings):
     ONEC_BASE_URL: str = ""
     ONEC_USER: str = ""
     ONEC_PASSWORD: str = ""
+    # setup_1c.sh login/parolni base64 da yozadi: apostrof, bo'sh joy, $ kabi belgilar .env da buzilmasligi uchun.
+    ONEC_USER_B64: str = ""
+    ONEC_PASSWORD_B64: str = ""
     ONEC_SYNC_INTERVAL_HOURS: float = 24
 
     # Google Sheets sinxronlash (ixtiyoriy). Service account JSON fayl yo'li yoki JSON matnning o'zi.
@@ -56,6 +60,14 @@ class UnicSettings(BaseSettings):
     @property
     def allowed_ids(self) -> Set[int]:
         return set(_ids(self.UNIC_ALLOWED_IDS)) | self.admin_ids
+
+    @property
+    def onec_user(self) -> str:
+        return base64.b64decode(self.ONEC_USER_B64).decode("utf-8") if self.ONEC_USER_B64 else self.ONEC_USER
+
+    @property
+    def onec_password(self) -> str:
+        return base64.b64decode(self.ONEC_PASSWORD_B64).decode("utf-8") if self.ONEC_PASSWORD_B64 else self.ONEC_PASSWORD
 
     @property
     def onec_enabled(self) -> bool:

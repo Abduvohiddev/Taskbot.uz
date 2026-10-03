@@ -51,7 +51,7 @@ async def fetch_catalog(base_url: str, user: str, password: str, page: int = 100
                         retries: int = 4, delay: float = 5.0, timeout: float = 120.0) -> Dict[str, Tuple[str, Optional[str]]]:
     """{artikul: (nomi, None)} - papka va o'chirilganlarsiz, faqat 6 xonali artikullar."""
     url = base_url.rstrip("/") + "/" + ENTITY
-    auth = aiohttp.BasicAuth(user, password) if user else None
+    auth = aiohttp.BasicAuth(user, password, encoding="utf-8") if user else None  # login'da o', g' bo'lishi mumkin
     out: Dict[str, Tuple[str, Optional[str]]] = {}
     skip = 0
     async with aiohttp.ClientSession(auth=auth, timeout=aiohttp.ClientTimeout(total=timeout)) as session:

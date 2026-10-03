@@ -17,7 +17,6 @@ USR="${ONEC_USER:-}"
 [ -n "$USR" ] || read -rp "1C login: " USR </dev/tty
 PSW="${ONEC_PASSWORD:-}"
 [ -n "$PSW" ] || { read -rsp "1C parol (yozilganda ko'rinmaydi): " PSW </dev/tty; echo; }
-case "$USR$PSW" in *"'"*) echo "!! Login yoki parolda ' belgisi bor - .env ga qo'lda yozing."; exit 1 ;; esac
 
 echo ">> 1C ga ulanish tekshirilmoqda..."
 CODE=$(curl -s -o /tmp/uc_1c_test.json -w "%{http_code}" -m 60 -u "$USR:$PSW" \
@@ -34,8 +33,9 @@ rm -f /tmp/uc_1c_test.json
 sed -i '/^ONEC_/d' $ENVF
 {
   printf 'ONEC_BASE_URL=%s\n' "$URL"
-  printf "ONEC_USER='%s'\n" "$USR"        # bir tirnoq: Docker $ va boshqa belgilarni o'zgartirmaydi
-  printf "ONEC_PASSWORD='%s'\n" "$PSW"
+  # base64: apostrof, bo'sh joy, $ va boshqa belgilar .env da buzilmaydi
+  printf 'ONEC_USER_B64=%s\n' "$(printf '%s' "$USR" | base64 -w0)"
+  printf 'ONEC_PASSWORD_B64=%s\n' "$(printf '%s' "$PSW" | base64 -w0)"
   printf 'ONEC_SYNC_INTERVAL_HOURS=24\n'
 } >> $ENVF
 chmod 600 $ENVF
