@@ -6,7 +6,7 @@ import tempfile
 from typing import Optional
 
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.filters import Command, CommandObject
+from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -25,7 +25,8 @@ log = logging.getLogger("uniccode.bot")
 
 HELP = (
     "<b>Unikal kod bot</b>\n\n"
-    "<b>/kod 844088 5</b> — artikulga 5 ta kod. Oxiriga izoh yozsa bo'ladi: <code>/kod 844088 5 T535</code>\n"
+    "<b>/kod 844088 5</b> yoki shunchaki <b>844088 5</b> — artikulga 5 ta kod. "
+    "Oxiriga izoh yozsa bo'ladi: <code>844088 5 T535</code>\n"
     "<b>/oxirgi 844088</b> — artikulning oxirgi kodlari\n"
     "<b>/holat</b> — baza va Google Sheets holati\n\n"
     "<b>Excel fayl yuboring:</b>\n"
@@ -112,6 +113,14 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
             await m.answer("Artikul 6 xonali raqam bo'lishi kerak.")
             return
         note = parts[2] if len(parts) > 2 else None
+        await run_generate(m, [generator.Item(article=art, qty=int(parts[1]), note=note)], "kod", note=note)
+
+    @r.message(StateFilter(None), F.text.regexp(r"^\s*(x-)?\d{6}\s+\d+(\s+.*)?$"))
+    async def kod_plain(m: Message, state: FSMContext):
+        """'844088 5' yoki '844088 5 T535' — /kod siz ham ishlaydi."""
+        parts = m.text.split(maxsplit=2)
+        art = generator.normalize_article(parts[0])
+        note = parts[2].strip() if len(parts) > 2 else None
         await run_generate(m, [generator.Item(article=art, qty=int(parts[1]), note=note)], "kod", note=note)
 
     @r.message(Command("oxirgi"))
