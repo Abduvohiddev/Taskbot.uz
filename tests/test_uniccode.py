@@ -255,6 +255,7 @@ def test_catalog_and_series_files(tmp_path):
     assert [c.value for c in ws[2]][:7] == [814292, "C-Cobalt-229/Matrix", "F-1795", "COB", "F-1795-COB",
                                             10000000, "814292CA031010000000"]
     assert ws.cell(4, 5).value == "F-1795-NEX" and ws.max_row == 4
+    assert ws.cell(1, 9).value is None and [ws.cell(r, 9).value for r in (2, 3, 4)] == [2, 2, 2]
 
     x = tmp_path / "r.xls"
     x.write_bytes(build_rfid_xls(res))

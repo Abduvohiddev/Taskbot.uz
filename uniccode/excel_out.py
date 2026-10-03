@@ -62,14 +62,15 @@ def build_excel(result: BatchResult, title: str = "") -> bytes:
 
 # ------------------------------------------------------------- seriya va RFID fayllari
 YELLOW = PatternFill("solid", fgColor="FFFF00")
-SERIA_HEADER = ["artikul", "nomeklatura ", "konveyr", "mashinasi", "ummumiy nomi ", "unic code", "unic code full", "sana"]
+SERIA_HEADER = ["artikul", "nomeklatura ", "konveyr", "mashinasi", "ummumiy nomi ", "unic code", "unic code full", "sana",
+                None]  # I ustuni: shablonda sarlavhasiz, har qatorda bir xil son (UNIC_SERIA_I, odatda 2)
 
 
 def umumiy_nomi(konveyr, mashina) -> str:
     return "-".join(x for x in (konveyr or "", mashina or "") if x)
 
 
-def build_seria(result: BatchResult) -> bytes:
+def build_seria(result: BatchResult, i_value=2) -> bytes:
     """Seriya fayli (seria_1.xlsx shabloni bo'yicha). Sariq ustunlar: artikul, konveyr, mashinasi."""
     wb = Workbook()
     ws = wb.active
@@ -84,12 +85,12 @@ def build_seria(result: BatchResult) -> bytes:
         it = ir.item
         for i, code in enumerate(ir.codes):
             ws.append([int(it.article), it.name or "", it.series or "", it.machine or "",
-                       umumiy_nomi(it.series, it.machine), ir.first_seq + i, code, day])
+                       umumiy_nomi(it.series, it.machine), ir.first_seq + i, code, day, i_value])
     for row in ws.iter_rows(min_row=2):
         for c in row:
             c.font = BF
         row[7].number_format = "dd/mm/yyyy"
-    for col, w in zip("ABCDEFGH", [9, 60, 12, 13, 18, 12, 24, 12]):
+    for col, w in zip("ABCDEFGHI", [9, 60, 12, 13, 18, 12, 24, 12, 6]):
         ws.column_dimensions[col].width = w
     ws.freeze_panes = "A2"
     buf = BytesIO()

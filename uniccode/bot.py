@@ -351,7 +351,7 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         except ValueError as e:
             await message.answer(f"❌ {e}")
             return
-        seria = await asyncio.to_thread(excel_out.build_seria, res)
+        seria = await asyncio.to_thread(excel_out.build_seria, res, cfg.UNIC_SERIA_I)
         stamp = f"{res.created_at:%d-%m-%Y}_{res.batch_id}"
         lines = [f"✅ {res.total} ta kod yasaldi."]
         for ir in res.items:

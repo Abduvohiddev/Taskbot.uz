@@ -28,6 +28,8 @@ class UnicSettings(BaseSettings):
     UNIC_TZ: str = "Asia/Tashkent"
     # Bitta so'rovda ruxsat etilgan eng ko'p kod soni (xato bilan million kod yasab yubormaslik uchun).
     UNIC_MAX_PER_REQUEST: int = 100000
+    # Seriya faylidagi I ustuniga yoziladigan son (shablonda har qatorda 2).
+    UNIC_SERIA_I: int = 2
 
     # Google Sheets sinxronlash (ixtiyoriy). Service account JSON fayl yo'li yoki JSON matnning o'zi.
     GSHEET_ID: str = ""
