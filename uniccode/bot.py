@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+import shutil
 import tempfile
 from typing import Optional
 
@@ -357,7 +358,11 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         for ir in res.items:
             lines.append(f"{ir.item.article} ×{len(ir.codes)} ({excel_out.umumiy_nomi(ir.item.series, ir.item.machine)}): "
                          f"{ir.codes[0]} … {ir.codes[-1]}")
-        await message.answer("\n".join(lines[:25]))
+        nameless = sorted({ir.item.article for ir in res.items if not ir.item.name})
+        if nameless:
+            lines.append("\n⚠️ Katalogda yo'q, nomeklatura bo'sh qoldi: " + ", ".join(nameless) +
+                         "\nKatalog faylini /katalog orqali yuboring.")
+        await message.answer("\n".join(lines[:30]))
         await message.answer_document(BufferedInputFile(seria, filename=f"seria_{stamp}.xlsx"))
         try:
             rfid = await asyncio.to_thread(excel_out.build_rfid_xls, res)
@@ -447,6 +452,10 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
                 await m.answer(txt)
                 return
             rows = await asyncio.to_thread(parsers.read_rows, path)
+            path_copy = None
+            if not parsers.parse_stock_report(rows) and not (parsers.parse_list(rows) or parsers.ListFile([])).items:
+                path_copy = os.path.join(tempfile.gettempdir(), f"uc_{m.document.file_unique_id}_{name}")
+                shutil.copy(path, path_copy)
 
         report = parsers.parse_stock_report(rows)
         if report:
@@ -482,7 +491,20 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
                                     filename=name)
             await m.answer("\n".join(txt), reply_markup=kb(("✅ Kod yasash", "list:go"), ("✖️ Bekor qilish", "cancel")))
             return
-        await m.answer("Faylni tushunmadim. 1C sklad hisoboti yoki <i>Артикул</i> va <i>Кол-во</i> ustunli ro'yxat yuboring.")
+        # Soni ustuni yo'q, lekin Артикул + Номенклатура bor -> mahsulot katalogi (admin uchun)
+        items = {}
+        if path_copy:
+            try:
+                items = await asyncio.to_thread(catalog.parse_catalog, path_copy)
+            finally:
+                os.remove(path_copy)
+        if items and is_admin(m.from_user.id):
+            async with sm() as session:
+                n = await catalog.save_catalog(session, items)
+            await m.answer(f"📚 Bu mahsulot katalogi ekan. ✅ Katalog yangilandi: {n} ta artikul.")
+            return
+        await m.answer("Faylni tushunmadim. 1C sklad hisoboti, <i>Артикул</i> va <i>Кол-во</i> ustunli ro'yxat "
+                       "yoki <i>Артикул</i> va <i>Номенклатура</i> ustunli katalog yuboring.")
 
     @r.message(St.stock_selector, F.text, ~F.text.startswith("/"))
     async def stock_selector(m: Message, state: FSMContext):
