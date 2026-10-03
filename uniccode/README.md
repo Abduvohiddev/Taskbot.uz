@@ -59,7 +59,7 @@ Skript Docker'ni o'rnatadi, kodni `/opt/uniccode/src` ga yuklaydi, bot tokeni va
 Bot va baza server qayta yonganda o'zi ko'tariladi. Shu buyruqni qayta bersangiz kod yangilanadi,
 `.env` va baza saqlanadi.
 
-- Loglar: `cd /opt/uniccode/src/uniccode/deploy && docker compose --env-file /opt/uniccode/.env logs -f bot`
+- Loglar: `docker logs -f --tail 50 uniccode-bot-1`
 - Sozlamani o'zgartirish: `/opt/uniccode/.env` ni tahrirlab, skriptni qayta ishga tushiring.
 - Google kaliti: `/opt/uniccode/secrets/google.json` ga qo'yib, skriptni qayta ishga tushiring.
 

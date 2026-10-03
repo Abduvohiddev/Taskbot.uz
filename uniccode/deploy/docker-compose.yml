@@ -1,4 +1,8 @@
 # @uniccodebot: o'z PostgreSQL bazasi bilan. /opt/uniccode/.env dan o'qiydi.
+# Loyiha nomi aniq berilgan: serverdagi boshqa compose loyihalari (masalan papka nomi "deploy"
+# bo'lganlar) bilan konteyner, volume yoki image nomlari hech qachon to'qnashmaydi.
+name: uniccode
+
 services:
   db:
     image: postgres:16-alpine
@@ -17,6 +21,7 @@ services:
       retries: 10
 
   bot:
+    image: uniccode-bot:latest
     build:
       context: ../..
       dockerfile: uniccode/deploy/Dockerfile
@@ -35,3 +40,4 @@ services:
 
 volumes:
   pgdata:
+    name: uniccode_pgdata

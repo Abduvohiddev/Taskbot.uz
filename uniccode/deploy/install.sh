@@ -57,9 +57,9 @@ chown -R 1000:1000 $BASE/secrets 2>/dev/null || true
 chmod 700 $BASE/secrets
 
 cd $SRC/uniccode/deploy
-docker compose --env-file $ENVF up -d --build
-sleep 5
-docker compose --env-file $ENVF ps
+docker compose -p uniccode --env-file $ENVF up -d --build
+sleep 8
+docker compose -p uniccode --env-file $ENVF ps
 echo
-echo ">> Tayyor. Loglar: cd $SRC/uniccode/deploy && docker compose --env-file $ENVF logs -f bot"
+echo ">> Tayyor. Loglar: docker logs -f --tail 50 uniccode-bot-1"
 [ -f $BASE/secrets/google.json ] || echo ">> Google Sheets uchun service account kalitini $BASE/secrets/google.json ga qo'ying va shu skriptni qayta ishga tushiring."
