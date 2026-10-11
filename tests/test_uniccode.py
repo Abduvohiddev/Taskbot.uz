@@ -313,3 +313,73 @@ def test_onec_fetch_paging_retry_and_auth():
     p = seen["params"][-1]
     assert p["$orderby"] == "Ref_Key" and p["$filter"] == "IsFolder eq false and DeletionMark eq false"
     assert [x["$skip"] for x in seen["params"][1:4]] == ["0", "10", "20"]   # 500 dan keyin qayta urinish
+
+
+def test_seriya_report_from_1c():
+    from aiohttp import web
+    from uniccode import seriya
+
+    S_TM, S_TIKUV, S_VOZ = "sk-tm", "sk-tikuv", "sk-voz"
+    P1, FEFO, NONE = "p-1", "p-fefo", "p-none"
+    vids = [
+        {"Ref_Key": "g1", "Description": "Chexol", "IsFolder": True, "DeletionMark": False},
+        {"Ref_Key": "v1", "Description": "Cardinar Chexol", "IsFolder": False, "DeletionMark": False,
+         "Parent_Key": "g1", "ИспользоватьСерии": True, "ПолитикаУчетаСерий_Key": NONE,
+         "ПолитикиУчетаСерий": [{"LineNumber": "1", "Склад_Key": S_TM, "Политика_Key": P1},
+                                {"LineNumber": "2", "Склад_Key": S_VOZ, "Политика_Key": FEFO}]},
+        {"Ref_Key": "v2", "Description": "Torpedka", "IsFolder": False, "DeletionMark": False,
+         "Parent_Key": "g1", "ИспользоватьСерии": False, "ПолитикаУчетаСерий_Key": seriya.EMPTY_KEY,
+         "ПолитикиУчетаСерий": []},
+        {"Ref_Key": "v3", "Description": "Focus EVA", "IsFolder": False, "DeletionMark": False,
+         "ИспользоватьСерии": True, "ПолитикаУчетаСерий_Key": P1, "ПолитикиУчетаСерий": []},
+    ]
+    data = {
+        "Catalog_ВидыНоменклатуры": vids,
+        "Catalog_ПолитикиУчетаСерий": [{"Ref_Key": P1, "Description": "Управление остатками серий 1"},
+                                       {"Ref_Key": FEFO, "Description": "_Управление по FEFO остатками серий"},
+                                       {"Ref_Key": NONE, "Description": "Серии не используются"}],
+        "Catalog_Склады": [{"Ref_Key": S_TM, "Description": "Sergeli Chexol TM Sklad"},
+                           {"Ref_Key": S_TIKUV, "Description": "Tikuv (chexol sehh)"},
+                           {"Ref_Key": S_VOZ, "Description": "Vazvrat Sklad"}],
+        "Catalog_Номенклатура": [
+            {"Ref_Key": "n1", "Артикул": "814292", "Description": "C-Cobalt", "ВидНоменклатуры_Key": "v1"},
+            {"Ref_Key": "n2", "Артикул": "761134", "Description": "Torpedka Cobalt", "ВидНоменклатуры_Key": "v2"},
+            {"Ref_Key": "n3", "Артикул": "390398", "Description": "FocusEva Cobalt", "ВидНоменклатуры_Key": "v3"},
+        ],
+    }
+
+    async def handler(request):
+        rows = data[request.match_info["entity"]]
+        q = request.rel_url.query
+        top, skip = int(q["$top"]), int(q["$skip"])
+        assert q["$orderby"] == "Ref_Key"
+        return web.json_response({"value": rows[skip:skip + top]})
+
+    async def go():
+        app = web.Application()
+        app.router.add_get("/odata/{entity}", handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            return await seriya.fetch_series_data(f"http://127.0.0.1:{port}/odata/", "", "", page=2, delay=0.01)
+        finally:
+            await runner.cleanup()
+
+    got = run(go())
+    assert len(got["vids"]) == 4 and len(got["noms"]) == 3
+    assert seriya.summary(got) == "Vidlar: 3. Seriya 1 yoqilgan: 2, yoqilmagan: 1."
+    from io import BytesIO
+    wb = openpyxl.load_workbook(BytesIO(seriya.build_report(got)))
+    rows = {r[1]: r for r in wb["Vidlar"].iter_rows(min_row=2, values_only=True)}
+    head = next(wb["Vidlar"].iter_rows(max_row=1, values_only=True))
+    assert head[8:] == ("Sergeli Chexol TM Sklad", "Vazvrat Sklad")
+    cc = rows["Cardinar Chexol"]
+    assert cc[:6] == ("Chexol", "Cardinar Chexol", "Ha", "Серии не используются", 1, "Ha")
+    assert cc[6] == "Sergeli Chexol TM Sklad" and cc[7] == "Vazvrat Sklad"
+    assert rows["Torpedka"][5] == "Yo'q" and rows["Torpedka"][2] == "Yo'q"
+    assert rows["Focus EVA"][5] == "Ha" and "umumiy" in rows["Focus EVA"][6]
+    arts = {r[2]: r for r in wb["Artikullar"].iter_rows(min_row=2, values_only=True)}
+    assert arts[814292][4] == "Ha" and arts[761134][4] == "Yo'q"

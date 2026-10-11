@@ -24,6 +24,7 @@ Kod formati o'zgarmaydi: `844088` + `CA` + `0310` (kun, oy) + `10002897` = `8440
 | `/import` | (admin) Eski bazani xlsx fayldan ko'chirish |
 | `/katalog` | (admin) Mahsulot katalogini yuklash: `Артикул`, `Номенклатура` (ixtiyoriy `Марка`) |
 | `/katalog_1c` | (admin) Katalogni 1C dan hozir yangilash |
+| `/seriya_1c` | (admin) Vidlar bo'yicha seriya sozlamasi: qaysi skladda "Управление остатками серий 1" yoqilgan, qaysida yo'q (Excel) |
 | `/bekor` | Joriy so'rovni bekor qilish |
 
 ## Seriya (`/kod`)

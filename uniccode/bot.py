@@ -4,7 +4,9 @@ import logging
 import os
 import shutil
 import tempfile
+from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, CommandObject, StateFilter
@@ -17,7 +19,7 @@ from aiogram.types import (
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from uniccode import catalog, excel_out, generator, importer, onec, parsers
+from uniccode import catalog, excel_out, generator, importer, onec, parsers, seriya
 from uniccode.config import UnicSettings
 from uniccode.models import UCCode, UCCounter
 from uniccode.sheets_sync import SheetSync
@@ -38,7 +40,8 @@ HELP = (
     "• Ro'yxat: <i>Артикул</i>, <i>Кол-во</i> ustunlari (ixtiyoriy: <i>Seria</i>, <i>Адрес</i>, "
     "<i>Наименование</i>, <i>Izoh</i>)\n\n"
     "Admin: <b>/import</b> — eski bazani (xlsx) SQL ga ko'chirish; <b>/katalog</b> — mahsulot nomlari faylini yuklash; "
-    "<b>/katalog_1c</b> — katalogni 1C dan hozir yangilash\n"
+    "<b>/katalog_1c</b> — katalogni 1C dan hozir yangilash; "
+    "<b>/seriya_1c</b> — vidlar bo'yicha seriya sozlamasi (qaysi skladda \"Управление остатками серий 1\")\n"
     "<b>/bekor</b> — joriy amalni bekor qilish"
 )
 
@@ -386,6 +389,25 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
             await m.answer(f"❌ {e}")
             return
         await m.answer(f"✅ Katalog 1C dan yangilandi: {n} ta artikul.")
+
+    @r.message(Command("seriya_1c"))
+    async def seriya_1c(m: Message):
+        if not is_admin(m.from_user.id):
+            await m.answer("Bu buyruq faqat admin uchun.")
+            return
+        if not cfg.onec_enabled:
+            await m.answer("1C ulanmagan: serverdagi .env ga ONEC_BASE_URL, ONEC_USER, ONEC_PASSWORD yozilmagan.")
+            return
+        await m.answer("1C dan vidlar, seriya politikalari va nomenklatura olinmoqda, 1-3 daqiqa…")
+        try:
+            data = await seriya.fetch_series_data(cfg.ONEC_BASE_URL, cfg.onec_user, cfg.onec_password)
+            content = await asyncio.to_thread(seriya.build_report, data)
+        except onec.OneCError as e:
+            await m.answer(f"❌ {e}")
+            return
+        await m.answer("✅ " + seriya.summary(data))
+        stamp = datetime.now(ZoneInfo(cfg.UNIC_TZ))
+        await m.answer_document(BufferedInputFile(content, filename=f"Seriya_sozlamalari_{stamp:%d-%m-%Y}.xlsx"))
 
     @r.message(Command("katalog"))
     async def katalog_cmd(m: Message, state: FSMContext):
