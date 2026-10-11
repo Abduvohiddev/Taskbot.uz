@@ -21,11 +21,19 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from uniccode.generator import normalize_article
-from uniccode.onec import OneCError, _get_page
+from uniccode.onec import NotPublished, OneCError, _get_page
 
 SERIYA1_RE = re.compile(r"сери[йи]\s*1(?!\d)", re.I)  # "Управление остатками серий 1"
 EMPTY_KEY = "00000000-0000-0000-0000-000000000000"
 NO_SERIES = "Серии не используются"
+
+# Catalog_ПолитикиУчетаСерий OData'ga ochilmagan bo'lsa, politika nomlari 1C dagi ma'lum namunadan
+# aniqlanadi (Cardinar Chexol vidi kartochkasi): (vid, sklad nomidagi so'z yoki None = umumiy politika, nom).
+ANCHORS = [
+    ("Cardinar Chexol", None, NO_SERIES),
+    ("Cardinar Chexol", "Sergeli Chexol TM", "Управление остатками серий 1"),
+    ("Cardinar Chexol", "Ochrilgan", "_Управление по FEFO остатками серий"),
+]
 
 
 async def fetch_all(session: aiohttp.ClientSession, base_url: str, entity: str, params: dict,
@@ -89,14 +97,45 @@ async def fetch_series_data(base_url: str, user: str, password: str, page: int =
         vids = await fetch_all(s, base_url, "Catalog_ВидыНоменклатуры", {}, page, delay=delay)
         if not vids:
             raise OneCError("1C bo'sh ro'yxat qaytardi (Catalog_ВидыНоменклатуры).")
-        pols = await fetch_all(s, base_url, "Catalog_ПолитикиУчетаСерий",
-                               {"$select": "Ref_Key,Description"}, page, delay=delay)
-        sklads = await fetch_all(s, base_url, "Catalog_Склады", {"$select": "Ref_Key,Description"}, page, delay=delay)
+        missing = []
+
+        async def optional(entity):
+            try:
+                return await fetch_all(s, base_url, entity, {"$select": "Ref_Key,Description"}, page, delay=delay)
+            except NotPublished:
+                missing.append(entity)
+                return None
+        pols = await optional("Catalog_ПолитикиУчетаСерий")
+        sklads = await optional("Catalog_Склады")
         noms = await fetch_all(s, base_url, "Catalog_Номенклатура", {
             "$filter": "IsFolder eq false and DeletionMark eq false",
             "$select": "Ref_Key,Артикул,Description,НаименованиеПолное,ВидНоменклатуры_Key",
         }, 1000, delay=delay)
-    return dict(vids=vids, pols=pols, sklads=sklads, noms=noms)
+    return dict(vids=vids, pols=pols, sklads=sklads, noms=noms, missing=missing)
+
+
+def policy_names(data: dict, parsed: List[dict], sk_name: Dict[str, str]):
+    """{politika_key: nom} va qanday aniqlangani haqida izohlar."""
+    if data.get("pols") is not None:
+        return {p["Ref_Key"]: (p.get("Description") or "").strip() for p in data["pols"]}, []
+    names: Dict[str, str] = {}
+    notes = ["Catalog_ПолитикиУчетаСерий OData'ga ochilmagan: politika nomlari Cardinar Chexol namunasidan aniqlandi."]
+    for vid, sklad_word, label in ANCHORS:
+        v = next((p for p in parsed if p["name"].lower() == vid.lower() and not p["folder"]), None)
+        if not v:
+            continue
+        if sklad_word is None:
+            key = v["policy"]
+        else:
+            key = next((pk for sk, pk in v["per_sklad"]
+                        if sklad_word.lower() in sk_name.get(sk, "").lower()), None)
+        if key and key not in names:
+            names[key] = label
+            notes.append(f"{label} = {vid} / {sklad_word or 'umumiy'} dagi politika ({key[:8]}…)")
+    seen = sorted({k for p in parsed for k in [p["policy"]] + [pk for _, pk in p["per_sklad"]] if k and k not in names})
+    for i, k in enumerate(seen, 1):
+        names[k] = f"Nomi noma'lum politika №{i} ({k[:8]}…)"
+    return names, notes
 
 
 HF = Font(name="Arial", bold=True)
@@ -125,9 +164,9 @@ def _table(ws, header, rows, widths):
 
 def build_report(data: dict) -> bytes:
     """Excel: Vidlar (sklad bo'yicha jadval), Batafsil, Artikullar, Diagnostika."""
-    pol_name = {p["Ref_Key"]: (p.get("Description") or "").strip() for p in data["pols"]}
-    sk_name = {s["Ref_Key"]: (s.get("Description") or "").strip() for s in data["sklads"]}
+    sk_name = {s["Ref_Key"]: (s.get("Description") or "").strip() for s in data.get("sklads") or []}
     parsed = [parse_vid(v) for v in data["vids"]]
+    pol_name, notes = policy_names(data, parsed, sk_name)
     by_key = {p["key"]: p for p in parsed}
     vids = sorted((p for p in parsed if not p["folder"] and not p["deleted"]),
                   key=lambda p: ((by_key.get(p["parent"]) or {}).get("name", ""), p["name"].lower()))
@@ -204,7 +243,9 @@ def build_report(data: dict) -> bytes:
     sample = next((v for v in data["vids"] if not v.get("IsFolder")), data["vids"][0])
     for line in [
         f"Vidlar: {len(vids)} (papkalar bilan jami {len(parsed)})",
-        f"Politikalar: {len(data['pols'])}; skladlar: {len(data['sklads'])}; nomenklatura: {len(data['noms'])}",
+        f"Politikalar: {len(pol_name)}; skladlar: {len(sk_name)}; nomenklatura: {len(data['noms'])}",
+        "OData'ga ochilmagan: " + (", ".join(data.get("missing") or []) or "yo'q"),
+        *notes,
         f"Skladlar bo'yicha individual sozlamasi bor vidlar: {sum(1 for v in vids if v['per_sklad'])}",
         "Vid yozuvi maydonlari: " + ", ".join(
             f"{k}[{len(v)}]" if isinstance(v, list) else k for k, v in sample.items()),
@@ -219,10 +260,17 @@ def build_report(data: dict) -> bytes:
 
 
 def summary(data: dict) -> str:
-    vids = [parse_vid(v) for v in data["vids"]]
-    vids = [v for v in vids if not v["folder"] and not v["deleted"]]
-    pol_name = {p["Ref_Key"]: (p.get("Description") or "") for p in data["pols"]}
+    parsed = [parse_vid(v) for v in data["vids"]]
+    sk_name = {s["Ref_Key"]: (s.get("Description") or "").strip() for s in data.get("sklads") or []}
+    pol_name, notes = policy_names(data, parsed, sk_name)
+    vids = [v for v in parsed if not v["folder"] and not v["deleted"]]
     yes = sum(1 for v in vids
               if SERIYA1_RE.search(pol_name.get(v["policy"], "") or "")
               or any(SERIYA1_RE.search(pol_name.get(pk, "") or "") for _, pk in v["per_sklad"]))
-    return f"Vidlar: {len(vids)}. Seriya 1 yoqilgan: {yes}, yoqilmagan: {len(vids) - yes}."
+    txt = f"Vidlar: {len(vids)}. Seriya 1 yoqilgan: {yes}, yoqilmagan: {len(vids) - yes}."
+    if data.get("missing"):
+        txt += ("\n⚠️ 1C OData'ga ochilmagan: " + ", ".join(data["missing"]) +
+                ". Nomlar namunadan aniqlandi, 'Diagnostika' varag'iga qarang.")
+        if "Catalog_Склады" in data["missing"]:
+            txt += " Sklad nomlari o'rniga kodlar chiqadi."
+    return txt

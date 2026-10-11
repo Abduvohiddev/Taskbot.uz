@@ -348,7 +348,12 @@ def test_seriya_report_from_1c():
         ],
     }
 
+    hidden = set()
+
     async def handler(request):
+        if request.match_info["entity"] in hidden:
+            return web.json_response({"odata.error": {"code": "8", "message": {
+                "lang": "ru", "value": f"Сущность '{request.match_info['entity']}' не найдена"}}}, status=404)
         rows = data[request.match_info["entity"]]
         q = request.rel_url.query
         top, skip = int(q["$top"]), int(q["$skip"])
@@ -383,3 +388,14 @@ def test_seriya_report_from_1c():
     assert rows["Focus EVA"][5] == "Ha" and "umumiy" in rows["Focus EVA"][6]
     arts = {r[2]: r for r in wb["Artikullar"].iter_rows(min_row=2, values_only=True)}
     assert arts[814292][4] == "Ha" and arts[761134][4] == "Yo'q"
+
+    # Politikalar OData'ga ochilmagan: 404 qayta urinilmaydi, nomlar Cardinar Chexol namunasidan olinadi
+    hidden.add("Catalog_ПолитикиУчетаСерий")
+    got = run(go())
+    assert got["pols"] is None and got["missing"] == ["Catalog_ПолитикиУчетаСерий"]
+    assert seriya.summary(got).startswith("Vidlar: 3. Seriya 1 yoqilgan: 2, yoqilmagan: 1.")
+    wb = openpyxl.load_workbook(BytesIO(seriya.build_report(got)))
+    rows = {r[1]: r for r in wb["Vidlar"].iter_rows(min_row=2, values_only=True)}
+    assert rows["Cardinar Chexol"][3] == "Серии не используются" and rows["Cardinar Chexol"][8] == "Управление остатками серий 1"
+    assert rows["Cardinar Chexol"][9].startswith("Nomi noma'lum politika")   # FEFO: namunada Vazvrat yo'q
+    assert rows["Focus EVA"][5] == "Ha"

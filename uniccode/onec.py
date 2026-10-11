@@ -8,9 +8,10 @@ $orderby majburiy: tartibsiz sahifalashda 1C yozuvlarni takrorlaydi va tushirib 
 Marka (qo'shimcha rekvizit) hozircha OData tarkibida yo'q - katalogdagi bor markaga tegilmaydi.
 """
 import asyncio
+import json
 import logging
 import re
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from typing import Dict, Optional, Tuple
 
 import aiohttp
@@ -24,6 +25,10 @@ ENTITY = "Catalog_Номенклатура"
 
 class OneCError(Exception):
     pass
+
+
+class NotPublished(OneCError):
+    """Obyekt 1C ning OData tarkibiga qo'shilmagan (404 'Сущность ... не найдена')."""
 
 
 def build_url(base: str, params: dict) -> URL:
@@ -42,6 +47,13 @@ async def _get_page(session: aiohttp.ClientSession, url: str, params: dict, retr
                 text = await resp.text()
                 if resp.status == 401:
                     raise OneCError("1C: login yoki parol noto'g'ri (401)")
+                if resp.status == 404:  # qayta urinishdan foyda yo'q: obyekt OData tarkibida yo'q
+                    try:
+                        msg = json.loads(text)["odata.error"]["message"]["value"]
+                    except (ValueError, KeyError, TypeError):
+                        msg = text[:200]
+                    name = unquote(url.rsplit("/", 1)[-1])
+                    raise NotPublished(f"1C: '{name}' OData tarkibiga qo'shilmagan (404: {msg})")
                 if resp.status != 200:
                     raise aiohttp.ClientResponseError(resp.request_info, (), status=resp.status, message=text[:200])
                 data = await resp.json(content_type=None)
