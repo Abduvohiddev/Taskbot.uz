@@ -21,6 +21,7 @@ Kod formati o'zgarmaydi: `844088` + `CA` + `0310` (kun, oy) + `10002897` = `8440
 | `844088 5` (slesh'siz) | Tez: savolsiz 5 ta kod. Izoh bilan: `844088 5 T535` |
 | `/oxirgi 844088` | Oxirgi band raqam va oxirgi 5 ta kod |
 | `/holat` | Bazadagi kodlar soni, Google Sheets'ga yuklanishi kutilayotganlar |
+| `/jadval` | (admin) Google Sheets'ning Hammasi/Chexol/Polik varaqlarini bazadan qayta to'ldirish |
 | `/import` | (admin) Eski bazani xlsx fayldan ko'chirish |
 | `/katalog` | (admin) Mahsulot katalogini yuklash: `Артикул`, `Номенклатура` (ixtiyoriy `Марка`) |
 | `/katalog_1c` | (admin) Katalogni 1C dan hozir yangilash |
@@ -119,9 +120,14 @@ ONEC_SYNC_INTERVAL_HOURS=24
 5. `.env` ga yozing: `GSHEET_ID` (havoladagi `/d/` va `/edit` orasidagi qism) va
    `GOOGLE_CREDENTIALS_FILE=/app/secrets/google.json`.
 
-Bot har 15 soniyada yangi kodlarni `Kodlar` varag'i oxiriga qo'shadi (bitta so'rovda 5000 tagacha).
+Bot har 15 soniyada yangi kodlarni uchta varaqqa qo'shadi (bitta so'rovda 5000 tagacha):
+`GSHEET_WORKSHEET` (hammasi, odatda `Hammasi`), `GSHEET_CHEXOL_TAB` (`Chexol`) va `GSHEET_POLIK_TAB` (`Polik`).
+Polik yoki chexol 1C dagi vid nomenklatura bo'yicha aniqlanadi (`UNIC_POLIK_VID_RE`, odatda `polik|eva`);
+vidi noma'lum artikul nomidan (`UNIC_POLIK_NAME_RE`). Qolgan hammasi (torpedka, nakidka...) chexol varag'iga tushadi.
+Vidlar `/katalog_1c` (yoki "Вид номенклатура" ustunli katalog fayli) bilan bazaga yoziladi.
 Google ishlamay qolsa, kodlar bazada kutib turadi va keyingi urinishda yuklanadi; kod yasash to'xtamaydi.
-Import qilingan eski kodlar Sheets'ga qayta yuklanmaydi, chunki ular eski jadvalda bor.
+Import qilingan eski kodlar avtomatik yuklanmaydi: `/jadval` (admin) uchala varaqni tozalab,
+bazadagi barcha kodlarni sana bo'yicha qaytadan yozadi.
 
 ## Testlar
 

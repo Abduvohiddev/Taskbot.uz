@@ -1,5 +1,5 @@
 """
-Mahsulot katalogi (artikul -> nomenklatura, avto marka).
+Mahsulot katalogi (artikul -> nomenklatura, avto marka, vid nomenklatura).
 Har qanday Excel qabul qilinadi: har bir varaqda 'Артикул' va 'Номенклатура'/'Наименование'/'Nomi'
 sarlavhali ustunlar qidiriladi; sarlavhasiz varaqda A = artikul, B = nomi deb olinadi.
 """
@@ -16,6 +16,7 @@ from uniccode.models import UCProduct
 ART_H = ("артикул", "artikul", "article")
 NAME_H = ("номенклатура", "наименование", "nomenklatura", "nomeklatura", "nomi", "name")
 MARKA_H = ("марка", "marka", "avto", "mashina")
+VID_H = ("вид номенклатур", "вид", "vid")
 
 
 def _s(v) -> str:
@@ -39,11 +40,14 @@ def _sheets(path: str) -> List[List[list]]:
     return out
 
 
-def parse_catalog(path: str) -> Dict[str, Tuple[str, Optional[str]]]:
-    """Fayldagi barcha varaqlardan {artikul: (nomi, marka)}. Oldingi varaq ustun turadi."""
-    found: Dict[str, Tuple[str, Optional[str]]] = {}
+Product = Tuple[str, Optional[str], Optional[str]]  # (nomi, marka, vid)
+
+
+def parse_catalog(path: str) -> Dict[str, Product]:
+    """Fayldagi barcha varaqlardan {artikul: (nomi, marka, vid)}. Oldingi varaq ustun turadi."""
+    found: Dict[str, Product] = {}
     for rows in _sheets(path):
-        hdr_i, c_art, c_name, c_marka = None, None, None, None
+        hdr_i, c_art, c_name, c_marka, c_vid = None, None, None, None, None
         for i, r in enumerate(rows[:10]):
             low = [_s(c).lower() for c in r]
             a = next((j for j, h in enumerate(low) if h.startswith(ART_H)), None)
@@ -51,6 +55,7 @@ def parse_catalog(path: str) -> Dict[str, Tuple[str, Optional[str]]]:
             if a is not None and n is not None:
                 hdr_i, c_art, c_name = i, a, n
                 c_marka = next((j for j, h in enumerate(low) if any(k in h for k in MARKA_H)), None)
+                c_vid = next((j for j, h in enumerate(low) if h.startswith(VID_H)), None)
                 break
         if hdr_i is None:
             first = next((r for r in rows if r and any(c not in (None, "") for c in r)), None)
@@ -64,19 +69,21 @@ def parse_catalog(path: str) -> Dict[str, Tuple[str, Optional[str]]]:
             if not re.match(r"^\d{6}$", art) or not _good_name(r[c_name]) or art in found:
                 continue
             marka = _s(r[c_marka]) if c_marka is not None and c_marka < len(r) else ""
-            found[art] = (_s(r[c_name])[:255], (marka[:64] or None))
+            vid = _s(r[c_vid]) if c_vid is not None and c_vid < len(r) else ""
+            found[art] = (_s(r[c_name])[:255], (marka[:64] or None), (vid[:128] or None))
     return found
 
 
-async def save_catalog(session: AsyncSession, items: Dict[str, Tuple[str, Optional[str]]]) -> int:
+async def save_catalog(session: AsyncSession, items: Dict[str, Product]) -> int:
     ins = postgresql.insert if session.bind.dialect.name == "postgresql" else sqlite.insert
-    data = [dict(article=a, name=n, marka=m) for a, (n, m) in items.items()]
+    data = [dict(article=a, name=n, marka=m, vid=v) for a, (n, m, v) in items.items()]
     for i in range(0, len(data), 3000):
         stmt = ins(UCProduct).values(data[i:i + 3000])
         stmt = stmt.on_conflict_do_update(
             index_elements=[UCProduct.article],
             set_={"name": stmt.excluded.name,
                   "marka": func.coalesce(stmt.excluded.marka, UCProduct.marka),
+                  "vid": func.coalesce(stmt.excluded.vid, UCProduct.vid),
                   "updated_at": func.now()},
         )
         await session.execute(stmt)

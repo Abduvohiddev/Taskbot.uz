@@ -41,6 +41,7 @@ HELP = (
     "<i>Наименование</i>, <i>Izoh</i>)\n\n"
     "Admin: <b>/import</b> — eski bazani (xlsx) SQL ga ko'chirish; <b>/katalog</b> — mahsulot nomlari faylini yuklash; "
     "<b>/katalog_1c</b> — katalogni 1C dan hozir yangilash; "
+    "<b>/jadval</b> — Google Sheets'ni (Hammasi, Chexol, Polik) bazadagi barcha kodlar bilan qayta to'ldirish; "
     "<b>/seriya_1c</b> — vidlar bo'yicha seriya sozlamasi (qaysi skladda \"Управление остатками серий 1\")\n"
     "<b>/bekor</b> — joriy amalni bekor qilish"
 )
@@ -441,6 +442,7 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
             pend = (await session.execute(select(func.count()).select_from(UCCode).where(UCCode.synced.is_(False)))).scalar_one()
         txt = [f"Bazada kodlar: <b>{codes}</b>", f"Artikullar: <b>{arts}</b>"]
         if sync:
+            txt.append(f"Google Sheets varaqlari: {', '.join(sync.tabs.values())}")
             txt.append(f"Google Sheets'ga yuklanishi kutilmoqda: <b>{pend}</b>")
             if sync.last_error:
                 txt.append(f"Oxirgi xato: <code>{sync.last_error[:300]}</code>")
@@ -448,6 +450,32 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
             txt.append("Google Sheets sinxronlash o'chiq: GSHEET_ID yoki service account kaliti "
                        "(secrets/google.json) yo'q. Kalit qo'yilgach botni qayta ishga tushiring.")
         await m.answer("\n".join(txt))
+
+    @r.message(Command("jadval"))
+    async def jadval(m: Message):
+        if not is_admin(m.from_user.id):
+            await m.answer("Bu buyruq faqat admin uchun.")
+            return
+        if not sync:
+            await m.answer("Google Sheets sinxronlash o'chiq (GSHEET_ID yoki kalit yo'q).")
+            return
+        tabs = ", ".join(sync.tabs.values())
+        await m.answer(f"Google Sheets varaqlari ({tabs}) tozalanib, bazadagi barcha kodlar qayta yozilmoqda. "
+                       "200 ming kod uchun 3-5 daqiqa ketadi…")
+        state = {"next": 50000}
+
+        async def progress(n):
+            if n >= state["next"]:
+                state["next"] += 50000
+                await m.answer(f"… {n} ta yozildi")
+        try:
+            c = await sync.rebuild(progress=progress)
+        except Exception as e:
+            log.exception("jadval rebuild")
+            await m.answer(f"❌ Google Sheets xatosi: {type(e).__name__}: {str(e)[:300]}\n"
+                           "Qayta /jadval yuborsangiz boshidan to'ldiriladi.")
+            return
+        await m.answer(f"✅ Google Sheets to'ldirildi: hammasi {c['all']}, chexol {c['chexol']}, polik {c['polik']}.")
 
     @r.message(Command("import"))
     async def imp(m: Message, state: FSMContext):

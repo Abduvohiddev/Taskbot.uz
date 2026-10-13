@@ -67,6 +67,7 @@ class UCProduct(UCBase):
     article: Mapped[str] = mapped_column(String(16), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     marka: Mapped[str | None] = mapped_column(String(64))
+    vid: Mapped[str | None] = mapped_column(String(128))  # 1C dagi "Вид номенклатуры"
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

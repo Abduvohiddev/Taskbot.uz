@@ -189,13 +189,14 @@ def test_sheet_sync_uploads_once_and_retries(tmp_path):
         engine, sm = await _sm(tmp_path)
         async with sm() as s:
             await generator.generate(s, [Item("844088", 3, address="TM_6B1")], now=NOW)
-        sync = SheetSync(sm, UnicSettings(GSHEET_BATCH=2))
+        sync = SheetSync(sm, UnicSettings(GSHEET_BATCH=2, GSHEET_WORKSHEET="Hammasi"))
         uploaded, fail = [], {"on": True}
 
-        def fake_append(values):
+        def fake_append(title, values):
             if fail["on"]:
                 raise ConnectionError("google ishlamayapti")
-            uploaded.extend(values)
+            if title == "Hammasi":
+                uploaded.extend(values)
         sync._append = fake_append
         with pytest.raises(ConnectionError):
             await sync.sync_once()            # xato bo'lsa kodlar kutib turadi
@@ -229,8 +230,8 @@ def test_catalog_and_series_files(tmp_path):
     ws2.append([814292, "boshqa nom"])   # birinchi varaq ustun turadi
     wb.save(src)
     found = catalog.parse_catalog(str(src))
-    assert found == {"814292": ("C-Cobalt-229/Matrix", "COB"), "844088": ("CY-Co-152/Alfa", None),
-                     "846088": ("CY-L3-152/Alfa", None)}
+    assert found == {"814292": ("C-Cobalt-229/Matrix", "COB", None), "844088": ("CY-Co-152/Alfa", None, None),
+                     "846088": ("CY-L3-152/Alfa", None, None)}
 
     async def go():
         engine, sm = await _sm(tmp_path)
@@ -308,8 +309,8 @@ def test_onec_fetch_paging_retry_and_auth():
         return got
     got = run(go())
     assert len(got) == 26                       # 25 + x-899071, 8 xonali artikul tashlandi
-    assert got["810001"] == ("To'liq nom 1", None) and got["810002"] == ("qisqa 2", None)
-    assert got["899071"] == ("Alkantaro", None)
+    assert got["810001"] == ("To'liq nom 1", None, None) and got["810002"] == ("qisqa 2", None, None)
+    assert got["899071"] == ("Alkantaro", None, None)
     p = seen["params"][-1]
     assert p["$orderby"] == "Ref_Key" and p["$filter"] == "IsFolder eq false and DeletionMark eq false"
     assert [x["$skip"] for x in seen["params"][1:4]] == ["0", "10", "20"]   # 500 dan keyin qayta urinish
@@ -399,3 +400,53 @@ def test_seriya_report_from_1c():
     assert rows["Cardinar Chexol"][3] == "Серии не используются" and rows["Cardinar Chexol"][8] == "Управление остатками серий 1"
     assert rows["Cardinar Chexol"][9].startswith("Nomi noma'lum politika")   # FEFO: namunada Vazvrat yo'q
     assert rows["Focus EVA"][5] == "Ha"
+
+
+def test_sheets_split_chexol_polik_and_rebuild(tmp_path):
+    from uniccode import catalog
+    from uniccode.config import UnicSettings
+    from uniccode.sheets_sync import SheetSync, category
+
+    cfg = UnicSettings(GSHEET_WORKSHEET="Hammasi")
+    assert category("Focus EVA", None, cfg) == "polik" and category("Polik 3D", "x", cfg) == "polik"
+    assert category("Cardinar Chexol", "Kia (EVA)", cfg) == "chexol"       # vid nomdan ustun
+    assert category("Skidka tovarlar (vozvrat yo'q)", "C-Co-255", cfg) == "chexol"
+    assert category(None, "Co (Tpe polik) Qora Gilam", cfg) == "polik"
+    assert category(None, "FocusEva Cobalt 5D Vanna", cfg) == "polik"
+    assert category(None, "C-Cobalt-229/Matrix", cfg) == "chexol" and category(None, None, cfg) == "chexol"
+
+    src = tmp_path / "res.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["Вид номенклатура", "Артикул", "Наименование"])
+    wb.active.append(["Focus EVA", "x-390398", "FocusEva Cobalt 5D Vanna"])
+    wb.active.append(["Cardinar Chexol", "x-814292", "C-Cobalt-229/Matrix"])
+    wb.save(src)
+    found = catalog.parse_catalog(str(src))
+    assert found["390398"] == ("FocusEva Cobalt 5D Vanna", None, "Focus EVA")
+
+    async def go():
+        engine, sm = await _sm(tmp_path)
+        async with sm() as s:
+            await catalog.save_catalog(s, found)
+            await catalog.save_catalog(s, {"390398": ("FocusEva Cobalt 5D Vanna", None, None)})  # vid saqlanadi
+            await generator.generate(s, [Item("814292", 2), Item("390398", 1), Item("736031", 1, name="L3 (Tpe polik)")],
+                                     now=NOW)
+        sync = SheetSync(sm, cfg)
+        sheets = {}
+        sync._append = lambda title, values: sheets.setdefault(title, []).extend(values)
+        sync._clear = lambda title: sheets.__setitem__(title, [])
+        assert await sync.sync_once() == 4
+        first = {k: sorted(v[3] for v in vs) for k, vs in sheets.items()}
+        c = await sync.rebuild(page=3)
+        assert await sync.pending() == 0
+        await engine.dispose()
+        return first, sheets, c
+    first, sheets, c = run(go())
+    assert first["Hammasi"] == ["390398CA031010000000", "736031CA031010000000",
+                                "814292CA031010000000", "814292CA031010000001"]
+    assert first["Polik"] == ["390398CA031010000000", "736031CA031010000000"]
+    assert first["Chexol"] == ["814292CA031010000000", "814292CA031010000001"]
+    assert c == {"all": 4, "chexol": 2, "polik": 2}
+    assert {k: len(v) for k, v in sheets.items()} == {"Hammasi": 4, "Chexol": 2, "Polik": 2}
+    row = next(v for v in sheets["Polik"] if v[1] == 390398)
+    assert row[6] == "FocusEva Cobalt 5D Vanna" and row[9] == "Focus EVA"

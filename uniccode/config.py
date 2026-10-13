@@ -48,6 +48,12 @@ class UnicSettings(BaseSettings):
     GOOGLE_CREDENTIALS_JSON: str = ""
     GSHEET_SYNC_INTERVAL: int = 15
     GSHEET_BATCH: int = 5000
+    # Kodlar GSHEET_WORKSHEET (hammasi) ga va turiga qarab shu ikki varaqqa ham yoziladi. Bo'sh = ajratilmaydi.
+    GSHEET_CHEXOL_TAB: str = "Chexol"
+    GSHEET_POLIK_TAB: str = "Polik"
+    # Polik/chexol ajratish: avval 1C dagi vid nomenklatura, vid noma'lum bo'lsa mahsulot nomi bo'yicha.
+    UNIC_POLIK_VID_RE: str = r"polik|\beva\b"
+    UNIC_POLIK_NAME_RE: str = r"focus\s*eva|\beva\b|polik|gilam|vanna|bortik|rezin"
 
     @property
     def database_url(self) -> str:

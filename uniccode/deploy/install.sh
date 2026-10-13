@@ -9,7 +9,7 @@ BRANCH="${UNIC_BRANCH:-claude/gifted-knuth-095ih4}"
 BASE=/opt/uniccode
 SRC=$BASE/src
 ENVF=$BASE/.env
-GSHEET_ID_DEFAULT="18_qi709DhAAbQfTgUUI2naNF1M3yBDmhfd_Ip2esrbM"
+GSHEET_ID_DEFAULT="1v53dHTGttiBmjBD1dgjfLNdi9ApDrYuEGdCvHon44TQ"
 
 [ "$(id -u)" = 0 ] || { echo "root sifatida ishga tushiring"; exit 1; }
 
@@ -46,7 +46,7 @@ UNIC_START_SEQ=10000000
 UNIC_TZ=Asia/Tashkent
 POSTGRES_PASSWORD=$PGPASS
 GSHEET_ID=${GSHEET_ID:-$GSHEET_ID_DEFAULT}
-GSHEET_WORKSHEET=Kodlar
+GSHEET_WORKSHEET=Hammasi
 GOOGLE_CREDENTIALS_FILE=/app/secrets/google.json
 GSHEET_SYNC_INTERVAL=15
 EOV

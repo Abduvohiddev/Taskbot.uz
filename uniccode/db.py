@@ -20,9 +20,10 @@ async def init_db(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(UCBase.metadata.create_all)
         # Keyin qo'shilgan ustunlar (mavjud bazada ham paydo bo'lishi uchun)
-        if conn.dialect.name == "postgresql":
-            await conn.execute(text("ALTER TABLE uc_codes ADD COLUMN IF NOT EXISTS machine VARCHAR(64)"))
-        else:
-            cols = {r[1] for r in (await conn.execute(text("PRAGMA table_info(uc_codes)"))).fetchall()}
-            if "machine" not in cols:
-                await conn.execute(text("ALTER TABLE uc_codes ADD COLUMN machine VARCHAR(64)"))
+        for table, col, typ in (("uc_codes", "machine", "VARCHAR(64)"), ("uc_products", "vid", "VARCHAR(128)")):
+            if conn.dialect.name == "postgresql":
+                await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {typ}"))
+            else:
+                cols = {r[1] for r in (await conn.execute(text(f"PRAGMA table_info({table})"))).fetchall()}
+                if col not in cols:
+                    await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typ}"))
