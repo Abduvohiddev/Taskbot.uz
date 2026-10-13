@@ -53,10 +53,23 @@ EOV
   echo ">> $ENVF yaratildi"
 fi
 
-# Admin panel: manzil va sessiya kaliti (mavjud .env ga ham qo'shiladi)
-grep -q '^PANEL_URL=' $ENVF || echo "PANEL_URL=http://$(hostname -I | awk '{print $1}'):8090" >> $ENVF
+# Admin panel: serverdagi bo'sh port (8090 band bo'lsa keyingisi), manzil va sessiya kaliti.
+# Port bir marta tanlanadi va .env da qoladi (qayta ishga tushirganda o'zgarmaydi).
+if ! grep -q '^PANEL_HOST_PORT=' $ENVF; then
+  docker compose -p uniccode stop bot >/dev/null 2>&1 || true
+  PORT=""
+  for p in 8090 8091 8092 8093 8094 8095 8096 8097 8098 8099 18090; do
+    if ! ss -ltnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$p\$"; then PORT=$p; break; fi
+  done
+  [ -n "$PORT" ] || { echo "XATO: 8090-8099 portlarining hammasi band"; exit 1; }
+  echo "PANEL_HOST_PORT=$PORT" >> $ENVF
+  sed -i '/^PANEL_URL=/d' $ENVF
+  echo ">> Admin panel porti: $PORT"
+fi
+PANEL_HOST_PORT=$(grep '^PANEL_HOST_PORT=' $ENVF | tail -1 | cut -d= -f2)
+grep -q '^PANEL_URL=' $ENVF || echo "PANEL_URL=http://$(hostname -I | awk '{print $1}'):$PANEL_HOST_PORT" >> $ENVF
 grep -q '^PANEL_SECRET=' $ENVF || echo "PANEL_SECRET=$(openssl rand -hex 32)" >> $ENVF
-command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active" && ufw allow 8090/tcp >/dev/null || true
+command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active" && ufw allow "$PANEL_HOST_PORT"/tcp >/dev/null || true
 
 chown -R 1000:1000 $BASE/secrets 2>/dev/null || true
 chmod 700 $BASE/secrets

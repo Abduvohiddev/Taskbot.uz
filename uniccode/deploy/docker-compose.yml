@@ -33,7 +33,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "${PANEL_PORT:-8090}:8090"     # admin panel
+      - "${PANEL_HOST_PORT:-8090}:8090"   # admin panel (konteyner ichida doim 8090)
     volumes:
       - /opt/uniccode/secrets:/app/secrets:ro
     logging:

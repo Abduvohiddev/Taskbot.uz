@@ -132,7 +132,7 @@ bazadagi barcha kodlarni sana bo'yicha qaytadan yozadi.
 
 ## Admin panel va AI
 
-Bot bilan bir jarayonda veb-panel ishlaydi (`PANEL_PORT`, odatda 8090). Kirish: botda `/panel` -> bir martalik
+Bot bilan bir jarayonda veb-panel ishlaydi (serverda `PANEL_HOST_PORT` - `install.sh` bo'sh portni o'zi tanlaydi, odatda 8090). Kirish: botda `/panel` -> bir martalik
 havola (10 daqiqa) -> 12 soatlik sessiya. Bo'limlar:
 
 - **Dashboard** - bugun / 7 / 30 kunlik kodlar, kunlik grafik (chexol va polik), top artikullar va foydalanuvchilar,
