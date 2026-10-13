@@ -32,6 +32,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    ports:
+      - "${PANEL_PORT:-8090}:8090"     # admin panel
     volumes:
       - /opt/uniccode/secrets:/app/secrets:ro
     logging:

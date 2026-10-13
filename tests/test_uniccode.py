@@ -450,3 +450,125 @@ def test_sheets_split_chexol_polik_and_rebuild(tmp_path):
     assert {k: len(v) for k, v in sheets.items()} == {"Hammasi": 4, "Chexol": 2, "Polik": 2}
     row = next(v for v in sheets["Polik"] if v[1] == 390398)
     assert row[6] == "FocusEva Cobalt 5D Vanna" and row[9] == "Focus EVA"
+
+
+def test_admin_panel_roles_events_ai_and_dashboard(tmp_path):
+    """Panel: bir martalik kirish, rollar (superadmin / bo'lim admini), CSRF, dashboard, xatolar jurnali, AI."""
+    import logging
+    import re as _re
+    from types import SimpleNamespace
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    from uniccode import catalog, dept, stats
+    from uniccode.access import Access
+    from uniccode.ai import AI
+    from uniccode.config import UnicSettings
+    from uniccode.events import DBLogHandler
+    from uniccode.models import UCEvent
+    from uniccode.notify import Notifier
+    from uniccode.panel import Panel
+
+    cfg = UnicSettings(UNIC_ADMIN_IDS="1", UNIC_BOT_TOKEN="t", PANEL_URL="http://test", UNIC_TZ="Asia/Tashkent")
+
+    calls = []
+
+    class FakeMessages:
+        async def create(self, **kw):
+            calls.append(kw)
+            return SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text="AI: tarmoq uzildi")])
+
+    ai = AI(cfg, client=SimpleNamespace(beta=SimpleNamespace(messages=FakeMessages())))
+    sent = []
+
+    async def send(chat_id, text):
+        sent.append((chat_id, text))
+
+    async def go():
+        engine, sm = await _sm(tmp_path)
+        async with sm() as s:
+            await catalog.save_catalog(s, {"390398": ("FocusEva Cobalt", None, "Focus EVA"),
+                                           "814292": ("C-Cobalt-229", None, "Cardinar Chexol")})
+            await generator.generate(s, [Item("390398", 3), Item("814292", 2)], user_id=7, username="ali")
+            assert await dept.assign(s, cfg) == 2
+            d_all = await stats.dashboard(s, cfg.UNIC_TZ)
+            d_pol = await stats.dashboard(s, cfg.UNIC_TZ, "polik")
+
+        access = Access(sm, cfg)
+        await access.refresh()
+        assert access.who(1).is_super and access.who(5) is None    # ro'yxatda yo'q - ruxsat yo'q
+
+        handler = DBLogHandler(sm)
+        task = handler.start()
+        lg = logging.getLogger("uniccode.sheets")
+        lg.addHandler(handler)
+        for _ in range(3):
+            lg.warning("Google Sheets sinxronlash xatosi: timeout")
+        await asyncio.sleep(0.2)
+        lg.removeHandler(handler)
+        task.cancel()
+
+        notifier = Notifier(sm, cfg, access, ai, send)
+        panel = Panel(sm, cfg, access, ai, notifier)
+        client = TestClient(TestServer(panel.app()))
+        await client.start_server()
+        out = {}
+        try:
+            out["anon"] = (await client.get("/")).status
+            out["bad_token"] = (await client.get("/login?t=xyz")).status
+            link = panel.issue_login(1)
+            r = await client.get(link.replace("http://test", ""), allow_redirects=False)
+            out["login"] = r.status
+            client.session.cookie_jar.update_cookies(r.cookies)
+            out["reuse"] = (await client.get(link.replace("http://test", ""))).status   # bir martalik
+            html = await (await client.get("/")).text()
+            out["dash"] = "Kunlik kodlar" in html and "Chexol" in html
+            html = await (await client.get("/users")).text()
+            csrf = _re.search(r"name='csrf' value='([0-9a-f]+)'", html).group(1)
+            out["no_csrf"] = (await client.post("/users", data={"tg_id": "55", "full_name": "X", "role": "admin",
+                                                               "dept": "polik"})).status
+            await client.post("/users", data={"csrf": csrf, "tg_id": "55", "full_name": "Polik Admin",
+                                              "role": "admin", "dept": "polik"})
+            # bo'lim admini sifatida kirish
+            client.session.cookie_jar.clear()
+            r = await client.get(panel.issue_login(55).replace("http://test", ""), allow_redirects=False)
+            client.session.cookie_jar.update_cookies(r.cookies)
+            html = await (await client.get("/users")).text()
+            csrf = _re.search(r"name='csrf' value='([0-9a-f]+)'", html).group(1)
+            html = await (await client.post("/users", data={"csrf": csrf, "tg_id": "66", "full_name": "Chexolchi",
+                                                            "role": "user", "dept": "chexol"})).text()
+            out["cross_dept"] = "ruxsatingiz" in html
+            html = await (await client.post("/users", data={"csrf": csrf, "tg_id": "77", "full_name": "Polikchi",
+                                                            "role": "user", "dept": "polik"})).text()
+            out["own_dept"] = "Saqlandi" in html
+            html = await (await client.get("/?dept=chexol")).text()   # bo'lim admini faqat o'z bo'limini ko'radi
+            out["scoped"] = "<b>3</b>" in html and "class='tabs'" not in html
+            out["errors_page"] = "Google Sheets sinxronlash xatosi" in await (await client.get("/errors")).text()
+        finally:
+            await client.close()
+
+        out["alerted"] = await notifier.alert_once()
+        out["alert_again"] = await notifier.alert_once()     # 5 daqiqa ichida qayta yuborilmaydi
+        out["reports"] = await notifier.daily_report()
+        async with sm() as s:
+            evs = (await s.execute(select(UCEvent).order_by(UCEvent.id))).scalars().all()
+        await engine.dispose()
+        return d_all, d_pol, access, out, evs
+
+    from sqlalchemy import select
+    d_all, d_pol, access, out, evs = run(go())
+    assert d_all["jami"]["jami"] == 5 and d_all["bolimlar_30_kun"] == {"polik": 3, "chexol": 2}
+    assert d_pol["jami"]["bugun"] == 3 and d_pol["top_foydalanuvchilar"][0]["kodlar"] == 3
+    assert sum(d_all["kunlik"]["polik"]) == 3 and sum(d_all["kunlik"]["chexol"]) == 2
+    assert out["anon"] == 401 and out["bad_token"] == 401 and out["login"] == 302 and out["reuse"] == 401
+    assert out["dash"] and out["no_csrf"] == 403
+    assert (out["cross_dept"], out["own_dept"], out["scoped"], out["errors_page"]) == (True, True, True, True)
+    assert access.who(55).role == "admin" and access.who(55).dept == "polik" and access.who(77).dept == "polik"
+    assert access.who(66) is None
+    warn = [e for e in evs if e.source == "sheets"]
+    assert len(warn) == 1 and warn[0].count == 3 and warn[0].notified and warn[0].ai_text == "AI: tarmoq uzildi"
+    assert out["alerted"] >= 1 and out["alert_again"] == 0
+    assert out["reports"] == 2                                       # hammasi (superadmin) + polik (bo'lim admini)
+    assert {c for c, _ in sent} == {1, 55} and any("Kunlik hisobot — Polik" in t for c, t in sent if c == 55)
+    assert calls[0]["model"] == "claude-opus-5-5" and calls[0]["fallbacks"] == "default"
+    assert calls[0]["betas"] == ["server-side-fallback-2026-07-01"] and calls[0]["output_config"] == {"effort": "low"}

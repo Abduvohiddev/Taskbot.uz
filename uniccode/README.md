@@ -26,6 +26,7 @@ Kod formati o'zgarmaydi: `844088` + `CA` + `0310` (kun, oy) + `10002897` = `8440
 | `/katalog` | (admin) Mahsulot katalogini yuklash: `Артикул`, `Номенклатура` (ixtiyoriy `Марка`) |
 | `/katalog_1c` | (admin) Katalogni 1C dan hozir yangilash |
 | `/seriya_1c` | (admin) Vidlar bo'yicha seriya sozlamasi: qaysi skladda "Управление остатками серий 1" yoqilgan, qaysida yo'q (Excel) |
+| `/panel` | (adminlar) Admin panelga bir martalik kirish havolasi |
 | `/bekor` | Joriy so'rovni bekor qilish |
 
 ## Seriya (`/kod`)
@@ -128,6 +129,31 @@ Vidlar `/katalog_1c` (yoki "Вид номенклатура" ustunli katalog fay
 Google ishlamay qolsa, kodlar bazada kutib turadi va keyingi urinishda yuklanadi; kod yasash to'xtamaydi.
 Import qilingan eski kodlar avtomatik yuklanmaydi: `/jadval` (admin) uchala varaqni tozalab,
 bazadagi barcha kodlarni sana bo'yicha qaytadan yozadi.
+
+## Admin panel va AI
+
+Bot bilan bir jarayonda veb-panel ishlaydi (`PANEL_PORT`, odatda 8090). Kirish: botda `/panel` -> bir martalik
+havola (10 daqiqa) -> 12 soatlik sessiya. Bo'limlar:
+
+- **Dashboard** - bugun / 7 / 30 kunlik kodlar, kunlik grafik (chexol va polik), top artikullar va foydalanuvchilar,
+  oxirgi so'rovlar, holat (xatolar, Sheets navbati, vidi noma'lum artikullar).
+- **Foydalanuvchilar** - Telegram ID bo'yicha qo'shish, o'chirish, vaqtincha bloklash.
+- **Xatolar** - botdagi barcha WARNING/ERROR (bir xil xabar 30 daqiqa ichida bitta qatorga yig'iladi).
+- **AI hisobotlar** - kunlik hisobotlar tarixi.
+
+Rollar:
+
+| Rol | Qayerda beriladi | Nimani ko'radi / qila oladi |
+|---|---|---|
+| Superadmin | `.env` dagi `UNIC_ADMIN_IDS` | Hamma bo'limlar, istalgan foydalanuvchi va bo'lim admini qo'shish, `/import`, `/jadval`, `/katalog_1c` |
+| Bo'lim admini (chexol / polik) | Panel | O'z bo'limi dashboardi, o'z bo'limiga foydalanuvchi qo'shish |
+| Foydalanuvchi | Panel (yoki `UNIC_ALLOWED_IDS`) | Botda kod yasash |
+
+AI (Claude, `UNIC_AI_MODEL`, odatda `claude-opus-5-5`) ixtiyoriy: `bash uniccode/deploy/setup_ai.sh` kalitni so'raydi va
+`.env` ga yozadi. Yoqilganda yangi xatolar 1 daqiqa ichida tushuntirish bilan superadminlarga Telegram'da yuboriladi
+(5 daqiqada ko'pi bilan bir xabar) va har kuni `UNIC_REPORT_HOUR` da kunlik hisobot keladi: superadminga hammasi,
+bo'lim adminiga o'z bo'limi. Xavfsizlik filtri so'rovni rad etsa, server boshqa modelda qayta urinadi
+(`fallbacks: "default"`). Kalit bo'lmasa, xabarnomalar va hisobot AI'siz (faqat raqamlar bilan) ishlaydi.
 
 ## Testlar
 

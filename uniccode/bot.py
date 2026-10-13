@@ -19,7 +19,8 @@ from aiogram.types import (
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from uniccode import catalog, excel_out, generator, importer, onec, parsers, seriya
+from uniccode import catalog, dept, excel_out, generator, importer, onec, parsers, seriya
+from uniccode.access import Access
 from uniccode.config import UnicSettings
 from uniccode.models import UCCode, UCCounter
 from uniccode.sheets_sync import SheetSync
@@ -43,6 +44,7 @@ HELP = (
     "<b>/katalog_1c</b> — katalogni 1C dan hozir yangilash; "
     "<b>/jadval</b> — Google Sheets'ni (Hammasi, Chexol, Polik) bazadagi barcha kodlar bilan qayta to'ldirish; "
     "<b>/seriya_1c</b> — vidlar bo'yicha seriya sozlamasi (qaysi skladda \"Управление остатками серий 1\")\n"
+    "<b>/panel</b> — admin panelga kirish havolasi (dashboard, foydalanuvchilar, xatolar)\n"
     "<b>/bekor</b> — joriy amalni bekor qilish"
 )
 
@@ -85,15 +87,16 @@ class Wz(StatesGroup):
 CANCEL_BTN = ("✖️ Bekor qilish", "cancel")
 
 
-def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[SheetSync]) -> Router:
+def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[SheetSync],
+                 access: Optional[Access] = None, panel=None) -> Router:
     r = Router()
+    access = access or Access(sm, cfg)
 
     def allowed(uid: int) -> bool:
-        ids = cfg.allowed_ids
-        return not ids or uid in ids
+        return access.allowed(uid)
 
     def is_admin(uid: int) -> bool:
-        return not cfg.admin_ids or uid in cfg.admin_ids
+        return access.is_super(uid)
 
     r.message.filter(lambda m: m.from_user and allowed(m.from_user.id))
     r.callback_query.filter(lambda c: c.from_user and allowed(c.from_user.id))
@@ -137,6 +140,18 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
     async def start(m: Message, state: FSMContext):
         await state.clear()
         await m.answer(HELP + f"\n\nSizning ID: <code>{m.from_user.id}</code>")
+
+    @r.message(Command("panel"))
+    async def panel_cmd(m: Message):
+        who = access.who(m.from_user.id)
+        if not who or not who.can_panel:
+            await m.answer("Panel faqat adminlar uchun.")
+            return
+        if not panel or not cfg.PANEL_URL:
+            await m.answer("Panel sozlanmagan: serverdagi .env ga PANEL_URL yozilmagan.")
+            return
+        await m.answer(f"🔐 Panelga kirish (10 daqiqa, bir marta ishlaydi):\n{panel.issue_login(m.from_user.id)}",
+                       parse_mode=None, disable_web_page_preview=True)
 
     @r.message(Command("kod"))
     async def kod(m: Message, command: CommandObject, state: FSMContext):
@@ -499,6 +514,7 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
                 items = await asyncio.to_thread(catalog.parse_catalog, path)
                 async with sm() as session:
                     n = await catalog.save_catalog(session, items)
+                    await dept.assign(session, cfg, only_missing=False)
                 await state.clear()
                 await m.answer(f"✅ Katalog yangilandi: {n} ta artikul." if n else
                                "Faylda artikul va nomli qator topilmadi.")
@@ -568,6 +584,7 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         if items and is_admin(m.from_user.id):
             async with sm() as session:
                 n = await catalog.save_catalog(session, items)
+                await dept.assign(session, cfg, only_missing=False)
             await m.answer(f"📚 Bu mahsulot katalogi ekan. ✅ Katalog yangilandi: {n} ta artikul.")
             return
         await m.answer("Faylni tushunmadim. 1C sklad hisoboti, <i>Артикул</i> va <i>Кол-во</i> ustunli ro'yxat "
@@ -633,7 +650,9 @@ async def sync_catalog_from_1c(sm: async_sessionmaker, cfg: UnicSettings) -> int
     if not items:
         raise onec.OneCError("1C dan bitta ham artikul kelmadi - katalog o'zgartirilmadi.")
     async with sm() as session:
-        return await catalog.save_catalog(session, items)
+        n = await catalog.save_catalog(session, items)
+        await dept.assign(session, cfg, only_missing=False)   # vidlar o'zgargan bo'lishi mumkin
+        return n
 
 
 async def onec_sync_forever(sm: async_sessionmaker, cfg: UnicSettings) -> None:
@@ -650,7 +669,7 @@ async def onec_sync_forever(sm: async_sessionmaker, cfg: UnicSettings) -> None:
         await asyncio.sleep(max(cfg.ONEC_SYNC_INTERVAL_HOURS, 0.25) * 3600)
 
 
-def build_fallback_router(cfg: UnicSettings) -> Router:
+def build_fallback_router(cfg: UnicSettings, access: Access) -> Router:
     """Tushunilmagan xabarlar. Ruxsatsiz foydalanuvchiga ID sini ko'rsatadi (admin qo'shib qo'yishi uchun)."""
     r = Router()
 
@@ -658,8 +677,7 @@ def build_fallback_router(cfg: UnicSettings) -> Router:
     async def fallback(m: Message):
         if m.chat.type != "private" or not m.from_user:
             return
-        ids = cfg.allowed_ids
-        if ids and m.from_user.id not in ids:
+        if not access.allowed(m.from_user.id):
             await m.answer(f"Sizga ruxsat berilmagan. Adminga ID'ingizni yuboring: <code>{m.from_user.id}</code>")
         else:
             await m.answer("Tushunmadim. Buyruqlar ro'yxati: /help")
@@ -667,15 +685,20 @@ def build_fallback_router(cfg: UnicSettings) -> Router:
     return r
 
 
-def build_dispatcher(sm, cfg, sync) -> Dispatcher:
+def build_dispatcher(sm, cfg, sync, access: Optional[Access] = None, panel=None) -> Dispatcher:
+    access = access or Access(sm, cfg)
     dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(build_router(sm, cfg, sync))
-    dp.include_router(build_fallback_router(cfg))
+    dp.include_router(build_router(sm, cfg, sync, access, panel))
+    dp.include_router(build_fallback_router(cfg, access))
 
     @dp.errors()
     async def on_error(event):
-        log.exception("Kutilmagan xato", exc_info=event.exception)
         upd = event.update
+        u = (upd.message and upd.message.from_user) or (upd.callback_query and upd.callback_query.from_user)
+        what = (upd.message and (upd.message.text or (upd.message.document and upd.message.document.file_name))) or \
+               (upd.callback_query and upd.callback_query.data) or ""
+        log.exception("Kutilmagan xato: %s (foydalanuvchi %s, xabar: %s)", type(event.exception).__name__,
+                      u.id if u else "?", str(what)[:100], exc_info=event.exception)
         msg = upd.message or (upd.callback_query.message if upd.callback_query else None)
         if msg:
             try:

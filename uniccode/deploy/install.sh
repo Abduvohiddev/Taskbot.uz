@@ -53,6 +53,11 @@ EOV
   echo ">> $ENVF yaratildi"
 fi
 
+# Admin panel: manzil va sessiya kaliti (mavjud .env ga ham qo'shiladi)
+grep -q '^PANEL_URL=' $ENVF || echo "PANEL_URL=http://$(hostname -I | awk '{print $1}'):8090" >> $ENVF
+grep -q '^PANEL_SECRET=' $ENVF || echo "PANEL_SECRET=$(openssl rand -hex 32)" >> $ENVF
+command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active" && ufw allow 8090/tcp >/dev/null || true
+
 chown -R 1000:1000 $BASE/secrets 2>/dev/null || true
 chmod 700 $BASE/secrets
 

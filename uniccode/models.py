@@ -53,6 +53,7 @@ class UCCode(UCBase):
     batch_id: Mapped[int | None] = mapped_column(ForeignKey("uc_batches.id", ondelete="SET NULL"))
     source: Mapped[str] = mapped_column(String(16), default="bot")  # bot | import
     synced: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    dept: Mapped[str | None] = mapped_column(String(16))        # chexol | polik (mahsulot vidiga qarab)
 
     __table_args__ = (
         Index("ix_uc_codes_article_seq", "article", "seq"),
@@ -71,3 +72,35 @@ class UCProduct(UCBase):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class UCUser(UCBase):
+    """Botdan foydalanuvchilar. Superadminlar .env dagi UNIC_ADMIN_IDS, qolganlari panel orqali qo'shiladi."""
+    __tablename__ = "uc_users"
+
+    tg_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    full_name: Mapped[str] = mapped_column(String(128), default="")
+    role: Mapped[str] = mapped_column(String(16), default="user")   # admin | user
+    dept: Mapped[str | None] = mapped_column(String(16))             # chexol | polik | None (hammasi)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    added_by: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UCEvent(UCBase):
+    """Xatolar, ogohlantirishlar va AI hisobotlari (panel va Telegram xabarnomalari uchun)."""
+    __tablename__ = "uc_events"
+
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    level: Mapped[str] = mapped_column(String(16))        # error | warning | info
+    source: Mapped[str] = mapped_column(String(32))       # bot | sheets | 1c | telegram | ai | hisobot
+    message: Mapped[str] = mapped_column(Text)
+    details: Mapped[str | None] = mapped_column(Text)
+    count: Mapped[int] = mapped_column(Integer, default=1)
+    user_id: Mapped[int | None] = mapped_column(BigInteger)
+    ai_text: Mapped[str | None] = mapped_column(Text)
+    notified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (Index("ix_uc_events_created", "created_at"),)

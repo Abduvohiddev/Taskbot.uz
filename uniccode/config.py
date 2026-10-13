@@ -55,6 +55,17 @@ class UnicSettings(BaseSettings):
     UNIC_POLIK_VID_RE: str = r"polik|\beva\b"
     UNIC_POLIK_NAME_RE: str = r"focus\s*eva|\beva\b|polik|gilam|vanna|bortik|rezin"
 
+    # Admin panel (veb). Kirish havolasini bot /panel buyrug'i bilan beradi.
+    PANEL_ENABLED: bool = True
+    PANEL_PORT: int = 8090
+    PANEL_URL: str = ""          # tashqaridan ochiladigan manzil, masalan http://170.168.6.217:8090
+    PANEL_SECRET: str = ""       # sessiya imzosi; bo'sh bo'lsa bot tokenidan hosil qilinadi
+
+    # AI yordamchi (ixtiyoriy): xatolarni tushuntirib Telegram'ga yozadi va kunlik hisobot beradi.
+    ANTHROPIC_API_KEY: str = ""
+    UNIC_AI_MODEL: str = "claude-opus-5-5"
+    UNIC_REPORT_HOUR: int = 19   # kunlik hisobot soati (UNIC_TZ bo'yicha); -1 = o'chiq
+
     @property
     def database_url(self) -> str:
         return self.UNIC_DATABASE_URL or self.DATABASE_URL
@@ -78,6 +89,15 @@ class UnicSettings(BaseSettings):
     @property
     def onec_enabled(self) -> bool:
         return bool(self.ONEC_BASE_URL)
+
+    @property
+    def panel_secret(self) -> bytes:
+        import hashlib
+        return (self.PANEL_SECRET or hashlib.sha256(("uc-panel:" + self.UNIC_BOT_TOKEN).encode()).hexdigest()).encode()
+
+    @property
+    def ai_enabled(self) -> bool:
+        return bool(self.ANTHROPIC_API_KEY)
 
     @property
     def gsheet_enabled(self) -> bool:

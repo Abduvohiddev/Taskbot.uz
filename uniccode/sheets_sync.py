@@ -9,13 +9,13 @@ davom etadi. rebuild() varaqlarni bazadagi barcha kodlar bilan qaytadan to'ldira
 import asyncio
 import json
 import logging
-import re
 from typing import Dict, List, Optional
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from uniccode.config import UnicSettings
+from uniccode.dept import CHEXOL, POLIK, category  # noqa: F401  (category testlarda shu yerdan olinadi)
 from uniccode.generator import to_local
 from uniccode.models import UCCode, UCProduct
 
@@ -23,14 +23,6 @@ log = logging.getLogger("uniccode.sheets")
 
 HEADER = ["Дата", "Артикул", "Уникальный код", "Уникальный код", "Izoh", "Адрес", "Наименование", "Seria", "Mashina",
           "Vid"]
-CHEXOL, POLIK = "chexol", "polik"
-
-
-def category(vid: Optional[str], name: Optional[str], cfg: UnicSettings) -> str:
-    """Polik yoki chexol: 1C dagi vid bo'yicha, vid noma'lum bo'lsa nomidan. Qolgan hammasi chexol bo'liminiki."""
-    if vid:
-        return POLIK if re.search(cfg.UNIC_POLIK_VID_RE, vid, re.I) else CHEXOL
-    return POLIK if name and re.search(cfg.UNIC_POLIK_NAME_RE, name, re.I) else CHEXOL
 
 
 class SheetSync:
