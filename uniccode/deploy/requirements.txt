@@ -10,3 +10,4 @@ gspread==6.2.1
 google-auth==2.59.1
 tzdata==2024.2
 anthropic==1.13.0
+google-genai==2.8.0

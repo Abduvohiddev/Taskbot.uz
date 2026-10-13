@@ -62,6 +62,10 @@ class UnicSettings(BaseSettings):
     PANEL_SECRET: str = ""       # sessiya imzosi; bo'sh bo'lsa bot tokenidan hosil qilinadi
 
     # AI yordamchi (ixtiyoriy): xatolarni tushuntirib Telegram'ga yozadi va kunlik hisobot beradi.
+    # Provayder: GEMINI_API_KEY bo'lsa Google Gemini, aks holda ANTHROPIC_API_KEY bo'lsa Claude.
+    UNIC_AI_PROVIDER: str = ""   # "" = avtomatik | gemini | claude
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = ""       # bo'sh = eng yangi barqaror "flash" modeli avtomatik tanlanadi
     ANTHROPIC_API_KEY: str = ""
     UNIC_AI_MODEL: str = "claude-opus-5-5"
     UNIC_REPORT_HOUR: int = 19   # kunlik hisobot soati (UNIC_TZ bo'yicha); -1 = o'chiq
@@ -96,8 +100,14 @@ class UnicSettings(BaseSettings):
         return (self.PANEL_SECRET or hashlib.sha256(("uc-panel:" + self.UNIC_BOT_TOKEN).encode()).hexdigest()).encode()
 
     @property
+    def ai_provider(self) -> str:
+        if self.UNIC_AI_PROVIDER in ("gemini", "claude"):
+            return self.UNIC_AI_PROVIDER
+        return "gemini" if self.GEMINI_API_KEY else ("claude" if self.ANTHROPIC_API_KEY else "")
+
+    @property
     def ai_enabled(self) -> bool:
-        return bool(self.ANTHROPIC_API_KEY)
+        return bool({"gemini": self.GEMINI_API_KEY, "claude": self.ANTHROPIC_API_KEY}.get(self.ai_provider))
 
     @property
     def gsheet_enabled(self) -> bool:

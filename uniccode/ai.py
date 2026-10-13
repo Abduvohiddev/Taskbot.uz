@@ -1,9 +1,11 @@
 """
-AI yordamchi (Claude): xatolarni oddiy tilda tushuntiradi va kunlik hisobot yozadi.
-ANTHROPIC_API_KEY bo'lmasa o'chiq - bot va xabarnomalar AI'siz ishlayveradi.
+AI yordamchi: xatolarni oddiy tilda tushuntiradi va kunlik hisobot yozadi.
+Provayder: Google Gemini (GEMINI_API_KEY) yoki Claude (ANTHROPIC_API_KEY). Kalit bo'lmasa o'chiq -
+bot va xabarnomalar AI'siz ishlayveradi.
 """
 import json
 import logging
+import re
 from typing import List, Optional
 
 import anthropic
@@ -23,17 +25,86 @@ SYSTEM = (
 )
 
 
+GEMINI_FALLBACK = "gemini-2.5-flash"
+_SKIP = re.compile(r"preview|exp|lite|image|tts|live|audio|thinking|embedding|vision|learnlm|gemma", re.I)
+
+
+def pick_gemini_model(names: List[str]) -> Optional[str]:
+    """Ro'yxatdan eng yangi barqaror 'flash' modelini tanlaydi (masalan gemini-2.5-flash)."""
+    best = None
+    for full in names:
+        n = full.split("/")[-1]
+        m = re.fullmatch(r"gemini-(\d+(?:\.\d+)?)-flash(?:-\d+)?", n)
+        if m and not _SKIP.search(n):
+            key = (float(m.group(1)), -len(n))
+            if best is None or key > best[0]:
+                best = (key, n)
+    return best[1] if best else None
+
+
 class AI:
-    def __init__(self, cfg: UnicSettings, client: Optional[anthropic.AsyncAnthropic] = None):
+    def __init__(self, cfg: UnicSettings, client=None, provider: Optional[str] = None):
+        """client - testlar uchun (tayyor Anthropic yoki Gemini mijozi)."""
         self.cfg = cfg
+        self.provider = provider or cfg.ai_provider or ("claude" if client is not None else "")
         self.enabled = cfg.ai_enabled or client is not None
-        self.client = client or (anthropic.AsyncAnthropic(api_key=cfg.ANTHROPIC_API_KEY, timeout=120.0)
-                                 if cfg.ai_enabled else None)
+        self.client = client
+        self.model = cfg.UNIC_AI_MODEL if self.provider == "claude" else cfg.GEMINI_MODEL
+        if client is None and self.enabled:
+            if self.provider == "gemini":
+                from google import genai
+                self.client = genai.Client(api_key=cfg.GEMINI_API_KEY)
+            else:
+                self.client = anthropic.AsyncAnthropic(api_key=cfg.ANTHROPIC_API_KEY, timeout=120.0)
+
+    @property
+    def label(self) -> str:
+        return f"{self.provider} ({self.model or 'avtomatik'})" if self.enabled else "o'chiq"
 
     async def ask(self, prompt: str, effort: str = "low", max_tokens: int = 4000) -> Optional[str]:
         """Bitta so'rov. Xato yoki rad etilsa None (chaqiruvchi AI'siz davom etadi)."""
         if not self.enabled:
             return None
+        if self.provider == "gemini":
+            return await self._ask_gemini(prompt, max_tokens)
+        return await self._ask_claude(prompt, effort, max_tokens)
+
+    async def _gemini_model(self) -> str:
+        if not self.model:
+            try:
+                names = [m.name async for m in await self.client.aio.models.list()
+                         if "generateContent" in (m.supported_actions or [])]
+                self.model = pick_gemini_model(names) or GEMINI_FALLBACK
+            except Exception as e:
+                log.warning("AI: Gemini modellar ro'yxati olinmadi (%s), %s ishlatiladi", e, GEMINI_FALLBACK)
+                self.model = GEMINI_FALLBACK
+            log.info("AI: Gemini modeli %s", self.model)
+        return self.model
+
+    async def _ask_gemini(self, prompt: str, max_tokens: int) -> Optional[str]:
+        from google.genai import errors, types
+        try:
+            model = await self._gemini_model()
+            resp = await self.client.aio.models.generate_content(
+                model=model, contents=prompt,
+                config=types.GenerateContentConfig(system_instruction=SYSTEM, max_output_tokens=max_tokens * 2),
+            )
+        except errors.ClientError as e:      # 400 kalit noto'g'ri, 403, 404 model, 429 chegara
+            log.warning("AI (Gemini) xatosi %s: %s", e.code, str(e.message or e)[:300])
+            return None
+        except errors.ServerError as e:
+            log.warning("AI (Gemini) server xatosi %s: %s", e.code, str(e.message or e)[:300])
+            return None
+        except Exception as e:               # tarmoq va h.k.
+            log.warning("AI (Gemini): ulanib bo'lmadi: %s: %s", type(e).__name__, str(e)[:300])
+            return None
+        try:
+            text = (resp.text or "").strip()
+        except ValueError:                   # javob xavfsizlik filtri tomonidan to'silgan
+            return None
+        return text or None
+
+    async def _ask_claude(self, prompt: str, effort: str, max_tokens: int) -> Optional[str]:
         try:
             resp = await self.client.beta.messages.create(
                 model=self.cfg.UNIC_AI_MODEL,

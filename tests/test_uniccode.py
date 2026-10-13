@@ -572,3 +572,38 @@ def test_admin_panel_roles_events_ai_and_dashboard(tmp_path):
     assert {c for c, _ in sent} == {1, 55} and any("Kunlik hisobot — Polik" in t for c, t in sent if c == 55)
     assert calls[0]["model"] == "claude-opus-5-5" and calls[0]["fallbacks"] == "default"
     assert calls[0]["betas"] == ["server-side-fallback-2026-07-01"] and calls[0]["output_config"] == {"effort": "low"}
+
+
+def test_gemini_provider_and_model_pick():
+    from types import SimpleNamespace
+
+    from uniccode.ai import AI, pick_gemini_model
+    from uniccode.config import UnicSettings
+
+    names = ["models/gemini-2.0-flash", "models/gemini-2.5-flash", "models/gemini-2.5-flash-lite",
+             "models/gemini-3.0-flash-preview", "models/gemini-2.5-pro", "models/gemini-2.5-flash-image"]
+    assert pick_gemini_model(names) == "gemini-2.5-flash"
+    assert pick_gemini_model(["models/gemini-pro"]) is None
+
+    cfg = UnicSettings(GEMINI_API_KEY="k")
+    assert cfg.ai_provider == "gemini" and cfg.ai_enabled
+    assert UnicSettings(ANTHROPIC_API_KEY="a").ai_provider == "claude"
+    assert not UnicSettings().ai_enabled
+
+    calls = []
+
+    class Models:
+        async def list(self):
+            async def gen():
+                for n in names:
+                    yield SimpleNamespace(name=n, supported_actions=["generateContent"])
+            return gen()
+
+        async def generate_content(self, model, contents, config):
+            calls.append((model, contents, config.system_instruction[:20]))
+            return SimpleNamespace(text="Gemini: tarmoq uzilgan")
+
+    ai = AI(cfg, client=SimpleNamespace(aio=SimpleNamespace(models=Models())))
+    assert ai.provider == "gemini"
+    assert run(ai.explain_errors([{"xabar": "timeout"}])) == "Gemini: tarmoq uzilgan"
+    assert calls[0][0] == "gemini-2.5-flash" and "timeout" in calls[0][1]

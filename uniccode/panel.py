@@ -254,8 +254,8 @@ class Panel:
         filt = "<div class='tabs'>" + "".join(
             f"<a class='{'on' if level == k else ''}' href='/errors?level={k}'>{n}</a>"
             for k, n in (("", "Hammasi"), ("error", "Xatolar"), ("warning", "Ogohlantirishlar"))) + "</div>"
-        ai_note = "" if self.ai.enabled else ("<p class='muted'>AI o'chiq: serverda ANTHROPIC_API_KEY qo'yilsa, "
-                                              "xatolar avtomatik tushuntiriladi.</p>")
+        ai_note = "" if self.ai.enabled else ("<p class='muted'>AI o'chiq: serverda setup_ai.sh bilan Gemini kaliti "
+                                              "qo'yilsa, xatolar avtomatik tushuntiriladi.</p>")
         body = f"""{filt}{ai_note}<div class='card'><table>
 <tr><th>Daraja</th><th>Manba</th><th>Xabar</th><th>Soni</th><th>Oxirgi marta</th><th></th></tr>
 {''.join(rows) or "<tr><td colspan=6>Xato yo'q 🎉</td></tr>"}</table></div>"""

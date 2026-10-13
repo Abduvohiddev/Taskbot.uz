@@ -78,7 +78,7 @@ async def main() -> None:
         await runner.setup()
         await web.TCPSite(runner, "0.0.0.0", cfg.PANEL_PORT).start()
         log.info("Admin panel: %s (port %s)", cfg.PANEL_URL or "PANEL_URL yo'q", cfg.PANEL_PORT)
-    log.info("AI yordamchi: %s", f"yoqilgan ({cfg.UNIC_AI_MODEL})" if ai.enabled else "o'chiq (ANTHROPIC_API_KEY yo'q)")
+    log.info("AI yordamchi: %s", f"yoqilgan - {ai.label}" if ai.enabled else "o'chiq (GEMINI_API_KEY yo'q)")
     try:
         await dp.start_polling(bot)
     finally:

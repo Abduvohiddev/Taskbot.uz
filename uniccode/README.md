@@ -149,11 +149,12 @@ Rollar:
 | Bo'lim admini (chexol / polik) | Panel | O'z bo'limi dashboardi, o'z bo'limiga foydalanuvchi qo'shish |
 | Foydalanuvchi | Panel (yoki `UNIC_ALLOWED_IDS`) | Botda kod yasash |
 
-AI (Claude, `UNIC_AI_MODEL`, odatda `claude-opus-5-5`) ixtiyoriy: `bash uniccode/deploy/setup_ai.sh` kalitni so'raydi va
-`.env` ga yozadi. Yoqilganda yangi xatolar 1 daqiqa ichida tushuntirish bilan superadminlarga Telegram'da yuboriladi
+AI ixtiyoriy. Odatda Google Gemini: `bash uniccode/deploy/setup_ai.sh` kalitni (aistudio.google.com/apikey) so'raydi,
+tekshiradi va `.env` ga `GEMINI_API_KEY` qilib yozadi; model `GEMINI_MODEL` bo'sh bo'lsa eng yangi barqaror
+"flash" modeli avtomatik tanlanadi. Claude kerak bo'lsa: `setup_ai.sh claude` (`ANTHROPIC_API_KEY`, `UNIC_AI_MODEL`). Yoqilganda yangi xatolar 1 daqiqa ichida tushuntirish bilan superadminlarga Telegram'da yuboriladi
 (5 daqiqada ko'pi bilan bir xabar) va har kuni `UNIC_REPORT_HOUR` da kunlik hisobot keladi: superadminga hammasi,
-bo'lim adminiga o'z bo'limi. Xavfsizlik filtri so'rovni rad etsa, server boshqa modelda qayta urinadi
-(`fallbacks: "default"`). Kalit bo'lmasa, xabarnomalar va hisobot AI'siz (faqat raqamlar bilan) ishlaydi.
+bo'lim adminiga o'z bo'limi. Claude ishlatilganda xavfsizlik filtri so'rovni rad etsa, server boshqa modelda
+qayta urinadi (`fallbacks: "default"`). Kalit bo'lmasa, xabarnomalar va hisobot AI'siz (faqat raqamlar bilan) ishlaydi.
 
 ## Testlar
 
