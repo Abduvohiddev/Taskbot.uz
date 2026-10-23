@@ -69,6 +69,11 @@ class UnicSettings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     UNIC_AI_MODEL: str = "claude-opus-5-5"
     UNIC_REPORT_HOUR: int = 19   # kunlik hisobot soati (UNIC_TZ bo'yicha); -1 = o'chiq
+    GEMINI_TTS_MODEL: str = "gemini-2.5-flash-preview-tts"
+
+    # Ish orasida inglizcha ovozli hazil (kod yasalgandan keyin), foydalanuvchiga N daqiqada ko'pi bilan bitta.
+    UNIC_JOKES: bool = True
+    UNIC_JOKE_COOLDOWN_MIN: int = 30
 
     @property
     def database_url(self) -> str:

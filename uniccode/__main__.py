@@ -14,6 +14,7 @@ from uniccode.bot import build_dispatcher, onec_sync_forever
 from uniccode.config import unic_settings as cfg
 from uniccode.db import init_db, make_engine, make_sessionmaker
 from uniccode.events import DBLogHandler
+from uniccode.jokes import Joker
 from uniccode.notify import Notifier
 from uniccode.panel import Panel
 from uniccode.sheets_sync import SheetSync
@@ -57,7 +58,7 @@ async def main() -> None:
 
     notifier = Notifier(sm, cfg, access, ai, send)
     panel = Panel(sm, cfg, access, ai, notifier) if cfg.PANEL_ENABLED else None
-    dp = build_dispatcher(sm, cfg, sync, access, panel)
+    dp = build_dispatcher(sm, cfg, sync, access, panel, Joker(cfg, ai))
 
     async def assign_missing():
         async with sm() as s:
