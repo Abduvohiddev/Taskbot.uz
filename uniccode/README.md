@@ -156,13 +156,6 @@ tekshiradi va `.env` ga `GEMINI_API_KEY` qilib yozadi; model `GEMINI_MODEL` bo's
 bo'lim adminiga o'z bo'limi. Claude ishlatilganda xavfsizlik filtri so'rovni rad etsa, server boshqa modelda
 qayta urinadi (`fallbacks: "default"`). Kalit bo'lmasa, xabarnomalar va hisobot AI'siz (faqat raqamlar bilan) ishlaydi.
 
-## Inglizcha ovozli hazil
-
-Kod yasalgandan keyin (`/kod`, sklad hisoboti, ro'yxat, `/import`) bot shu ishga oid qisqa inglizcha hazilni
-ovozli xabar qilib yuboradi, matni va o'zbekcha tarjimasi bilan. AI yoqilgan bo'lsa hazil har safar yangi,
-aks holda tayyor ro'yxatdan. Ovoz: gTTS, u ishlamasa Gemini TTS. Har bir foydalanuvchiga 30 daqiqada ko'pi bilan
-bitta (`UNIC_JOKE_COOLDOWN_MIN`); o'chirish: `.env` ga `UNIC_JOKES=false`.
-
 ## Testlar
 
 ```bash

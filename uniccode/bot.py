@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from uniccode import catalog, dept, excel_out, generator, importer, onec, parsers, seriya
 from uniccode.access import Access
-from uniccode.jokes import Joker
 from uniccode.config import UnicSettings
 from uniccode.models import UCCode, UCCounter
 from uniccode.sheets_sync import SheetSync
@@ -89,10 +88,9 @@ CANCEL_BTN = ("✖️ Bekor qilish", "cancel")
 
 
 def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[SheetSync],
-                 access: Optional[Access] = None, panel=None, joker: Optional[Joker] = None) -> Router:
+                 access: Optional[Access] = None, panel=None) -> Router:
     r = Router()
     access = access or Access(sm, cfg)
-    joker = joker or Joker(cfg)
 
     def allowed(uid: int) -> bool:
         return access.allowed(uid)
@@ -137,7 +135,6 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
             lines.append("Google Sheets'ga bir necha soniyada yuklanadi.")
         await message.answer("\n".join(lines))
         await message.answer_document(BufferedInputFile(data, filename=fname))
-        joker.after(message, message.chat.id, source)
 
     @r.message(Command("start", "help"))
     async def start(m: Message, state: FSMContext):
@@ -392,7 +389,6 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
             await message.answer_document(BufferedInputFile(rfid, filename=f"rfid_{stamp}.xls"))
         except ValueError as e:
             await message.answer(f"⚠️ RFID fayl yasalmadi: {e}")
-        joker.after(message, message.chat.id, "seriya")
 
     @r.message(Command("katalog_1c"))
     async def katalog_1c(m: Message, state: FSMContext):
@@ -537,7 +533,6 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
                 if stats.invalid_samples:
                     txt += "\nBuzuq kod misollari: " + ", ".join(stats.invalid_samples[:5])
                 await m.answer(txt)
-                joker.after(m, m.from_user.id, "import")
                 return
             rows = await asyncio.to_thread(parsers.read_rows, path)
             path_copy = None
@@ -690,11 +685,10 @@ def build_fallback_router(cfg: UnicSettings, access: Access) -> Router:
     return r
 
 
-def build_dispatcher(sm, cfg, sync, access: Optional[Access] = None, panel=None,
-                     joker: Optional[Joker] = None) -> Dispatcher:
+def build_dispatcher(sm, cfg, sync, access: Optional[Access] = None, panel=None) -> Dispatcher:
     access = access or Access(sm, cfg)
     dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(build_router(sm, cfg, sync, access, panel, joker))
+    dp.include_router(build_router(sm, cfg, sync, access, panel))
     dp.include_router(build_fallback_router(cfg, access))
 
     @dp.errors()
