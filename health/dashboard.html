@@ -1,0 +1,914 @@
+<title>Sog'lig'im</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column of "signal" cards — summary tiles, then insights, then one chart per body system, then raw table. */
+:root {
+  --bg: #f4f6f4;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #7d7b75;
+  --line: #e1e0d9;
+  --axis: #c3c2b7;
+  --ring: rgba(11,11,11,0.10);
+  --accent: #0f6b5e;
+  --accent-ink: #ffffff;
+  --accent-soft: #dcece8;
+  --s-blue: #2a78d6;
+  --s-aqua: #1baf7a;
+  --s-violet: #6250d6;
+  --s-orange: #eb6834;
+  --s-red: #e34948;
+  --s-yellow: #eda100;
+  --s-gray: #a9a79f;
+  --good: #0ca30c;
+  --good-ink: #006300;
+  --warn: #fab219;
+  --warn-ink: #7a5200;
+  --crit: #d03b3b;
+  --font-display: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e100f; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --line: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --accent: #3fb8a4; --accent-ink: #062520; --accent-soft: #163a34;
+    --s-blue: #3987e5; --s-aqua: #199e70; --s-violet: #9085e9; --s-orange: #d95926;
+    --s-red: #e66767; --s-yellow: #c98500; --s-gray: #6b6a64;
+    --good-ink: #0ca30c; --warn-ink: #fab219;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e100f; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --line: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+  --accent: #3fb8a4; --accent-ink: #062520; --accent-soft: #163a34;
+  --s-blue: #3987e5; --s-aqua: #199e70; --s-violet: #9085e9; --s-orange: #d95926;
+  --s-red: #e66767; --s-yellow: #c98500; --s-gray: #6b6a64;
+  --good-ink: #0ca30c; --warn-ink: #fab219;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: 30px; font-weight: 800; }
+h2 { font-size: 18px; font-weight: 700; }
+h3 { font-size: 15px; font-weight: 700; }
+p { margin: 0; }
+.num { font-variant-numeric: tabular-nums; }
+button, .btn {
+  font: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
+  border-radius: 10px; border: 1px solid var(--ring); background: var(--surface); color: var(--ink);
+  padding: 9px 14px; display: inline-flex; align-items: center; gap: 8px;
+}
+button:hover, .btn:hover { border-color: var(--axis); }
+button:focus-visible, .btn:focus-visible, .seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn-primary:hover { filter: brightness(1.05); border-color: transparent; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.top-l { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.source { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.chip.demo { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn-ink); }
+.chip.real { background: var(--accent-soft); color: var(--accent); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.banner {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  background: var(--surface); border: 1px dashed var(--axis); border-radius: 14px; padding: 14px 16px;
+}
+.banner p { color: var(--ink-2); max-width: 62ch; }
+.banner.drag { border-color: var(--accent); background: var(--accent-soft); }
+.status-msg { font-size: 14px; padding: 10px 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--ring); }
+.status-msg.err { border-color: var(--crit); }
+
+/* range */
+.seg { display: inline-flex; background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg label { position: relative; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: block; padding: 6px 12px; border-radius: 7px; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.seg input:checked + span { background: var(--ink); color: var(--surface); }
+.bar-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.range-note { font-size: 13px; color: var(--muted); }
+
+/* tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile .k { font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.tile .k i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.tile .v { font-family: var(--font-display); font-size: 28px; font-weight: 800; line-height: 1.15; }
+.tile .v small { font-size: 14px; font-weight: 600; color: var(--ink-2); margin-left: 3px; }
+.tile .d { font-size: 13px; color: var(--ink-2); }
+.tile .when { font-size: 12px; color: var(--muted); }
+.meter { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
+.meter b { display: block; height: 100%; background: var(--s-blue); border-radius: 3px; }
+
+/* insights */
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card-h { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+.card-h .sub { font-size: 13px; color: var(--muted); }
+.insights { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.ins { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; padding: 12px; border-radius: 12px; background: var(--bg); align-items: start; align-content: start; }
+.ins .pill { grid-row: span 2; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; margin-top: 2px; }
+.pill.good { color: var(--good-ink); background: color-mix(in srgb, var(--good) 16%, transparent); }
+.pill.warn { color: var(--warn-ink); background: color-mix(in srgb, var(--warn) 22%, transparent); }
+.pill.info { color: var(--ink-2); background: var(--line); }
+.ins b { font-weight: 600; font-size: 14px; }
+.ins p { font-size: 13px; color: var(--ink-2); }
+
+/* charts */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 16px; }
+.chart { position: relative; width: 100%; touch-action: pan-y; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart text { fill: var(--muted); font-size: 11px; font-family: var(--font-body); font-variant-numeric: tabular-nums; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .base { stroke: var(--axis); stroke-width: 1; }
+.chart .goal { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 4 4; }
+.chart .cross { stroke: var(--axis); stroke-width: 1; }
+.chart .empty { fill: var(--muted); font-size: 13px; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5; min-width: 150px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--ring); border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12); padding: 8px 10px; font-size: 12px;
+}
+.tip .t { font-weight: 600; margin-bottom: 4px; }
+.tip .r { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.tip .r span:first-child { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.tip i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.legend .dash { width: 14px; height: 0; border-top: 1px dashed var(--ink-2); border-radius: 0; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--ink-2); }
+.facts b { color: var(--ink); font-weight: 600; }
+
+/* tables */
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child { text-align: left; }
+th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+details > summary { cursor: pointer; font-family: var(--font-display); font-weight: 700; font-size: 16px; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::after { content: "+"; font-size: 20px; color: var(--muted); }
+details[open] > summary::after { content: "−"; }
+
+.guide ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); max-width: 70ch; }
+.guide li b { color: var(--ink); }
+.privacy { font-size: 13px; color: var(--muted); max-width: 75ch; }
+code { font-size: 12px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+@media (max-width: 520px) { h1 { font-size: 25px; } .tile .v { font-size: 24px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="top-l">
+      <span class="eyebrow">Galaxy Fit3 · Samsung Health</span>
+      <h1>Sog'lig'im</h1>
+      <div class="source" id="source"></div>
+    </div>
+    <div class="actions">
+      <label class="btn btn-primary" for="file-in">Ma'lumot yuklash</label>
+      <input id="file-in" type="file" accept=".zip,.csv,text/csv,application/zip" multiple hidden>
+      <button id="btn-demo" type="button" hidden>Namunani ko'rsatish</button>
+      <button id="btn-clear" type="button" hidden>Ma'lumotni o'chirish</button>
+    </div>
+  </header>
+
+  <div class="banner" id="drop">
+    <p id="drop-text"><b>Hozir namuna ma'lumot ko'rsatilmoqda.</b> Samsung Health'dan eksport qilingan ZIP arxivni yoki CSV fayllarni shu yerga tashlang yoki "Ma'lumot yuklash" tugmasini bosing. Qanday eksport qilish pastda yozilgan.</p>
+    <label class="btn" for="file-in">Fayl tanlash</label>
+  </div>
+  <div class="status-msg" id="status" hidden></div>
+
+  <div class="bar-row">
+    <div class="seg" role="radiogroup" aria-label="Davr">
+      <label><input type="radio" name="range" id="r7" value="7"><span>7 kun</span></label>
+      <label><input type="radio" name="range" id="r30" value="30" checked><span>30 kun</span></label>
+      <label><input type="radio" name="range" id="r90" value="90"><span>90 kun</span></label>
+      <label><input type="radio" name="range" id="r365" value="365"><span>1 yil</span></label>
+    </div>
+    <span class="range-note num" id="range-note"></span>
+  </div>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="card">
+    <div class="card-h"><h2>Xulosalar</h2><span class="sub">tanlangan davr bo'yicha</span></div>
+    <div class="insights" id="insights"></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <div class="card-h"><h2>Qadamlar</h2><span class="sub" id="steps-sub"></span></div>
+      <div class="legend"><span><i style="background:var(--s-blue)"></i>Kunlik qadamlar</span><span><i class="dash"></i>Maqsad <span id="goal-label" class="num"></span></span></div>
+      <div class="chart" id="c-steps"></div>
+      <div class="facts" id="steps-facts"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>Uyqu</h2><span class="sub" id="sleep-sub"></span></div>
+      <div class="legend" id="sleep-legend"></div>
+      <div class="chart" id="c-sleep"></div>
+      <div class="facts" id="sleep-facts"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>Dam olishdagi yurak urishi</h2><span class="sub">zarba/daq</span></div>
+      <div class="chart" id="c-hr"></div>
+      <div class="facts" id="hr-facts"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>Qondagi kislorod (SpO2)</h2><span class="sub">%</span></div>
+      <div class="chart" id="c-spo2"></div>
+      <div class="facts" id="spo2-facts"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>Stress</h2><span class="sub">0–100 ball, kunlik o'rtacha</span></div>
+      <div class="chart" id="c-stress"></div>
+      <div class="facts" id="stress-facts"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><h2>Mashg'ulotlar</h2><span class="sub" id="ex-sub"></span></div>
+      <div class="tbl-wrap"><table id="ex-table"></table></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <details id="table-details">
+      <summary>Kunlik jadval</summary>
+      <div class="tbl-wrap" style="margin-top:12px"><table id="day-table"></table></div>
+    </details>
+  </section>
+
+  <section class="card guide">
+    <h2>Samsung Health'dan ma'lumotni qanday olish mumkin</h2>
+    <ol>
+      <li>Telefonda <b>Samsung Health</b> ilovasini oching.</li>
+      <li>Pastdagi <b>Menyu</b> (≡) → <b>Sozlamalar</b> (Settings) ga kiring.</li>
+      <li><b>Shaxsiy ma'lumotlarni yuklab olish</b> (Download personal data) → <b>Yuklab olish</b> ni bosing va Samsung akkauntingizni tasdiqlang.</li>
+      <li>Fayllar telefon xotirasida <code>Download/Samsung Health/</code> papkasiga tushadi.</li>
+      <li><b>Mening fayllarim</b> (My Files) ilovasida o'sha papkani bosib turing → <b>Siqish</b> (Compress) → ZIP hosil bo'ladi.</li>
+      <li>Shu sahifada <b>Ma'lumot yuklash</b> ni bosib, ZIP faylni tanlang. CSV fayllarni bittalab ham tanlash mumkin.</li>
+    </ol>
+    <p class="privacy">Maxfiylik: fayllar faqat shu brauzer ichida o'qiladi va hech qayerga yuborilmaydi. Hisoblangan kunlik ko'rsatkichlar keyingi safar ochganingizda ham ko'rinishi uchun shu qurilmada saqlanadi. "Ma'lumotni o'chirish" tugmasi ularni o'chiradi. Bu sahifa tibbiy tashxis vositasi emas, u faqat trendlarni ko'rsatadi. Sog'lig'ingizdan xavotir bo'lsa, shifokorga murojaat qiling.</p>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+(() => {
+"use strict";
+const STORE_KEY = "sogligim.v1";
+const STEP_GOAL = 8000;
+const MONTHS = ["yan","fev","mar","apr","may","iyn","iyl","avg","sen","okt","noy","dek"];
+const STAGES = [
+  { key: "deep",  label: "Chuqur",  color: "var(--s-blue)" },
+  { key: "light", label: "Yengil",  color: "var(--s-aqua)" },
+  { key: "rem",   label: "REM",     color: "var(--s-violet)" },
+  { key: "awake", label: "Uyg'oq",  color: "var(--s-orange)" },
+];
+const EX_TYPES = { 0: "Boshqa", 1001: "Yurish", 1002: "Yugurish", 11007: "Velosiped", 13001: "Piyoda sayohat", 14001: "Suzish" };
+
+/* ---------- helpers ---------- */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtInt = (n) => n == null || isNaN(n) ? "—" : String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+const fmt1 = (n) => n == null || isNaN(n) ? "—" : (Math.round(n * 10) / 10).toFixed(1).replace(".", ",");
+const fmtHM = (min) => { if (min == null || isNaN(min)) return "—"; const h = Math.floor(min / 60), m = Math.round(min % 60); return h ? `${h} s ${String(m).padStart(2, "0")} daq` : `${m} daq`; };
+const fmtClock = (min) => { if (min == null || isNaN(min)) return "—"; const v = ((Math.round(min) % 1440) + 1440) % 1440; return `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}`; };
+const keyOf = (ms) => new Date(ms).toISOString().slice(0, 10);
+const msOf = (key) => Date.parse(key + "T00:00:00Z");
+const addDays = (key, n) => keyOf(msOf(key) + n * 86400000);
+const fmtDate = (key, withYear) => { const d = new Date(msOf(key)); return `${d.getUTCDate()}-${MONTHS[d.getUTCMonth()]}${withYear ? " " + d.getUTCFullYear() : ""}`; };
+const mean = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+const sd = (a) => { if (a.length < 2) return null; const m = mean(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / (a.length - 1)); };
+const pct = (sorted, p) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))))] : null;
+const num = (v) => { if (v == null || v === "") return null; const n = Number(v); return isFinite(n) ? n : null; };
+
+function store(get, val) {
+  try {
+    if (get) { const s = localStorage.getItem(STORE_KEY); return s ? JSON.parse(s) : null; }
+    if (val == null) localStorage.removeItem(STORE_KEY); else localStorage.setItem(STORE_KEY, JSON.stringify(val));
+  } catch (e) { return null; }
+  return null;
+}
+
+/* ---------- CSV parsing ---------- */
+function parseCSV(text) {
+  const rows = []; let row = [], f = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; }
+      else f += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(f); f = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(f); f = ""; if (row.length > 1 || row[0] !== "") rows.push(row); row = [];
+    } else f += c;
+  }
+  if (f !== "" || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
+// Samsung CSVs start with a metadata line ("com.samsung...,id,version"), then the header.
+function table(text) {
+  const rows = parseCSV(text.replace(/^﻿/, ""));
+  if (!rows.length) return null;
+  let h = 0;
+  if (rows.length > 1 && /^com\.samsung/i.test(rows[0][0]) && rows[0].length <= 4) h = 1;
+  const idx = {};
+  rows[h].forEach((name, i) => { const k = name.trim().split(".").pop().toLowerCase(); if (k && !(k in idx)) idx[k] = i; });
+  return { idx, rows: rows.slice(h + 1), col: (r, ...names) => { for (const n of names) if (n in idx) return r[idx[n]]; return undefined; }, has: (n) => n in idx };
+}
+const DEFAULT_OFFSET = -new Date().getTimezoneOffset();
+function offMin(o) {
+  const m = String(o || "").match(/([+-])(\d{1,2}):?(\d{2})/);
+  if (!m) return DEFAULT_OFFSET;
+  return (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3]));
+}
+// Returns "local wall-clock as UTC" milliseconds.
+function localMs(v, off) {
+  if (v == null) return null;
+  v = String(v).trim(); if (!v) return null;
+  let ms;
+  if (/^\d{10,13}$/.test(v)) { ms = Number(v); if (v.length === 10) ms *= 1000; }
+  else {
+    const m = v.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return null;
+    ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  }
+  return ms + offMin(off) * 60000;
+}
+// A night belongs to the morning it ends on: anything from 18:00 counts toward the next date.
+const nightKey = (lms) => keyOf(lms + 6 * 3600000);
+
+function classify(path) {
+  const n = path.toLowerCase().split("/").pop();
+  if (!n.endsWith(".csv")) return null;
+  if (n.includes("pedometer_day_summary")) return "steps";
+  if (n.includes("step_daily_trend")) return "steps2";
+  if (n.includes("sleep_stage")) return "stage";
+  if (/(shealth|health)\.sleep\.\d+\.csv$/.test(n)) return "sleep";
+  if (/heart_rate\.\d+\.csv$/.test(n) && !n.includes("recovery")) return "hr";
+  if (/oxygen_saturation\.\d+\.csv$/.test(n)) return "spo2";
+  if (/shealth\.stress\.\d+\.csv$/.test(n)) return "stress";
+  if (/shealth\.exercise\.\d+\.csv$/.test(n)) return "exercise";
+  if (/health\.weight\.\d+\.csv$/.test(n)) return "weight";
+  return null;
+}
+
+function buildDataset(files) {
+  const days = {};
+  const day = (k) => days[k] || (days[k] = {});
+  const found = {};
+  const hrByDay = {}, spo2ByDay = {}, stressByDay = {}, sessions = {}, stagesByNight = {};
+  const exercises = [];
+  const byKind = {};
+  files.forEach((f) => { const k = classify(f.name); if (k) (byKind[k] = byKind[k] || []).push(f.text); });
+
+  const stepsKind = byKind.steps ? "steps" : (byKind.steps2 ? "steps2" : null);
+  (byKind[stepsKind] || []).forEach((txt) => {
+    const t = table(txt); if (!t) return;
+    t.rows.forEach((r) => {
+      const dt = t.col(r, "day_time"); const ms = num(dt);
+      if (ms == null) return;
+      if (stepsKind === "steps2") { const st = num(t.col(r, "source_type")); if (st != null && st !== -2) return; }
+      const steps = num(t.col(r, "step_count", "count")); if (steps == null) return;
+      const k = keyOf(ms); const d = day(k);
+      if (d.steps == null || steps > d.steps) {
+        d.steps = steps;
+        const dist = num(t.col(r, "distance")); if (dist != null) d.dist = dist;
+        const kcal = num(t.col(r, "calorie")); if (kcal != null) d.kcal = kcal;
+        const act = num(t.col(r, "active_time")); if (act != null) d.active = act / 60000;
+      }
+      found.steps = (found.steps || 0) + 1;
+    });
+  });
+
+  (byKind.sleep || []).forEach((txt) => {
+    const t = table(txt); if (!t) return;
+    t.rows.forEach((r) => {
+      const off = t.col(r, "time_offset");
+      const s = localMs(t.col(r, "start_time"), off), e = localMs(t.col(r, "end_time"), off);
+      if (s == null || e == null || e <= s || e - s > 20 * 3600000) return;
+      const k = nightKey(s);
+      (sessions[k] = sessions[k] || []).push({ s, e, score: num(t.col(r, "sleep_score")), eff: num(t.col(r, "efficiency")) });
+    });
+  });
+
+  (byKind.stage || []).forEach((txt) => {
+    const t = table(txt); if (!t) return;
+    t.rows.forEach((r) => {
+      const off = t.col(r, "time_offset");
+      const s = localMs(t.col(r, "start_time"), off), e = localMs(t.col(r, "end_time"), off);
+      const code = num(t.col(r, "stage"));
+      if (s == null || e == null || e <= s) return;
+      const key = { 40001: "awake", 40002: "light", 40003: "deep", 40004: "rem" }[code];
+      if (!key) return;
+      const k = nightKey(s); const n = stagesByNight[k] || (stagesByNight[k] = { awake: 0, light: 0, deep: 0, rem: 0 });
+      n[key] += (e - s) / 60000;
+    });
+  });
+
+  Object.entries(sessions).forEach(([k, list]) => {
+    const d = day(k);
+    d.sleep = list.reduce((s, x) => s + (x.e - x.s) / 60000, 0);
+    const main = list.reduce((a, b) => (b.e - b.s > a.e - a.s ? b : a));
+    const mid = msOf(k);
+    d.bed = (main.s - mid) / 60000; d.wake = (main.e - mid) / 60000;
+    if (main.score != null) d.score = main.score;
+    found.sleep = (found.sleep || 0) + 1;
+  });
+  Object.entries(stagesByNight).forEach(([k, st]) => {
+    const d = day(k); Object.assign(d, st);
+    if (d.sleep == null) d.sleep = st.awake + st.light + st.deep + st.rem;
+  });
+
+  const collect = (kind, target, names, lo, hi) => (byKind[kind] || []).forEach((txt) => {
+    const t = table(txt); if (!t) return;
+    t.rows.forEach((r) => {
+      const v = num(t.col(r, ...names)); if (v == null || v < lo || v > hi) return;
+      const s = localMs(t.col(r, "start_time", "create_time"), t.col(r, "time_offset")); if (s == null) return;
+      const k = keyOf(s); (target[k] = target[k] || []).push(v);
+    });
+  });
+  collect("hr", hrByDay, ["heart_rate"], 30, 220);
+  collect("spo2", spo2ByDay, ["spo2", "oxygen_saturation", "value"], 70, 100);
+  collect("stress", stressByDay, ["score"], 0, 100);
+
+  Object.entries(hrByDay).forEach(([k, a]) => {
+    const s = a.slice().sort((x, y) => x - y); const d = day(k);
+    d.hrRest = mean(s.slice(0, Math.max(1, Math.ceil(s.length * 0.1))));
+    d.hrAvg = mean(s); d.hrMax = s[s.length - 1]; found.hr = (found.hr || 0) + 1;
+  });
+  Object.entries(spo2ByDay).forEach(([k, a]) => { day(k).spo2 = mean(a); found.spo2 = (found.spo2 || 0) + 1; });
+  Object.entries(stressByDay).forEach(([k, a]) => { day(k).stress = mean(a); found.stress = (found.stress || 0) + 1; });
+
+  (byKind.weight || []).forEach((txt) => {
+    const t = table(txt); if (!t) return;
+    t.rows.forEach((r) => {
+      const w = num(t.col(r, "weight")); if (w == null || w < 20 || w > 300) return;
+      const s = localMs(t.col(r, "start_time", "create_time"), t.col(r, "time_offset")); if (s == null) return;
+      day(keyOf(s)).weight = w; found.weight = (found.weight || 0) + 1;
+    });
+  });
+
+  (byKind.exercise || []).forEach((txt) => {
+    const t = table(txt); if (!t) return;
+    t.rows.forEach((r) => {
+      const s = localMs(t.col(r, "start_time"), t.col(r, "time_offset")); if (s == null) return;
+      const dur = num(t.col(r, "duration")); const code = num(t.col(r, "exercise_type"));
+      exercises.push({
+        k: keyOf(s), t: (s - msOf(keyOf(s))) / 60000, type: code,
+        dur: dur != null ? dur / 60000 : null,
+        kcal: num(t.col(r, "calorie")), dist: num(t.col(r, "distance")), hr: num(t.col(r, "mean_heart_rate")),
+      });
+    });
+    found.exercise = exercises.length;
+  });
+  exercises.sort((a, b) => (b.k === a.k ? b.t - a.t : b.k.localeCompare(a.k)));
+
+  return { days, exercises: exercises.slice(0, 300), found };
+}
+
+/* ---------- demo data (clearly labelled) ---------- */
+function demoData() {
+  let seed = 20261113;
+  const rnd = () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const gauss = () => (rnd() + rnd() + rnd() - 1.5) / 1.5;
+  const end = keyOf(Date.now() + DEFAULT_OFFSET * 60000 - 86400000);
+  const days = {}, exercises = [];
+  for (let i = 364; i >= 0; i--) {
+    const k = addDays(end, -i); const dow = new Date(msOf(k)).getUTCDay();
+    const weekend = dow === 0 || dow === 6;
+    const sleep = Math.max(280, Math.min(560, (weekend ? 470 : 405) + gauss() * 55));
+    const awake = 18 + rnd() * 25, deep = sleep * (0.13 + rnd() * 0.07), rem = sleep * (0.19 + rnd() * 0.06);
+    const light = Math.max(0, sleep - awake - deep - rem);
+    const bed = (weekend ? -20 : -70) + gauss() * 40;
+    const short = sleep < 360;
+    const steps = Math.max(1200, (weekend ? 6200 : 8900) + gauss() * 3200 - (short ? 1400 : 0));
+    const trend = i < 12 ? 2.5 : 0;
+    days[k] = {
+      steps, dist: steps * 0.74, kcal: steps * 0.045, active: steps / 105,
+      sleep, deep, light, rem, awake, bed, wake: bed + sleep, score: Math.round(60 + (sleep - 360) / 6 + gauss() * 6),
+      hrRest: 60 + gauss() * 2.2 + trend + (short ? 1.5 : 0), hrAvg: 74 + gauss() * 4, hrMax: 128 + gauss() * 22,
+      spo2: Math.min(99.5, 96.4 + gauss() * 1.1), stress: Math.max(5, Math.min(90, 38 + gauss() * 14 + (short ? 8 : 0))),
+    };
+    if (rnd() < 0.38) {
+      const type = [1001, 1002, 1001, 11007, 1002, 14001][Math.floor(rnd() * 6)];
+      const dur = type === 1001 ? 35 + rnd() * 40 : 25 + rnd() * 35;
+      exercises.push({ k, t: 18 * 60 + rnd() * 120, type, dur, kcal: dur * (type === 1001 ? 4.5 : 9), dist: type === 14001 ? 900 + rnd() * 600 : dur * (type === 1002 ? 160 : type === 11007 ? 330 : 90), hr: type === 1001 ? 102 + rnd() * 12 : 138 + rnd() * 18 });
+    }
+  }
+  exercises.reverse();
+  return { days, exercises, found: {}, demo: true, importedAt: null };
+}
+
+/* ---------- charts (hand-drawn SVG, shared hover layer) ---------- */
+const SVGNS = "http://www.w3.org/2000/svg";
+function niceTicks(lo, hi, count) {
+  const span = hi - lo || 1; const raw = span / count; const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= count) || mag * 10;
+  const start = Math.floor(lo / step) * step, end = Math.ceil(hi / step) * step; const out = [];
+  for (let v = start; v <= end + step / 1e6; v += step) out.push(Math.round(v * 1e6) / 1e6);
+  return out;
+}
+const ro = new ResizeObserver((entries) => entries.forEach((e) => { if (e.target._w !== e.target.clientWidth) drawChart(e.target); }));
+function chart(el, opt) { el._opt = opt; if (!el._obs) { ro.observe(el); el._obs = true; } drawChart(el); }
+
+function drawChart(el) {
+  const o = el._opt; if (!o) return;
+  const W = el.clientWidth || 560; el._w = W;
+  const H = o.height || 210; const m = { t: 10, r: 8, b: 26, l: 40 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const keys = o.keys, n = keys.length;
+  const vals = keys.map((k) => o.series.map((s) => s.v(k)));
+  const hasAny = vals.some((r) => r.some((v) => v != null));
+  el.innerHTML = "";
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("height", H);
+  svg.setAttribute("role", "img"); svg.setAttribute("aria-label", o.label);
+  el.appendChild(svg);
+  const add = (tag, attrs, parent) => { const e = document.createElementNS(SVGNS, tag); for (const a in attrs) e.setAttribute(a, attrs[a]); (parent || svg).appendChild(e); return e; };
+  if (!hasAny) { add("text", { x: W / 2, y: H / 2, "text-anchor": "middle", class: "empty" }).textContent = "Bu davrda ma'lumot yo'q"; return; }
+
+  let lo, hi;
+  if (o.type === "bar") {
+    lo = 0; hi = Math.max(o.goal || 0, ...vals.map((r) => o.stacked ? r.reduce((s, v) => s + (v || 0), 0) : Math.max(0, ...r.map((v) => v || 0))));
+    hi *= 1.05;
+  } else {
+    const flat = vals.flat().filter((v) => v != null);
+    lo = Math.min(...flat); hi = Math.max(...flat); const pad = Math.max((hi - lo) * 0.15, o.minPad || 1);
+    lo -= pad; hi += pad; if (o.clamp) { lo = Math.max(o.clamp[0], lo); hi = Math.min(o.clamp[1], hi); }
+  }
+  const ticks = o.step ? Array.from({ length: Math.ceil(hi / o.step) + 1 }, (_, i) => i * o.step) : niceTicks(lo, hi, 4); lo = ticks[0]; hi = ticks[ticks.length - 1];
+  const y = (v) => m.t + ih - ((v - lo) / (hi - lo)) * ih;
+  const band = iw / n; const x = (i) => m.l + band * i + band / 2;
+
+  ticks.forEach((t) => {
+    add("line", { x1: m.l, x2: W - m.r, y1: y(t), y2: y(t), class: t === lo && o.type === "bar" ? "base" : "grid" });
+    add("text", { x: m.l - 6, y: y(t) + 4, "text-anchor": "end" }).textContent = o.tick ? o.tick(t) : fmtInt(t);
+  });
+  const labelEvery = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(iw / 64))));
+  for (let i = n - 1; i >= 0; i -= labelEvery) {
+    add("text", { x: x(i), y: H - 8, "text-anchor": i === n - 1 ? "end" : "middle" }).textContent = fmtDate(keys[i]);
+  }
+
+  if (o.type === "bar") {
+    const bw = Math.max(1.5, Math.min(22, band - 2)); const r = Math.min(4, bw / 2);
+    const g = add("g", {});
+    const bars = [];
+    keys.forEach((k, i) => {
+      let acc = 0; const segs = [];
+      o.series.forEach((s, si) => { const v = vals[i][si]; if (v) segs.push({ v, si, from: acc }); acc += v || 0; });
+      const grp = add("g", {}, g); bars.push(grp);
+      segs.forEach((sg, j) => {
+        const top = j === segs.length - 1; const gap = j > 0 && segs.length > 1 ? 2 : 0;
+        const y0 = y(sg.from) - gap, y1 = y(sg.from + sg.v); const h = Math.max(0, y0 - y1); if (h <= 0) return;
+        const x0 = x(i) - bw / 2;
+        const rr = top ? Math.min(r, h) : 0;
+        const d = `M${x0},${y0} V${y1 + rr} Q${x0},${y1} ${x0 + rr},${y1} H${x0 + bw - rr} Q${x0 + bw},${y1} ${x0 + bw},${y1 + rr} V${y0} Z`;
+        add("path", { d, fill: o.series[sg.si].color }, grp);
+      });
+    });
+    el._bars = bars;
+    if (o.goal) {
+      add("line", { x1: m.l, x2: W - m.r, y1: y(o.goal), y2: y(o.goal), class: "goal" });
+    }
+  } else {
+    o.series.forEach((s, si) => {
+      let d = "", area = "", runStart = null; const pts = [];
+      keys.forEach((k, i) => {
+        const v = vals[i][si];
+        if (v == null) { if (runStart != null) { area += `L${x(i - 1)},${y(lo)} Z`; runStart = null; } return; }
+        const px = x(i), py = y(v); pts.push([px, py]);
+        if (runStart == null) { d += `M${px},${py}`; area += `M${px},${y(lo)} L${px},${py}`; runStart = i; }
+        else { d += ` L${px},${py}`; area += ` L${px},${py}`; }
+      });
+      if (runStart != null) area += ` L${x(n - 1)},${y(lo)} Z`;
+      if (o.area) add("path", { d: area, fill: s.color, "fill-opacity": 0.1, stroke: "none" });
+      add("path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" });
+      if (pts.length) { const [px, py] = pts[pts.length - 1]; add("circle", { cx: px, cy: py, r: 4.5, fill: s.color, stroke: "var(--surface)", "stroke-width": 2 }); }
+      if (pts.length <= 12) pts.slice(0, -1).forEach(([px, py]) => add("circle", { cx: px, cy: py, r: 3, fill: s.color }));
+    });
+  }
+
+  // hover layer
+  const cross = add("line", { y1: m.t, y2: m.t + ih, class: "cross", visibility: "hidden" });
+  const dot = o.type === "line" ? add("circle", { r: 5, fill: o.series[0].color, stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" }) : null;
+  const hit = add("rect", { x: m.l, y: 0, width: iw, height: H, fill: "transparent" });
+  const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; el.appendChild(tip);
+  let last = -1;
+  const show = (ev) => {
+    const rect = svg.getBoundingClientRect(); const px = (ev.clientX - rect.left) * (W / rect.width);
+    const i = Math.max(0, Math.min(n - 1, Math.floor((px - m.l) / band)));
+    if (i !== last) {
+      last = i;
+      if (el._bars) el._bars.forEach((b, j) => b.setAttribute("opacity", j === i ? 1 : 0.45));
+      cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", o.type === "line" ? "visible" : "hidden");
+      if (dot) { const v = vals[i][0]; if (v != null) { dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(v)); dot.setAttribute("visibility", "visible"); } else dot.setAttribute("visibility", "hidden"); }
+      const rows = o.series.map((s, si) => `<div class="r"><span><i style="background:${s.color}"></i>${esc(s.label)}</span><b class="num">${vals[i][si] == null ? "—" : esc(s.fmt(vals[i][si]))}</b></div>`).join("");
+      const extra = o.extra ? o.extra(keys[i]) : "";
+      tip.innerHTML = `<div class="t">${fmtDate(keys[i], true)}</div>${rows}${extra}`;
+    }
+    tip.hidden = false;
+    const tw = tip.offsetWidth, ex = (x(i) / W) * rect.width;
+    let left = ex + 12; if (left + tw > rect.width) left = ex - tw - 12; if (left < 0) left = 0;
+    tip.style.left = left + "px"; tip.style.top = "4px";
+  };
+  const hide = () => { tip.hidden = true; last = -1; cross.setAttribute("visibility", "hidden"); if (dot) dot.setAttribute("visibility", "hidden"); if (el._bars) el._bars.forEach((b) => b.removeAttribute("opacity")); };
+  hit.addEventListener("pointermove", show); hit.addEventListener("pointerdown", show); hit.addEventListener("pointerleave", hide);
+}
+
+/* ---------- state + render ---------- */
+let data = null;
+let range = 30;
+
+function dataKeys() { return Object.keys(data.days).sort(); }
+function rangeKeys() {
+  const all = dataKeys(); if (!all.length) return [];
+  const end = all[all.length - 1]; const out = [];
+  for (let i = range - 1; i >= 0; i--) out.push(addDays(end, -i));
+  return out;
+}
+const D = (k) => data.days[k] || {};
+const values = (keys, f) => keys.map((k) => D(k)[f]).filter((v) => v != null);
+function lastWith(keys, f) { for (let i = keys.length - 1; i >= 0; i--) if (D(keys[i])[f] != null) return keys[i]; return null; }
+
+function renderSource() {
+  const all = dataKeys();
+  const span = all.length ? `${fmtDate(all[0], true)} – ${fmtDate(all[all.length - 1], true)}` : "";
+  $("source").innerHTML = data.demo
+    ? `<span class="chip demo">Namuna ma'lumot</span><span>Bu sizning ko'rsatkichlaringiz emas</span>`
+    : `<span class="chip real">Samsung Health</span><span class="num">${esc(span)}</span>`;
+  $("drop").hidden = !data.demo;
+  $("btn-demo").hidden = data.demo;
+  $("btn-clear").hidden = data.demo;
+}
+
+function delta(cur, avg, unit, invert) {
+  if (cur == null || avg == null || !avg) return "";
+  const p = ((cur - avg) / avg) * 100; if (Math.abs(p) < 1) return `davr o'rtachasi darajasida`;
+  return `davr o'rtachasidan ${p > 0 ? "+" : "−"}${Math.abs(Math.round(p))}%`;
+}
+
+function renderTiles(keys) {
+  const tiles = [];
+  const ks = lastWith(keys, "steps");
+  if (ks) {
+    const v = D(ks).steps; const avg = mean(values(keys, "steps"));
+    tiles.push(`<div class="tile"><span class="k"><i style="background:var(--s-blue)"></i>Qadamlar</span><span class="v num">${fmtInt(v)}</span>
+      <div class="meter" aria-hidden="true"><b style="width:${Math.min(100, (v / STEP_GOAL) * 100)}%"></b></div>
+      <span class="d">${Math.round((v / STEP_GOAL) * 100)}% maqsad · ${delta(v, avg)}</span><span class="when">${fmtDate(ks, true)}</span></div>`);
+  }
+  const kn = lastWith(keys, "sleep");
+  if (kn) {
+    const n = D(kn);
+    tiles.push(`<div class="tile"><span class="k"><i style="background:var(--s-violet)"></i>Uyqu</span><span class="v num">${Math.floor(n.sleep / 60)}<small>s</small> ${String(Math.round(n.sleep % 60)).padStart(2, "0")}<small>daq</small></span>
+      <span class="d">${n.bed != null ? `${fmtClock(n.bed)} → ${fmtClock(n.wake)}` : ""}${n.score != null ? ` · ball ${Math.round(n.score)}` : ""}</span><span class="when">${fmtDate(kn, true)} tongi</span></div>`);
+  }
+  const kh = lastWith(keys, "hrRest");
+  if (kh) {
+    const v = D(kh).hrRest; const avg = mean(values(keys, "hrRest"));
+    tiles.push(`<div class="tile"><span class="k"><i style="background:var(--s-red)"></i>Dam olishdagi puls</span><span class="v num">${Math.round(v)}<small>zarba/daq</small></span>
+      <span class="d">${delta(v, avg)}</span><span class="when">${fmtDate(kh, true)}</span></div>`);
+  }
+  const ko = lastWith(keys, "spo2");
+  if (ko) {
+    const avg = mean(values(keys, "spo2"));
+    tiles.push(`<div class="tile"><span class="k"><i style="background:var(--s-aqua)"></i>SpO2</span><span class="v num">${Math.round(D(ko).spo2)}<small>%</small></span>
+      <span class="d">davr o'rtachasi ${fmt1(avg)}%</span><span class="when">${fmtDate(ko, true)}</span></div>`);
+  }
+  const kst = lastWith(keys, "stress");
+  if (kst) {
+    const v = D(kst).stress;
+    tiles.push(`<div class="tile"><span class="k"><i style="background:var(--s-orange)"></i>Stress</span><span class="v num">${Math.round(v)}<small>/100</small></span>
+      <span class="d">${v < 35 ? "past" : v < 60 ? "o'rtacha" : "yuqori"} · ${delta(v, mean(values(keys, "stress")))}</span><span class="when">${fmtDate(kst, true)}</span></div>`);
+  }
+  const kw = lastWith(dataKeys(), "weight");
+  if (kw) tiles.push(`<div class="tile"><span class="k"><i style="background:var(--s-gray)"></i>Vazn</span><span class="v num">${fmt1(D(kw).weight)}<small>kg</small></span><span class="d">oxirgi o'lchov</span><span class="when">${fmtDate(kw, true)}</span></div>`);
+  $("tiles").innerHTML = tiles.join("") || `<div class="tile"><span class="d">Bu davrda ma'lumot yo'q.</span></div>`;
+}
+
+function renderInsights(keys) {
+  const out = [];
+  const push = (kind, title, text) => out.push({ kind, title, text });
+  const label = { good: "yaxshi", warn: "e'tibor", info: "kuzatuv" };
+
+  const steps = values(keys, "steps");
+  if (steps.length >= 3) {
+    const hit = steps.filter((s) => s >= STEP_GOAL).length; let streak = 0, best = 0;
+    keys.forEach((k) => { if ((D(k).steps || 0) >= STEP_GOAL) { streak++; best = Math.max(best, streak); } else streak = 0; });
+    const avg = mean(steps);
+    push(avg >= STEP_GOAL ? "good" : "warn", `Kuniga o'rtacha ${fmtInt(avg)} qadam`,
+      `${steps.length} kundan ${hit} kunida ${fmtInt(STEP_GOAL)} qadamlik maqsadga yetgansiz. Eng uzun ketma-ket seriya: ${best} kun${streak ? `, hozirgi seriya ${streak} kun` : ""}.`);
+  }
+  const sl = values(keys, "sleep");
+  if (sl.length >= 3) {
+    const avg = mean(sl); const under = sl.filter((v) => v < 420).length;
+    push(avg >= 420 ? "good" : "warn", `O'rtacha uyqu ${fmtHM(avg)}`,
+      `Kattalar uchun tavsiya 7–9 soat. ${sl.length} kechadan ${under} tasida 7 soatdan kam uxlagansiz.`);
+    const beds = values(keys, "bed"); const s = sd(beds);
+    if (s != null && beds.length >= 5) push(s <= 45 ? "good" : "warn", `Uxlash vaqti ±${Math.round(s)} daqiqa o'zgaradi`,
+      `O'rtacha uxlash vaqti ${fmtClock(mean(beds))}, turish vaqti ${fmtClock(mean(values(keys, "wake")))}. Har kuni bir xil vaqtda yotish uyqu sifatini oshiradi.`);
+  }
+  const shortSteps = [], goodSteps = [];
+  keys.forEach((k) => { const d = D(k); if (d.sleep == null || d.steps == null) return; if (d.sleep < 360) shortSteps.push(d.steps); else if (d.sleep >= 420) goodSteps.push(d.steps); });
+  if (shortSteps.length >= 3 && goodSteps.length >= 3) {
+    const a = mean(shortSteps), b = mean(goodSteps); const diff = Math.round(((b - a) / b) * 100);
+    if (Math.abs(diff) >= 5) push("info", diff > 0 ? `Kam uxlagan kunlari ${diff}% kam yurasiz` : `Kam uxlagan kunlari ${-diff}% ko'proq yurasiz`,
+      `6 soatdan kam uxlagan ${shortSteps.length} kunda o'rtacha ${fmtInt(a)} qadam, 7 soatdan ko'p uxlagan ${goodSteps.length} kunda esa ${fmtInt(b)} qadam.`);
+  }
+  const all = dataKeys(); const endIdx = all.length;
+  if (endIdx) {
+    const end = all[endIdx - 1]; const last7 = [], prev = [];
+    for (let i = 0; i < 7; i++) { const v = D(addDays(end, -i)).hrRest; if (v != null) last7.push(v); }
+    for (let i = 7; i < 35; i++) { const v = D(addDays(end, -i)).hrRest; if (v != null) prev.push(v); }
+    if (last7.length >= 4 && prev.length >= 10) {
+      const d = mean(last7) - mean(prev);
+      if (d >= 2) push("warn", `Dam olishdagi puls +${fmt1(d)} zarba/daq oshgan`, `Oxirgi 7 kunda o'rtacha ${Math.round(mean(last7))}, undan oldingi 4 haftada ${Math.round(mean(prev))}. Bu charchoq, kam uyqu, stress yoki boshlanayotgan shamollash belgisi bo'lishi mumkin. Dam oling va kuzatib boring.`);
+      else if (d <= -2) push("good", `Dam olishdagi puls ${fmt1(-d)} zarba/daq pasaygan`, `Oxirgi 7 kunda o'rtacha ${Math.round(mean(last7))}, undan oldingi 4 haftada ${Math.round(mean(prev))}. Odatda bu chidamlilik yaxshilanayotganini bildiradi.`);
+      else push("good", `Dam olishdagi puls barqaror`, `Oxirgi 7 kunlik o'rtacha (${Math.round(mean(last7))} zarba/daq) oldingi 4 hafta bilan deyarli bir xil.`);
+    }
+  }
+  const sp = values(keys, "spo2");
+  if (sp.length >= 3) {
+    const avg = mean(sp); const low = sp.filter((v) => v < 92).length;
+    if (avg < 94 || low >= 3) push("warn", `SpO2 o'rtachasi ${fmt1(avg)}%`, `${low} kunda 92% dan past bo'lgan. Bilaguzuk o'lchovlari aniq emas, lekin bu takrorlansa shifokorga ko'rsating.`);
+    else push("good", `SpO2 me'yorda: o'rtacha ${fmt1(avg)}%`, `Sog'lom odamda odatda 95–100% bo'ladi.`);
+  }
+  const st = values(keys, "stress");
+  if (st.length >= 5) {
+    const hi = st.filter((v) => v >= 60).length;
+    if (hi) push(hi > st.length / 4 ? "warn" : "info", `${hi} kunda stress yuqori bo'lgan`, `Davr bo'yicha o'rtacha stress ${Math.round(mean(st))}/100. Yuqori kunlar ko'pincha kam uyqudan keyin keladi.`);
+  }
+  $("insights").innerHTML = out.length
+    ? out.map((i) => `<div class="ins"><span class="pill ${i.kind}">${label[i.kind]}</span><b>${esc(i.title)}</b><p>${esc(i.text)}</p></div>`).join("")
+    : `<p class="range-note">Xulosa chiqarish uchun bu davrda ma'lumot yetarli emas. Uzunroq davrni tanlang.</p>`;
+}
+
+function renderCharts(keys) {
+  const stepAvg = mean(values(keys, "steps"));
+  $("goal-label").textContent = fmtInt(STEP_GOAL);
+  $("steps-sub").textContent = stepAvg != null ? `o'rtacha ${fmtInt(stepAvg)} / kun` : "";
+  chart($("c-steps"), {
+    type: "bar", keys, goal: STEP_GOAL, label: "Kunlik qadamlar",
+    series: [{ label: "Qadamlar", color: "var(--s-blue)", v: (k) => D(k).steps ?? null, fmt: fmtInt }],
+    tick: (t) => t >= 1000 ? `${t / 1000}k` : String(t),
+    extra: (k) => { const d = D(k); return d.dist != null ? `<div class="r"><span>Masofa</span><b class="num">${fmt1(d.dist / 1000)} km</b></div>` : ""; },
+  });
+  const dist = values(keys, "dist"), kcal = values(keys, "kcal");
+  $("steps-facts").innerHTML = [
+    dist.length ? `Jami masofa <b class="num">${fmtInt(dist.reduce((a, b) => a + b, 0) / 1000)} km</b>` : "",
+    kcal.length ? `Faollik kaloriyasi <b class="num">${fmtInt(mean(kcal))} kkal/kun</b>` : "",
+    values(keys, "steps").length ? `Eng ko'p <b class="num">${fmtInt(Math.max(...values(keys, "steps")))}</b>` : "",
+  ].filter(Boolean).join("");
+
+  const hasStages = keys.some((k) => D(k).deep != null);
+  const sleepSeries = hasStages
+    ? STAGES.map((s) => ({ label: s.label, color: s.color, v: (k) => D(k)[s.key] ?? null, fmt: fmtHM }))
+    : [];
+  if (keys.some((k) => D(k).sleep != null && D(k).deep == null)) sleepSeries.push({ label: hasStages ? "Bosqichsiz" : "Uyqu", color: hasStages ? "var(--s-gray)" : "var(--s-violet)", v: (k) => D(k).deep == null ? (D(k).sleep ?? null) : null, fmt: fmtHM });
+  $("sleep-legend").innerHTML = sleepSeries.length > 1 ? sleepSeries.map((s) => `<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join("") : "";
+  const slAvg = mean(values(keys, "sleep"));
+  $("sleep-sub").textContent = slAvg != null ? `o'rtacha ${fmtHM(slAvg)}` : "";
+  chart($("c-sleep"), {
+    type: "bar", stacked: true, keys, goal: 420, step: 120, label: "Kechalik uyqu",
+    series: sleepSeries.length ? sleepSeries : [{ label: "Uyqu", color: "var(--s-violet)", v: () => null, fmt: fmtHM }],
+    tick: (t) => `${Math.round(t / 60)} s`,
+    extra: (k) => { const d = D(k); return d.sleep != null ? `<div class="r"><span>Jami</span><b class="num">${fmtHM(d.sleep)}</b></div>${d.bed != null ? `<div class="r"><span>Yotish → turish</span><b class="num">${fmtClock(d.bed)}–${fmtClock(d.wake)}</b></div>` : ""}` : ""; },
+  });
+  const deepShare = mean(keys.map((k) => D(k)).filter((d) => d.deep != null && d.sleep).map((d) => d.deep / d.sleep * 100));
+  const remShare = mean(keys.map((k) => D(k)).filter((d) => d.rem != null && d.sleep).map((d) => d.rem / d.sleep * 100));
+  $("sleep-facts").innerHTML = [
+    `<span>Chiziq: 7 soat</span>`,
+    deepShare != null ? `Chuqur uyqu <b class="num">${Math.round(deepShare)}%</b>` : "",
+    remShare != null ? `REM <b class="num">${Math.round(remShare)}%</b>` : "",
+    values(keys, "bed").length ? `O'rtacha yotish <b class="num">${fmtClock(mean(values(keys, "bed")))}</b>` : "",
+  ].filter(Boolean).join("");
+
+  chart($("c-hr"), {
+    type: "line", area: true, keys, label: "Dam olishdagi yurak urishi", minPad: 3,
+    series: [{ label: "Dam olishdagi", color: "var(--s-red)", v: (k) => D(k).hrRest ?? null, fmt: (v) => `${Math.round(v)} zarba/daq` }],
+    extra: (k) => { const d = D(k); return d.hrAvg != null ? `<div class="r"><span>Kunlik o'rtacha</span><b class="num">${Math.round(d.hrAvg)}</b></div><div class="r"><span>Eng yuqori</span><b class="num">${Math.round(d.hrMax)}</b></div>` : ""; },
+  });
+  const hr = values(keys, "hrRest");
+  $("hr-facts").innerHTML = hr.length ? `O'rtacha <b class="num">${Math.round(mean(hr))}</b><span>Eng past <b class="num">${Math.round(Math.min(...hr))}</b></span><span>Eng yuqori <b class="num">${Math.round(Math.max(...hr))}</b></span><span>Kunning eng past 10% o'lchovlaridan hisoblangan</span>` : "";
+
+  chart($("c-spo2"), {
+    type: "line", area: true, keys, label: "SpO2", minPad: 1, clamp: [80, 100],
+    series: [{ label: "SpO2", color: "var(--s-aqua)", v: (k) => D(k).spo2 ?? null, fmt: (v) => `${fmt1(v)}%` }],
+    tick: (t) => `${t}%`,
+  });
+  const sp = values(keys, "spo2");
+  $("spo2-facts").innerHTML = sp.length ? `O'rtacha <b class="num">${fmt1(mean(sp))}%</b><span>Eng past <b class="num">${fmt1(Math.min(...sp))}%</b></span><span>Me'yor: 95–100%</span>` : "";
+
+  chart($("c-stress"), {
+    type: "line", area: true, keys, label: "Stress", minPad: 5, clamp: [0, 100],
+    series: [{ label: "Stress", color: "var(--s-orange)", v: (k) => D(k).stress ?? null, fmt: (v) => `${Math.round(v)}/100` }],
+  });
+  const st = values(keys, "stress");
+  $("stress-facts").innerHTML = st.length ? `O'rtacha <b class="num">${Math.round(mean(st))}</b><span>Yuqori (60+) kunlar <b class="num">${st.filter((v) => v >= 60).length}</b></span>` : "";
+}
+
+function renderExercises(keys) {
+  const set = new Set(keys);
+  const list = data.exercises.filter((e) => set.has(e.k));
+  const totalMin = list.reduce((s, e) => s + (e.dur || 0), 0);
+  $("ex-sub").textContent = list.length ? `${list.length} ta · jami ${fmtHM(totalMin)}` : "";
+  $("ex-table").innerHTML = list.length
+    ? `<thead><tr><th>Sana</th><th>Turi</th><th>Davomiyligi</th><th>Masofa</th><th>Kkal</th><th>Puls</th></tr></thead><tbody>` +
+      list.slice(0, 12).map((e) => `<tr><td>${fmtDate(e.k)} ${fmtClock(e.t)}</td><td>${esc(EX_TYPES[e.type] || `Mashg'ulot #${e.type ?? "?"}`)}</td><td>${e.dur != null ? fmtHM(e.dur) : "—"}</td><td>${e.dist ? fmt1(e.dist / 1000) + " km" : "—"}</td><td>${fmtInt(e.kcal)}</td><td>${e.hr ? Math.round(e.hr) : "—"}</td></tr>`).join("") + `</tbody>`
+    : `<tbody><tr><td style="text-align:left;color:var(--muted)">Bu davrda mashg'ulot yozilmagan.</td></tr></tbody>`;
+}
+
+function renderDayTable(keys) {
+  if (!$("table-details").open) return;
+  const rows = keys.slice().reverse().filter((k) => Object.keys(D(k)).length);
+  $("day-table").innerHTML = `<thead><tr><th>Sana</th><th>Qadam</th><th>Uyqu</th><th>Chuqur</th><th>REM</th><th>Puls (dam)</th><th>SpO2</th><th>Stress</th></tr></thead><tbody>` +
+    rows.map((k) => { const d = D(k); return `<tr><td>${fmtDate(k, true)}</td><td>${fmtInt(d.steps)}</td><td>${d.sleep != null ? fmtHM(d.sleep) : "—"}</td><td>${d.deep != null ? fmtHM(d.deep) : "—"}</td><td>${d.rem != null ? fmtHM(d.rem) : "—"}</td><td>${d.hrRest != null ? Math.round(d.hrRest) : "—"}</td><td>${d.spo2 != null ? fmt1(d.spo2) + "%" : "—"}</td><td>${d.stress != null ? Math.round(d.stress) : "—"}</td></tr>`; }).join("") + `</tbody>`;
+}
+
+function render() {
+  renderSource();
+  const keys = rangeKeys();
+  $("range-note").textContent = keys.length ? `${fmtDate(keys[0], true)} – ${fmtDate(keys[keys.length - 1], true)}` : "";
+  renderTiles(keys); renderInsights(keys); renderCharts(keys); renderExercises(keys); renderDayTable(keys);
+}
+
+/* ---------- import ---------- */
+function status(msg, err) { const s = $("status"); s.hidden = !msg; s.className = "status-msg" + (err ? " err" : ""); s.textContent = msg || ""; }
+
+async function importFiles(fileList) {
+  const files = Array.from(fileList || []); if (!files.length) return;
+  status("Fayllar o'qilmoqda…");
+  try {
+    const texts = [];
+    for (const f of files) {
+      if (/\.zip$/i.test(f.name) || f.type === "application/zip") {
+        if (!window.JSZip) throw new Error("ZIP o'quvchi yuklanmadi. Internetni tekshiring yoki CSV fayllarni bittalab tanlang.");
+        const zip = await JSZip.loadAsync(f);
+        const entries = Object.values(zip.files).filter((z) => !z.dir && classify(z.name));
+        for (const z of entries) texts.push({ name: z.name, text: await z.async("string") });
+      } else if (classify(f.name)) {
+        texts.push({ name: f.name, text: await f.text() });
+      }
+    }
+    if (!texts.length) { status("Tanish fayl topilmadi. Samsung Health eksportidagi com.samsung.shealth...csv fayllarni yoki ularning ZIP arxivini tanlang.", true); return; }
+    status(`${texts.length} ta fayl tahlil qilinmoqda…`);
+    await new Promise((r) => setTimeout(r, 20));
+    const ds = buildDataset(texts);
+    if (!Object.keys(ds.days).length) { status("Fayllar o'qildi, lekin ichida kunlik ma'lumot topilmadi.", true); return; }
+    ds.importedAt = Date.now(); data = ds; store(false, ds);
+    const f = ds.found; const parts = [];
+    if (f.steps) parts.push(`qadamlar`); if (f.sleep) parts.push(`${f.sleep} kecha uyqu`); if (f.hr) parts.push(`${f.hr} kun puls`);
+    if (f.spo2) parts.push(`${f.spo2} kun SpO2`); if (f.stress) parts.push(`${f.stress} kun stress`); if (f.exercise) parts.push(`${f.exercise} ta mashg'ulot`);
+    status(`Tayyor: ${parts.join(", ")}.`);
+    render();
+  } catch (e) {
+    status("Faylni o'qib bo'lmadi: " + (e && e.message ? e.message : e), true);
+  }
+}
+
+$("file-in").addEventListener("change", (e) => { importFiles(e.target.files); e.target.value = ""; });
+const drop = $("drop");
+["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("drag"); }));
+["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("drag"); }));
+drop.addEventListener("drop", (e) => importFiles(e.dataTransfer.files));
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", (e) => { e.preventDefault(); if (e.target.closest && !e.target.closest("#drop")) importFiles(e.dataTransfer.files); });
+
+$("btn-demo").addEventListener("click", () => { data = demoData(); status(""); render(); });
+let clearArmed = false;
+$("btn-clear").addEventListener("click", (e) => {
+  if (!clearArmed) { clearArmed = true; e.currentTarget.textContent = "Tasdiqlang: o'chirish"; setTimeout(() => { clearArmed = false; $("btn-clear").textContent = "Ma'lumotni o'chirish"; }, 4000); return; }
+  clearArmed = false; e.currentTarget.textContent = "Ma'lumotni o'chirish";
+  store(false, null); data = demoData(); status("Saqlangan ma'lumot o'chirildi."); render();
+});
+document.querySelectorAll('input[name="range"]').forEach((r) => r.addEventListener("change", (e) => { range = Number(e.target.value); render(); }));
+$("table-details").addEventListener("toggle", () => renderDayTable(rangeKeys()));
+
+window.__sogligim = { buildDataset, table, localMs, classify };
+data = store(true) || demoData();
+render();
+})();
+</script>
