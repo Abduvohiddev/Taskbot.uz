@@ -9,6 +9,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -35,6 +36,7 @@ HELP = (
     "<b>844088 5</b> (slesh'siz) — tez: savolsiz 5 ta kod, Датабаза formatida. "
     "Izoh bilan: <code>844088 5 T535</code>\n"
     "<b>/oxirgi 844088</b> — artikulning oxirgi kodlari\n"
+    "<b>/fayl 271</b> — 271-to'plam fayllarini qayta olish (yangi kod yasamaydi)\n"
     "<b>/holat</b> — baza va Google Sheets holati\n\n"
     "<b>Excel fayl yuboring:</b>\n"
     "• 1C sklad hisoboti (Движения товаров) — qaysi qatorlar kerakligini so'rayman\n"
@@ -101,6 +103,41 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
     r.message.filter(lambda m: m.from_user and allowed(m.from_user.id))
     r.callback_query.filter(lambda c: c.from_user and allowed(c.from_user.id))
 
+    async def batch_files(res, source: str, title: str = ""):
+        """To'plam fayllari [(bytes, nomi)] va ogohlantirishlar. Seriya: seria .xlsx + RFID .xls, qolgani: Excel."""
+        stamp = f"{res.created_at:%d-%m-%Y}_{res.batch_id}"
+        if source != "seriya":
+            data = await asyncio.to_thread(excel_out.build_excel, res, title)
+            return [(data, f"Unik_kodlar_{stamp}.xlsx")], []
+        files, warns = [(await asyncio.to_thread(excel_out.build_seria, res, cfg.UNIC_SERIA_I), f"seria_{stamp}.xlsx")], []
+        try:
+            files.append((await asyncio.to_thread(excel_out.build_rfid_xls, res), f"rfid_{stamp}.xls"))
+        except ValueError as e:
+            warns.append(f"⚠️ RFID fayl yasalmadi: {e}")
+        return files, warns
+
+    async def send_files(message: Message, res, files, warns=()):
+        """Fayllarni yuboradi; Telegram bilan aloqa uzilsa qayta urinadi. Kodlar bazada, shuning uchun
+        yuborilmasa yangi kod yasatmaymiz - /fayl bilan qayta olishni aytamiz."""
+        for data, name in files:
+            for attempt in range(3):
+                try:
+                    await message.answer_document(BufferedInputFile(data, filename=name))
+                    break
+                except TelegramRetryAfter as e:
+                    await asyncio.sleep(e.retry_after)
+                except TelegramNetworkError as e:
+                    log.warning("Fayl yuborilmadi (%s), %d-urinish: %s", name, attempt + 1, e)
+                    await asyncio.sleep(3 * (attempt + 1))
+            else:
+                log.error("To'plam #%s fayli Telegram'ga yuborilmadi: %s", res.batch_id, name)
+                await message.answer(
+                    f"⚠️ {res.total} ta kod bazaga saqlandi (to'plam #{res.batch_id}), lekin faylni Telegram'ga "
+                    f"yuborib bo'lmadi.\nQaytadan kod yasamang! Fayllarni olish: /fayl {res.batch_id}")
+                return
+        for w in warns:
+            await message.answer(w)
+
     async def run_generate(message: Message, items, source: str, filename=None, note=None, title=""):
         total = sum(i.qty for i in items)
         if total == 0:
@@ -121,9 +158,8 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         except ValueError as e:
             await message.answer(f"❌ {e}")
             return
-        data = await asyncio.to_thread(excel_out.build_excel, res, title)
-        fname = f"Unik_kodlar_{res.created_at:%d-%m-%Y}_{res.batch_id}.xlsx"
-        lines = [f"✅ {res.total} ta kod yasaldi ({len(res.items)} qator)."]
+        files, warns = await batch_files(res, source, title)
+        lines = [f"✅ {res.total} ta kod yasaldi ({len(res.items)} qator), to'plam #{res.batch_id}."]
         if res.total <= 20:
             lines += [c for ir in res.items for c in ir.codes]
         else:
@@ -134,7 +170,7 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         if sync:
             lines.append("Google Sheets'ga bir necha soniyada yuklanadi.")
         await message.answer("\n".join(lines))
-        await message.answer_document(BufferedInputFile(data, filename=fname))
+        await send_files(message, res, files, warns)
 
     @r.message(Command("start", "help"))
     async def start(m: Message, state: FSMContext):
@@ -372,9 +408,8 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
         except ValueError as e:
             await message.answer(f"❌ {e}")
             return
-        seria = await asyncio.to_thread(excel_out.build_seria, res, cfg.UNIC_SERIA_I)
-        stamp = f"{res.created_at:%d-%m-%Y}_{res.batch_id}"
-        lines = [f"✅ {res.total} ta kod yasaldi."]
+        files, warns = await batch_files(res, "seriya")
+        lines = [f"✅ {res.total} ta kod yasaldi, to'plam #{res.batch_id}."]
         for ir in res.items:
             lines.append(f"{ir.item.article} ×{len(ir.codes)} ({excel_out.umumiy_nomi(ir.item.series, ir.item.machine)}): "
                          f"{ir.codes[0]} … {ir.codes[-1]}")
@@ -383,12 +418,24 @@ def build_router(sm: async_sessionmaker, cfg: UnicSettings, sync: Optional[Sheet
             lines.append("\n⚠️ Katalogda yo'q, nomeklatura bo'sh qoldi: " + ", ".join(nameless) +
                          "\nKatalog faylini /katalog orqali yuboring.")
         await message.answer("\n".join(lines[:30]))
-        await message.answer_document(BufferedInputFile(seria, filename=f"seria_{stamp}.xlsx"))
-        try:
-            rfid = await asyncio.to_thread(excel_out.build_rfid_xls, res)
-            await message.answer_document(BufferedInputFile(rfid, filename=f"rfid_{stamp}.xls"))
-        except ValueError as e:
-            await message.answer(f"⚠️ RFID fayl yasalmadi: {e}")
+        await send_files(message, res, files, warns)
+
+    @r.message(Command("fayl"))
+    async def fayl(m: Message, command: CommandObject):
+        arg = (command.args or "").strip().lstrip("#")
+        if not arg.isdigit():
+            await m.answer("Masalan: <code>/fayl 271</code> — to'plam raqami fayl nomining oxirida turadi "
+                           "(rfid_20-11-2026_<b>271</b>.xls).")
+            return
+        async with sm() as session:
+            got = await generator.load_batch(session, int(arg), cfg.UNIC_TZ)
+        if got is None or (got[0].user_id != m.chat.id and not is_admin(m.from_user.id)):
+            await m.answer(f"#{arg} to'plam topilmadi.")
+            return
+        batch, res = got
+        files, warns = await batch_files(res, batch.source, f"To'plam #{batch.id} (qayta yuborildi)")
+        await m.answer(f"To'plam #{batch.id}: {res.total} ta kod, {res.created_at:%d.%m.%Y %H:%M}. Yangi kod yasalmadi.")
+        await send_files(m, res, files, warns)
 
     @r.message(Command("katalog_1c"))
     async def katalog_1c(m: Message, state: FSMContext):

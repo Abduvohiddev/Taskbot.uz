@@ -52,6 +52,30 @@ def test_generate_sequential_and_new_article(tmp_path):
     assert r2.items[0].codes == ["844088CA031010000005"]
 
 
+def test_load_batch_rebuilds_files(tmp_path):
+    from uniccode import excel_out
+
+    def cells(data):
+        return [[c.value for c in r] for r in openpyxl.load_workbook(__import__("io").BytesIO(data)).active.iter_rows()]
+
+    async def go():
+        engine, sm = await _sm(tmp_path)
+        items = [Item("899385", 3, name="C-BYD Champion", series="T549", machine="BYD", note="T549"),
+                 Item("844088", 2, name="Cardinar", series="T535", machine="COB", note="T535")]
+        async with sm() as s:
+            res = await generator.generate(s, items, source="seriya", now=NOW)
+        async with sm() as s:
+            batch, again = await generator.load_batch(s, res.batch_id, "Asia/Tashkent")
+            missing = await generator.load_batch(s, res.batch_id + 1)
+        await engine.dispose()
+        return res, batch, again, missing
+    res, batch, again, missing = run(go())
+    assert missing is None and batch.source == "seriya" and again.total == 5
+    assert [ir.codes for ir in again.items] == [ir.codes for ir in res.items]
+    assert cells(excel_out.build_seria(again, 2)) == cells(excel_out.build_seria(res, 2))
+    assert excel_out.build_rfid_xls(again) == excel_out.build_rfid_xls(res)
+
+
 def test_rejects_bad_article(tmp_path):
     async def go():
         engine, sm = await _sm(tmp_path)

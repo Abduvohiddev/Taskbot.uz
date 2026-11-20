@@ -159,6 +159,31 @@ async def generate(
     return BatchResult(batch_id=batch.id, created_at=now, items=results)
 
 
+async def load_batch(session: AsyncSession, batch_id: int, tz: str = "Asia/Tashkent"):
+    """Saqlangan to'plamni bazadan qayta tiklaydi (fayllarni qayta yuborish uchun): (UCBatch, BatchResult) yoki None."""
+    batch = await session.get(UCBatch, batch_id)
+    if batch is None:
+        return None
+    codes = (await session.execute(
+        select(UCCode).where(UCCode.batch_id == batch_id).order_by(UCCode.id)
+    )).scalars().all()
+    if not codes:
+        return None
+    results: List[ItemResult] = []
+    prev = None
+    for c in codes:
+        key = (c.article, c.name, c.series, c.machine, c.address, c.note)
+        if prev != key or results[-1].last_seq + 1 != c.seq:
+            results.append(ItemResult(item=Item(article=c.article, qty=0, address=c.address, name=c.name,
+                                                series=c.series, note=c.note, machine=c.machine), first_seq=c.seq))
+            prev = key
+        r = results[-1]
+        r.codes.append(c.code)
+        r.last_seq = c.seq
+        r.item.qty += 1
+    return batch, BatchResult(batch_id=batch.id, created_at=to_local(codes[0].created_at, tz), items=results)
+
+
 async def last_codes(session: AsyncSession, article: str, limit: int = 5):
     article = normalize_article(article)
     counter = await session.get(UCCounter, article)
